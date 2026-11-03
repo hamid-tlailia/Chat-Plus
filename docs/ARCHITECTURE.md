@@ -130,6 +130,73 @@ Tink-style streaming AEAD:
 
 ---
 
+## 3b. Accounts, invitations, E2EE and calls (v0.2)
+
+### Supabase schema (`supabase/migrations/`)
+| Table | Purpose | RLS |
+|---|---|---|
+| `profiles` | username (unique, citext), display name, avatar path, **E2EE public key** | visible only to self, contacts and invitation partners; search via `search_profiles()` RPC |
+| `invitations` | pending / accepted / rejected / cancelled | parties only; state changes only through RPCs |
+| `contacts` | created **only** by accepting an invitation (both directions) | owner only |
+| `inbox` | opaque E2EE envelopes | insert **only to accepted, non-blocked contacts**; recipient reads + deletes |
+| `storage: avatars` | profile photos | signed-in read, owner write |
+| `storage: blobs` | media ciphertext (vault format) | owner write; contacts read; sender deletes after delivery receipt |
+| `realtime.messages` | private topic `u:<uid>` | only the owner listens; only contacts send |
+
+RPCs: `username_available`, `search_profiles`, `send_invite` (auto-accepts if they already invited you),
+`respond_invite`, `cancel_invite`, `remove_contact`, `set_blocked`. Helper predicates live in a non-exposed
+`private` schema so they can't be probed through the API.
+
+### Accounts on the device (`account/`)
+- Sign-up with **profile photo** (center-cropped 512 px), username (live availability check), display name.
+- **Saved accounts**: every account used on the phone appears as a card (photo + name).
+  - *Remember me* ON → refresh session stored encrypted → **one tap enters**.
+  - *Remember me* OFF / expired → tap asks **only for the password** (email pre-filled).
+  - Long-press → **Remove from this device** (crypto-shreds that account's keys, chats and media).
+- Sign-out dialog lets the user keep or drop the saved session.
+- Each account is fully isolated: own directory, own Keystore key namespace (`NamespacedKeyWrapper`), own E2EE identity.
+- The Supabase library is configured with an in-memory session store — tokens never touch plain SharedPreferences.
+
+### End-to-end encryption (`core/crypto/E2EE.kt`)
+P-256 identity key per account (private half encrypted on-device). Every envelope:
+`k = HKDF(ECDH(ephemeral, R) ‖ ECDH(sender, R))` → AES-256-GCM. Fresh ephemeral key per message; the static-static
+term authenticates the sender (a forged sender fails decryption — unit-tested). Keys are pinned on first use; a
+changed key shows a **security notice** and a 60-digit **safety number** to compare.
+Honest limit: no double-ratchet yet, so compromise of a recipient's long-term key exposes past envelopes it still has;
+MLS/Signal ratchet remains on the roadmap.
+
+### Local protection (summary)
+- Chats/media: AES-256-GCM, per-chat keys, per-file keys, key rotation + Keystore KEK destruction on delete.
+- Account index, sessions, identity key, pinned keys, cached avatars: `SecureFile` (AES-GCM, hardware key, filename-bound AAD).
+- Keys prefer **StrongBox** (dedicated secure chip) and fall back to the TEE.
+- No cloud backup / device-transfer extraction; optional **block screenshots** (FLAG_SECURE) in Settings.
+
+### Calls (`call/`)
+- Signalling (offer/answer/ICE/ringing/end) is E2EE over the callee's private Realtime topic.
+- ICE: STUN + **Cloudflare TURN** credentials from the `turn-credentials` Edge Function (6 h TTL).
+- **Resilience:** continual ICE gathering; automatic ICE restart on `DISCONNECTED` (after 1.5 s) / `FAILED`
+  (immediately) and on every **network handover** (Wi-Fi ⇄ mobile); UI shows *Reconnecting…*; gives up after 30 s.
+- **Network status:** live chip with network type (Wi-Fi / Mobile / No internet), 3-bar quality and RTT from
+  RTCStats every 2 s; *Weak connection* when poor. On a poor link video steps down (300 kbps, ½ resolution, 15 fps)
+  and recovers after 10 s of good link — audio stays clean.
+- Audio: hardware AEC/NS, earpiece/speaker/Bluetooth routing, proximity screen-off, ringtone/vibration, ringback.
+- Foreground service + CallStyle notification (answer/decline, ongoing with hang-up).
+- Call history entries are written into the chat (E2EE-mirrored to the other side).
+
+### Enabling TURN (one-time, ~3 minutes)
+1. Cloudflare Dashboard → **Calls** → **TURN Keys** → *Create*. Copy the **Key ID** and **API token**.
+2. Supabase Dashboard → project **zura** → Edge Functions → **Secrets** → add
+   `CF_TURN_KEY_ID` and `CF_TURN_API_TOKEN`.
+Until then calls use STUN only (works on most networks; strict carrier NATs may fail).
+
+### Known limits (v0.2)
+- Incoming calls/messages ring only while the app is open or recently backgrounded (≤30 s); background wake-up
+  needs **FCM** (Firebase project) — next step.
+- The UI has been rendered and reviewed via JVM screenshots; it still needs a pass on physical phones,
+  especially calls across real networks.
+- Supabase **Confirm email** is on by default: after sign-up the user confirms via email, then logs in (handled in
+  the app). Turn it off in Auth settings for instant sign-up if preferred.
+
 ## 4. Roadmap
 
 | Phase | Weeks | Deliverables |

@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 enum class MsgStatus { PENDING, SENT, DELIVERED, READ, FAILED }
 
 @Serializable
-enum class MsgKind { TEXT, IMAGE, VIDEO, VOICE, FILE }
+enum class MsgKind { TEXT, IMAGE, VIDEO, VOICE, FILE, CALL }
 
 /**
  * Pointer to an encrypted file inside a chat's media vault.
@@ -63,4 +63,8 @@ data class ChatMeta(
     val unread: Int = 0,
     val pinned: Boolean = false,
     val avatarHue: Float = 0f,
+    /** Storage path of the contact's avatar (avatars bucket). */
+    val avatarPath: String? = null,
+    /** The contact's E2EE identity key changed since it was first seen — shown as a security notice. */
+    val keyChanged: Boolean = false,
 )

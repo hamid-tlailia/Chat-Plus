@@ -1,0 +1,123 @@
+package app.zura.net
+
+import app.zura.BuildConfig
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.MemoryCodeVerifierCache
+import io.github.jan.supabase.auth.MemorySessionManager
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.realtime.Realtime
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
+import java.io.InputStream
+import java.util.concurrent.TimeUnit
+
+/**
+ * Thin wrapper around the Supabase project. Auth sessions are NOT persisted by the library —
+ * [app.zura.account.AccountManager] stores them itself, encrypted, per account.
+ */
+class Backend {
+    val url = BuildConfig.SUPABASE_URL
+    private val key = BuildConfig.SUPABASE_KEY
+
+    val client: SupabaseClient = createSupabaseClient(url, key) {
+        install(Auth) {
+            // Never let the library persist tokens (it would use plain SharedPreferences).
+            // AccountManager stores sessions itself, encrypted with hardware-backed keys.
+            sessionManager = MemorySessionManager()
+            codeVerifierCache = MemoryCodeVerifierCache()
+            autoLoadFromStorage = false
+            autoSaveToStorage = false
+            alwaysAutoRefresh = true
+            enableLifecycleCallbacks = false
+        }
+        install(Postgrest)
+        install(Realtime)
+    }
+
+    val http: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
+    val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+
+    private fun token(): String = client.auth.currentAccessTokenOrNull() ?: error("not signed in")
+
+    private fun authed(path: String) = Request.Builder().url("$url$path")
+        .header("apikey", key)
+        .header("Authorization", "Bearer ${token()}")
+
+    // ---------------------------------------------------------------- storage (streaming, no buffering)
+
+    suspend fun upload(bucket: String, path: String, file: File, mime: String = "application/octet-stream") = withContext(Dispatchers.IO) {
+        val req = authed("/storage/v1/object/$bucket/$path").header("x-upsert", "true")
+            .post(file.asRequestBody(mime.toMediaType())).build()
+        http.newCall(req).execute().use { check(it.isSuccessful) { "upload ${it.code}: ${it.body?.string()}" } }
+    }
+
+    suspend fun upload(bucket: String, path: String, bytes: ByteArray, mime: String) = withContext(Dispatchers.IO) {
+        val req = authed("/storage/v1/object/$bucket/$path").header("x-upsert", "true")
+            .post(bytes.toRequestBody(mime.toMediaType())).build()
+        http.newCall(req).execute().use { check(it.isSuccessful) { "upload ${it.code}: ${it.body?.string()}" } }
+    }
+
+    suspend fun <T> download(bucket: String, path: String, sink: (InputStream) -> T): T = withContext(Dispatchers.IO) {
+        http.newCall(authed("/storage/v1/object/authenticated/$bucket/$path").get().build()).execute().use { r ->
+            check(r.isSuccessful) { "download ${r.code}" }
+            sink(r.body!!.byteStream())
+        }
+    }
+
+    suspend fun delete(bucket: String, path: String) = withContext(Dispatchers.IO) {
+        runCatching { http.newCall(authed("/storage/v1/object/$bucket/$path").delete().build()).execute().close() }
+    }
+
+    // ---------------------------------------------------------------- realtime broadcast (send-only, REST)
+
+    /**
+     * Sends an ephemeral event to another user's private topic "u:<uid>". The database policy on
+     * realtime.messages only lets accepted contacts write there; only the owner can listen.
+     * REST keeps us from having to *join* the peer's channel (which RLS forbids, by design).
+     */
+    suspend fun broadcast(toUser: String, event: String, payload: JsonObject) = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("messages", buildJsonArray {
+                add(buildJsonObject {
+                    put("topic", "u:$toUser")
+                    put("event", event)
+                    put("payload", payload)
+                    put("private", true)
+                })
+            })
+        }
+        val req = authed("/realtime/v1/api/broadcast")
+            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+        http.newCall(req).execute().use { it.isSuccessful }
+    }
+
+    // ---------------------------------------------------------------- edge functions
+
+    suspend fun function(name: String, body: JsonObject = JsonObject(emptyMap())): JsonElement = withContext(Dispatchers.IO) {
+        val req = authed("/functions/v1/$name").post(body.toString().toRequestBody("application/json".toMediaType())).build()
+        http.newCall(req).execute().use { r ->
+            check(r.isSuccessful) { "function $name ${r.code}" }
+            json.parseToJsonElement(r.body!!.string())
+        }
+    }
+}

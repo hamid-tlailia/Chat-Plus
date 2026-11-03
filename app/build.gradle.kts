@@ -15,9 +15,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        // Relay endpoint — override per flavor / CI. Server is a stateless store-and-forward relay.
-        buildConfigField("String", "RELAY_URL", "\"wss://relay.zura.app/v1/ws\"")
-        buildConfigField("String", "BLOB_URL", "\"https://relay.zura.app/v1/blob\"")
+        // Supabase project "zura". The publishable key is designed to ship in clients:
+        // every table is protected by Row Level Security, the key alone grants nothing.
+        buildConfigField("String", "SUPABASE_URL", "\"https://vsilugnplrtguvwlmzjc.supabase.co\"")
+        buildConfigField("String", "SUPABASE_KEY", "\"sb_publishable_0gbWNjqx9KQG719r0By2YQ_KTzn6mpB\"")
         // Ship only the two supported locales: strips every AndroidX translation from the APK.
         resourceConfigurations += listOf("en", "ar")
     }
@@ -25,6 +26,17 @@ android {
     // Only ship the two locales we support: trims every AndroidX/Material translation from the APK.
     androidResources {
         generateLocaleConfig = true
+    }
+
+    // One APK per CPU architecture: a phone downloads only its own WebRTC native library
+    // (the Play Store does the same automatically from the .aab).
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
     }
 
     buildTypes {
@@ -92,6 +104,12 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    implementation(platform(libs.supabase.bom))
+    implementation(libs.supabase.auth)
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.realtime)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.webrtc)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.transformer)
     implementation(libs.media3.effect)

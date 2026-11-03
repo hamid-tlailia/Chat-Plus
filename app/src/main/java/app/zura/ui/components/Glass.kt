@@ -1,6 +1,9 @@
 package app.zura.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.platform.LocalContext
+import app.zura.account.rememberAvatar
+import app.zura.graph
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -58,6 +61,7 @@ fun Avatar(
     size: Dp = 52.dp,
     ring: Boolean = false,
     ringSeen: Boolean = false,
+    image: androidx.compose.ui.graphics.ImageBitmap? = null,
     content: (@Composable BoxScope.() -> Unit)? = null,
 ) {
     val c = Zura.colors
@@ -84,6 +88,9 @@ fun Avatar(
             contentAlignment = Alignment.Center,
         ) {
             if (content != null) content()
+            else if (image != null) androidx.compose.foundation.Image(
+                image, null, Modifier.size(inner), contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
             else Text(
                 name.trim().firstOrNull()?.uppercase() ?: "•",
                 color = Color.White,
@@ -92,4 +99,12 @@ fun Avatar(
             )
         }
     }
+}
+
+/** Avatar for a Zura user/contact: remote photo (encrypted cache) with monogram fallback. */
+@Composable
+fun UserAvatar(name: String, hue: Float, path: String?, size: Dp = 52.dp, ring: Boolean = false, ringSeen: Boolean = false) {
+    val g = LocalContext.current.graph
+    val img = rememberAvatar(g.avatars, path).value
+    Avatar(name, hue, size, ring, ringSeen, image = img)
 }

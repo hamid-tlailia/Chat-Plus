@@ -11,7 +11,9 @@ import androidx.lifecycle.viewModelScope
 import app.zura.AppGraph
 import app.zura.core.model.Message
 import app.zura.core.model.MsgKind
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -29,8 +31,20 @@ sealed interface ChatItem {
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
-    val me = g.settings.userId
+    val me = g.s.uid
+
+    /** The other participant of a 1:1 chat (null for the notes chat). */
+    val peerId: String? get() = meta.value?.peerIds?.singleOrNull()
+    val peerOnline = g.chats.meta(chatId).flatMapLatest { m ->
+        m?.peerIds?.singleOrNull()?.let { g.chats.peerOnline(it) } ?: kotlinx.coroutines.flow.flowOf(false)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val online = g.s.transport.online
+
+    fun call(video: Boolean) { peerId?.let { g.s.calls.startCall(it, video) } }
+    fun clearKeyChanged() = viewModelScope.launch { g.chats.clearKeyChanged(chatId) }
+    fun safetyNumber(): String? = peerId?.let { g.s.contacts.safetyNumber(it, g.s.identity.keyPair.public) }
 
     val meta = g.chats.meta(chatId).stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val peerTyping = g.chats.peerTyping(chatId).stateIn(viewModelScope, SharingStarted.Eagerly, false)

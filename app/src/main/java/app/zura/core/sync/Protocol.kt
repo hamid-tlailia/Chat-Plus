@@ -63,6 +63,32 @@ sealed interface Frame {
 
     @Serializable @SerialName("ping")
     data object Ping : Frame
+
+    // ───────────── calls (ephemeral, E2EE over the peer's private realtime topic)
+
+    @Serializable @SerialName("call_offer")
+    data class CallOffer(val callId: String, val from: String, val video: Boolean, val sdp: String, val restart: Boolean = false) : Frame
+
+    @Serializable @SerialName("call_answer")
+    data class CallAnswer(val callId: String, val from: String, val sdp: String) : Frame
+
+    @Serializable @SerialName("call_ice")
+    data class CallIce(val callId: String, val from: String, val mid: String, val index: Int, val candidate: String) : Frame
+
+    /** Callee's phone is ringing (so the caller can show "Ringing…" instead of "Calling…"). */
+    @Serializable @SerialName("call_ringing")
+    data class CallRinging(val callId: String, val from: String) : Frame
+
+    /** Callee's network changed — asks the caller (who owns the offer) to restart ICE now. */
+    @Serializable @SerialName("call_restart")
+    data class CallRestartRequest(val callId: String, val from: String) : Frame
+
+    /** reason: hangup | declined | busy | timeout | failed */
+    @Serializable @SerialName("call_end")
+    data class CallEnd(val callId: String, val from: String, val reason: String) : Frame
+
+    @Serializable @SerialName("call_media")
+    data class CallMedia(val callId: String, val from: String, val videoOn: Boolean, val muted: Boolean) : Frame
 }
 
 val WireJson = Json {

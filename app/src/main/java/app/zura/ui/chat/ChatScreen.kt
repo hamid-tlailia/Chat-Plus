@@ -39,6 +39,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -126,26 +130,81 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
         }
 
         // Glass header
-        Row(
-            Modifier.fillMaxWidth().glass(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp), solid = 0.88f).padding(top = top).height(64.dp).padding(end = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Zura.colors.text) }
-            Avatar(meta?.title ?: "", meta?.avatarHue ?: 0f, 40.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(meta?.title ?: "", style = Zura.type.headline, color = Zura.colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                AnimatedContent(
-                    typing,
-                    transitionSpec = { (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut()) },
-                    label = "typing",
-                ) { t ->
-                    if (t) TypingLabel() else Text(
-                        if (meta?.peerIds.isNullOrEmpty()) stringResource(R.string.about_privacy).substringBefore('.') else "",
-                        style = Zura.type.caption, color = Zura.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        val peerOnline by vm.peerOnline.collectAsStateWithLifecycle()
+        val callVoice = rememberCallPermissions(false) { ok -> if (ok) vm.call(false) }
+        val callVideo = rememberCallPermissions(true) { ok -> if (ok) vm.call(true) }
+        var showSafety by remember { mutableStateOf(false) }
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().glass(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp), solid = 0.88f).padding(top = top).height(64.dp).padding(end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Zura.colors.text) }
+                Box(Modifier.clickable(enabled = vm.peerId != null) { showSafety = true }) {
+                    app.zura.ui.components.UserAvatar(meta?.title ?: "", meta?.avatarHue ?: 0f, meta?.avatarPath, 40.dp)
+                    if (peerOnline) Box(
+                        Modifier.align(Alignment.BottomEnd).size(12.dp).clip(CircleShape).background(Zura.colors.bg).padding(2.dp)
+                            .clip(CircleShape).background(androidx.compose.ui.graphics.Color(0xFF2EBD6B)),
                     )
                 }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f).clickable(enabled = vm.peerId != null) { showSafety = true }) {
+                    Text(meta?.title ?: "", style = Zura.type.headline, color = Zura.colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    AnimatedContent(
+                        typing,
+                        transitionSpec = { (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut()) },
+                        label = "typing",
+                    ) { t ->
+                        if (t) TypingLabel() else Text(
+                            when {
+                                meta?.peerIds.isNullOrEmpty() -> stringResource(R.string.about_privacy).substringBefore('.')
+                                peerOnline -> stringResource(R.string.online_now)
+                                else -> "🔒 " + stringResource(R.string.e2ee_short)
+                            },
+                            style = Zura.type.caption, color = if (peerOnline) Zura.colors.accent else Zura.colors.textMuted,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (vm.peerId != null) {
+                    IconButton(onClick = { haptics.tick(); callVideo(ctx) }) { Icon(app.zura.ui.ZuraIcons.VideoCam, stringResource(R.string.video_call), tint = Zura.colors.text) }
+                    IconButton(onClick = { haptics.tick(); callVoice(ctx) }) { Icon(Icons.Default.Call, stringResource(R.string.voice_call), tint = Zura.colors.text) }
+                }
             }
+            // Security notice: the contact's identity key changed (new phone / reinstall — or an attack).
+            if (meta?.keyChanged == true) {
+                Row(
+                    Modifier.padding(12.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Zura.colors.surfaceHigh)
+                        .clickable { showSafety = true }.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(app.zura.ui.ZuraIcons.Shield, null, tint = androidx.compose.ui.graphics.Color(0xFFFFC857), modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(stringResource(R.string.key_changed, meta?.title.orEmpty()), style = Zura.type.label, color = Zura.colors.text)
+                }
+            }
+        }
+
+        if (showSafety) {
+            val number = remember { vm.safetyNumber() }
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showSafety = false; vm.clearKeyChanged() },
+                containerColor = Zura.colors.surfaceHigh,
+                icon = { Icon(app.zura.ui.ZuraIcons.Shield, null, tint = Zura.colors.accent) },
+                title = { Text(stringResource(R.string.safety_number), color = Zura.colors.text) },
+                text = {
+                    Column {
+                        Text(
+                            number?.chunked(18)?.joinToString("\n") ?: "—",
+                            style = Zura.type.headline.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, textDirection = androidx.compose.ui.text.style.TextDirection.Ltr),
+                            color = Zura.colors.text,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(stringResource(R.string.verify_hint, meta?.title.orEmpty()), style = Zura.type.label, color = Zura.colors.textMuted)
+                    }
+                },
+                confirmButton = { androidx.compose.material3.TextButton(onClick = { showSafety = false; vm.clearKeyChanged() }) { Text("OK", color = Zura.colors.accent) } },
+            )
         }
 
         vm.focused?.let { m ->

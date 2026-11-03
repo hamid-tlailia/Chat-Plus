@@ -1,5 +1,6 @@
 package app.zura.core.crypto
 
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.security.KeyStore
@@ -32,18 +33,28 @@ class AndroidKeystoreWrapper : KeyWrapper {
     private val ks: KeyStore by lazy { KeyStore.getInstance(PROVIDER).apply { load(null) } }
 
     private fun kek(alias: String): SecretKey =
-        (ks.getKey(alias, null) as? SecretKey) ?: KeyGenerator
-            .getInstance(KeyProperties.KEY_ALGORITHM_AES, PROVIDER)
-            .apply {
-                init(
-                    KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                        .setKeySize(256)
-                        .build(),
-                )
-            }
-            .generateKey()
+        (ks.getKey(alias, null) as? SecretKey) ?: generate(alias, strongBox = Build.VERSION.SDK_INT >= 28)
+
+    /**
+     * Prefer StrongBox (a dedicated tamper-resistant secure chip, e.g. Titan M) and fall back to
+     * the TEE when the device has none. Either way the key material never exists in app memory.
+     */
+    private fun generate(alias: String, strongBox: Boolean): SecretKey = try {
+        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, PROVIDER).apply {
+            init(
+                KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setKeySize(256)
+                    .setRandomizedEncryptionRequired(true)
+                    .apply { if (strongBox && Build.VERSION.SDK_INT >= 28) setIsStrongBoxBacked(true) }
+                    .build(),
+            )
+        }.generateKey()
+    } catch (e: Exception) {
+        if (strongBox && Build.VERSION.SDK_INT >= 28 && e is android.security.keystore.StrongBoxUnavailableException) generate(alias, false)
+        else throw e
+    }
 
     override fun wrap(alias: String, plain: ByteArray): ByteArray {
         val c = Cipher.getInstance(Crypto.GCM)
@@ -65,6 +76,18 @@ class AndroidKeystoreWrapper : KeyWrapper {
     override fun aliases(): List<String> = ks.aliases().toList()
 
     private companion object { const val PROVIDER = "AndroidKeyStore" }
+}
+
+/**
+ * Scopes every alias to one account ("a<uid8>_zc_chat_3"), so several accounts on one device never
+ * share or clobber each other's keys, and removing an account destroys exactly its keys.
+ */
+class NamespacedKeyWrapper(private val base: KeyWrapper, private val prefix: String) : KeyWrapper {
+    override fun wrap(alias: String, plain: ByteArray) = base.wrap(prefix + alias, plain)
+    override fun unwrap(alias: String, wrapped: ByteArray) = base.unwrap(prefix + alias, wrapped)
+    override fun destroy(alias: String) = base.destroy(prefix + alias)
+    override fun aliases(): List<String> = base.aliases().filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
+    fun destroyAll() = base.aliases().filter { it.startsWith(prefix) }.forEach(base::destroy)
 }
 
 /** In-memory KEKs for JVM unit tests. */

@@ -29,7 +29,16 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.view.WindowManager
+import androidx.compose.runtime.key
+import androidx.lifecycle.lifecycleScope
+import app.zura.account.AccountSession
+import app.zura.account.AuthState
 import app.zura.i18n.LocaleEngine
+import app.zura.ui.auth.AuthScreen
+import app.zura.ui.call.CallScreen
+import app.zura.ui.contacts.PeopleScreen
+import kotlinx.coroutines.launch
 import app.zura.share.DirectShare
 import app.zura.ui.chat.ChatScreen
 import app.zura.ui.chats.ChatListScreen
@@ -48,6 +57,7 @@ sealed interface Route {
     data object Settings : Route
     data class Moments(val startOwner: String) : Route
     data class Media(val chatId: String, val messageId: String) : Route
+    data object People : Route
 }
 
 /** 30-line back stack instead of navigation-compose: no reflection, no serialization, ~0 KB. */
@@ -75,19 +85,42 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         deepLink.value = intent.getStringExtra(EXTRA_CHAT)
 
+        // Optional: block screenshots / screen recording and blank the app in "recents".
+        lifecycleScope.launch {
+            g.settings.secureScreen.collect { on ->
+                if (on) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+
         setContent {
             val theme by g.settings.theme.collectAsStateWithLifecycle()
+            val auth by g.accounts.state.collectAsStateWithLifecycle()
             ZuraTheme(theme) {
-                val nav = remember { Navigator(Route.Chats) }
-                val link by deepLink.collectAsStateWithLifecycle()
-                LaunchedEffect(link) { link?.let { nav.reset(Route.Chats, Route.Chat(it)); deepLink.value = null } }
-                LaunchedEffect(Unit) {
-                    g.chats.ensureNotesChat(getString(R.string.app_name))
-                    g.chats.chats.debounce(2_000).collect { DirectShare.publish(this@MainActivity, it) }
+                Box(Modifier.fillMaxSize().zuraBackground()) {
+                    when (val a = auth) {
+                        AuthState.Loading -> Unit
+                        AuthState.SignedOut -> AuthScreen()
+                        is AuthState.SignedIn -> key(a.session.uid) { SignedIn(a.session) }
+                    }
                 }
-                BackHandler(enabled = nav.stack.size > 1) { nav.pop() }
-                Box(Modifier.fillMaxSize().zuraBackground()) { NavHost(nav) }
             }
+        }
+    }
+
+    @Composable
+    private fun SignedIn(session: AccountSession) {
+        val nav = remember { Navigator(Route.Chats) }
+        val link by deepLink.collectAsStateWithLifecycle()
+        LaunchedEffect(link) { link?.let { nav.reset(Route.Chats, Route.Chat(it)); deepLink.value = null } }
+        LaunchedEffect(session) {
+            session.chats.chats.debounce(2_000).collect { DirectShare.publish(this@MainActivity, it) }
+        }
+        val call by session.calls.ui.collectAsStateWithLifecycle()
+        BackHandler(enabled = nav.stack.size > 1 && call.phase == app.zura.call.CallPhase.IDLE) { nav.pop() }
+        Box(Modifier.fillMaxSize()) {
+            NavHost(nav)
+            // The call UI sits above everything, so navigation state is untouched by calls.
+            CallScreen(session.calls)
         }
     }
 
@@ -126,7 +159,9 @@ private fun NavHost(nav: Navigator) {
                 onOpen = { nav.push(Route.Chat(it)) },
                 onSettings = { nav.push(Route.Settings) },
                 onMoments = { nav.push(Route.Moments(it)) },
+                onPeople = { nav.push(Route.People) },
             )
+            Route.People -> PeopleScreen(onBack = { nav.pop() }, onOpenChat = { nav.pop(); nav.push(Route.Chat(it)) })
             is Route.Chat -> ChatScreen(route.id, onBack = { nav.pop() }, onOpenMedia = { nav.push(Route.Media(route.id, it)) })
             Route.Settings -> SettingsScreen(onBack = { nav.pop() })
             is Route.Moments -> MomentViewer(route.startOwner, onClose = { nav.pop() })

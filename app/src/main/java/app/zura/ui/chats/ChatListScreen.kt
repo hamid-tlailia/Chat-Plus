@@ -71,7 +71,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: (String) -> Unit) {
+fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: (String) -> Unit, onPeople: () -> Unit = {}) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val chats by g.chats.chats.collectAsStateWithLifecycle()
@@ -82,7 +82,9 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
     val haptics = rememberHaptics()
     val list = rememberLazyListState()
     var confirmDelete by remember { mutableStateOf<ChatMeta?>(null) }
-    var creating by remember { mutableStateOf(false) }
+    val invites by g.s.contacts.invites.collectAsStateWithLifecycle()
+    val incomingInvites = invites.count { it.incoming }
+    val online by g.s.transport.online.collectAsStateWithLifecycle()
 
     val pickMoment = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -139,6 +141,14 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
                 stringResource(R.string.app_name), style = Zura.type.headline, color = Zura.colors.text,
                 modifier = Modifier.padding(start = 12.dp).weight(1f),
             )
+            if (!online) Text(stringResource(R.string.offline_banner), style = Zura.type.caption, color = Zura.colors.textMuted, modifier = Modifier.padding(end = 6.dp))
+            Box {
+                IconButton(onClick = onPeople) { Icon(app.zura.ui.ZuraIcons.People, stringResource(R.string.contacts), tint = Zura.colors.text) }
+                if (incomingInvites > 0) Box(
+                    Modifier.align(Alignment.TopEnd).padding(6.dp).size(18.dp).clip(CircleShape).background(Zura.colors.danger),
+                    contentAlignment = Alignment.Center,
+                ) { Text(fmt.count(incomingInvites), style = Zura.type.caption, color = androidx.compose.ui.graphics.Color.White) }
+            }
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, stringResource(R.string.settings), tint = Zura.colors.text) }
         }
 
@@ -150,7 +160,7 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
         ) {
             Box(
                 Modifier.size(58.dp).pressScale(fab).clip(CircleShape).background(Zura.colors.accent)
-                    .combinedClickable(fab, null, onClick = { haptics.tick(); creating = true }),
+                    .combinedClickable(fab, null, onClick = { haptics.tick(); onPeople() }),
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Default.Add, null, tint = Zura.colors.onAccent) }
         }
@@ -172,10 +182,6 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
         )
     }
 
-    if (creating) NewChatDialog(onDismiss = { creating = false }) { name, peer ->
-        creating = false
-        scope.launch { onOpen(g.chats.createChat(name, listOf(peer))) }
-    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -190,18 +196,19 @@ private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, onClick: () -> Unit, onLongCli
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Avatar(c.title, c.avatarHue)
+        app.zura.ui.components.UserAvatar(c.title, c.avatarHue, c.avatarPath)
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(c.title, style = Zura.type.headline, color = col.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Text(fmt.listStamp(c.updatedAt), style = Zura.type.caption, color = if (c.unread > 0) col.accent else col.textMuted)
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
-                val preview = c.preview?.takeIf { it.isNotBlank() } ?: when (c.previewKind) {
+                val preview = c.preview?.takeIf { it.isNotBlank() && c.previewKind != MsgKind.CALL } ?: when (c.previewKind) {
                     MsgKind.IMAGE -> stringResource(R.string.photo)
                     MsgKind.VIDEO -> stringResource(R.string.video)
                     MsgKind.VOICE -> stringResource(R.string.voice_message)
                     MsgKind.FILE -> stringResource(R.string.file)
+                    MsgKind.CALL -> app.zura.ui.chat.parseCall(c.preview).let { stringResource(if (it.missed) (if (it.video) R.string.missed_video_call else R.string.missed_voice_call) else if (it.video) R.string.video_call else R.string.voice_call) }
                     MsgKind.TEXT -> if (c.peerIds.isEmpty()) stringResource(R.string.notes_hint) else ""
                 }
                 Text(preview, style = Zura.type.label.copy(fontWeight = null), color = col.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
@@ -84,6 +85,7 @@ fun BubbleRow(
     modifier: Modifier = Modifier,
 ) {
     val m = item.m
+    if (m.kind == MsgKind.CALL) { CallLogRow(m, item.mine, fmt, onLongPress, modifier); return }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val density = LocalDensity.current
     val threshold = with(density) { 64.dp.toPx() }
@@ -179,6 +181,7 @@ private fun Bubble(
                 MsgKind.IMAGE, MsgKind.VIDEO -> VisualContent(m, fmt, RoundedCornerShape(big - 4.dp))
                 MsgKind.VOICE -> VoiceContent(m, item.mine, fmt)
                 MsgKind.FILE -> FileContent(m, onFill, fmt)
+                MsgKind.CALL -> Unit
             }
             val text = m.text
             if (!text.isNullOrEmpty()) {
@@ -336,7 +339,43 @@ private fun Reactions(m: Message, fmt: ZuraFormat) {
     }
 }
 
+/** Centered call-history entry: "📞 Voice call · 2:31" / "Missed video call". */
+@Composable
+private fun CallLogRow(m: Message, mine: Boolean, fmt: ZuraFormat, onLongPress: (Message) -> Unit, modifier: Modifier) {
+    val c = Zura.colors
+    val info = parseCall(m.text)
+    val label = when {
+        info.missed && info.reason == "declined" -> stringResource(R.string.declined_call)
+        info.missed -> stringResource(if (info.video) R.string.missed_video_call else R.string.missed_voice_call)
+        else -> stringResource(if (info.video) R.string.video_call else R.string.voice_call) + " · " + fmt.duration(info.seconds * 1000)
+    }
+    val tint = if (info.missed && !mine) c.danger else c.textMuted
+    Box(modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+        Row(
+            Modifier.clip(CircleShape).background(c.surface.copy(alpha = 0.8f))
+                .pointerInput(m.id) { detectTapGestures(onLongPress = { onLongPress(m) }) }
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(if (info.video) ZuraIcons.VideoCam else Icons.Default.Call, null, tint = tint, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(label, style = Zura.type.label, color = tint)
+            Spacer(Modifier.width(8.dp))
+            Text(fmt.time(m.sentAt), style = Zura.type.caption, color = c.textMuted)
+        }
+    }
+}
+
+data class CallInfo(val video: Boolean, val seconds: Long, val missed: Boolean, val reason: String)
+
+fun parseCall(text: String?): CallInfo {
+    val parts = text.orEmpty().split(';')
+    val kv = parts.drop(1).mapNotNull { p -> p.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }.toMap()
+    return CallInfo(parts.firstOrNull() == "video", kv["dur"]?.toLongOrNull() ?: 0, kv["missed"] == "1", kv["reason"].orEmpty())
+}
+
 fun kindLabel(k: MsgKind) = when (k) {
+    MsgKind.CALL -> R.string.voice_call
     MsgKind.IMAGE -> R.string.photo
     MsgKind.VIDEO -> R.string.video
     MsgKind.VOICE -> R.string.voice_message

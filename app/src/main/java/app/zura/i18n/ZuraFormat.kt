@@ -15,6 +15,9 @@ import java.util.Locale
  * Arabic gets native Arabic-Indic digits (٠١٢٣…) and "م/ص" day periods; English gets Latin.
  * All formatters are cached per locale — formatting is on the hot path of every bubble.
  */
+/** "@username" wrapped in a left-to-right isolate so RTL layouts don't flip it to "username@". */
+fun handle(username: String): String = "\u2066@$username\u2069"
+
 class ZuraFormat(private val locale: Locale, private val zone: ZoneId = ZoneId.systemDefault()) {
 
     private val digits = DecimalStyle.of(locale)

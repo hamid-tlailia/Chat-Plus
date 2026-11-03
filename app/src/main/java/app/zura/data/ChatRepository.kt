@@ -7,12 +7,13 @@ import app.zura.core.model.MsgKind
 import app.zura.core.model.MsgStatus
 import app.zura.core.storage.ChatStore
 import app.zura.core.storage.VaultStore
-import app.zura.core.sync.BlobClient
 import app.zura.core.sync.Frame
-import app.zura.core.sync.RelayClient
+import app.zura.net.Backend
+import app.zura.net.SupabaseTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,14 +34,14 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
- * Single source of truth for chats. UI reads StateFlows backed by in-memory indexes of the
- * encrypted logs; every mutation is local-first (instant UI), then mirrored to the relay.
+ * Single source of truth for conversations. Local-first: every action lands in the encrypted
+ * on-device log instantly (UI updates in the same frame), then goes out end-to-end encrypted.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatRepository(
     private val vault: VaultStore,
-    private val relay: RelayClient,
-    private val blobs: BlobClient,
+    private val transport: SupabaseTransport,
+    private val backend: Backend,
     val me: String,
     private val scope: CoroutineScope,
 ) {
@@ -57,37 +58,53 @@ class ChatRepository(
         .flowOn(Dispatchers.IO)
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
-    fun messages(chatId: String): Flow<List<Message>> =
-        flowOf(chatId).flatMapLatest { vault.chat(it).messages }.flowOn(Dispatchers.IO)
-
+    fun messages(chatId: String): Flow<List<Message>> = flowOf(chatId).flatMapLatest { vault.chat(it).messages }.flowOn(Dispatchers.IO)
     fun meta(chatId: String): Flow<ChatMeta?> = flowOf(chatId).flatMapLatest { vault.chat(it).meta }.flowOn(Dispatchers.IO)
 
-    // ------------------------------------------------------------------ typing & presence
+    // ------------------------------------------------------------------ typing & presence (ephemeral)
 
-    /** chatId -> (userId -> expiry). Remote typing auto-expires so a dropped "stop" never sticks. */
     private val typingMap = MutableStateFlow<Map<String, Map<String, Long>>>(emptyMap())
+    private val presence = MutableStateFlow<Map<String, Long>>(emptyMap()) // userId -> online-until
 
     fun peerTyping(chatId: String): Flow<Boolean> =
         typingMap.map { m -> m[chatId].orEmpty().values.any { it > System.currentTimeMillis() } }.distinctUntilChanged()
+
+    fun peerOnline(userId: String): Flow<Boolean> =
+        presence.map { (it[userId] ?: 0) > System.currentTimeMillis() }.distinctUntilChanged()
 
     private var lastTypingSent = 0L
 
     fun setTyping(chatId: String, active: Boolean) {
         val now = System.currentTimeMillis()
-        if (active && now - lastTypingSent < 3_000) return // throttle: ≤1 frame / 3 s
+        if (active && now - lastTypingSent < 3_000) return
         lastTypingSent = if (active) now else 0L
-        peersOf(chatId).takeIf { it.isNotEmpty() } ?: return
-        relay.send(Frame.Typing(chatId, me, active))
+        val peers = peersOf(chatId).ifEmpty { return }
+        scope.launch { peers.forEach { transport.signal(it, Frame.Typing(chatId, me, active)) } }
+    }
+
+    private var heartbeat: Job? = null
+
+    /** Announce "online" to contacts every 45 s while the app is in the foreground. */
+    fun startPresence(contacts: () -> List<String>) {
+        heartbeat?.cancel()
+        heartbeat = scope.launch {
+            while (isActive) {
+                contacts().forEach { transport.signal(it, Frame.Presence(me, true, System.currentTimeMillis())) }
+                delay(45_000)
+            }
+        }
+    }
+
+    fun stopPresence(contacts: List<String>) {
+        heartbeat?.cancel()
+        scope.launch { contacts.forEach { transport.signal(it, Frame.Presence(me, false, System.currentTimeMillis())) } }
     }
 
     // ------------------------------------------------------------------ lifecycle
 
     init {
-        scope.launch { relay.incoming.collect { runCatching { handle(it) } } }
+        scope.launch { transport.online.filter { it }.collect { resendPending() } }
         scope.launch {
-            relay.state.filter { it == RelayClient.State.ONLINE }.collect { resendPending() }
-        }
-        scope.launch { // expire stale typing indicators
             while (isActive) {
                 delay(1_000)
                 val now = System.currentTimeMillis()
@@ -100,12 +117,6 @@ class ChatRepository(
         if (!vault.exists(NOTES)) vault.createChat(ChatMeta(NOTES, title, emptyList(), now(), pinned = true, avatarHue = 42f))
     }
 
-    suspend fun createChat(title: String, peerIds: List<String>): String = withContext(Dispatchers.IO) {
-        val id = UUID.randomUUID().toString().replace("-", "").take(20)
-        vault.createChat(ChatMeta(id, title, peerIds, now(), avatarHue = (id.hashCode() and 0xFFFF) % 360f))
-        id
-    }
-
     // ------------------------------------------------------------------ outgoing
 
     suspend fun sendText(chatId: String, text: String, replyTo: String? = null) =
@@ -113,6 +124,9 @@ class ChatRepository(
 
     suspend fun sendMedia(chatId: String, kind: MsgKind, media: MediaRef, caption: String? = null) =
         send(chatId, kind, caption, media, null)
+
+    /** Call history entry, written on the caller's side and mirrored to the callee. */
+    suspend fun logCall(chatId: String, summary: String) = send(chatId, MsgKind.CALL, summary, null, null)
 
     private suspend fun send(chatId: String, kind: MsgKind, text: String?, media: MediaRef?, replyTo: String?) =
         withContext(Dispatchers.IO) {
@@ -123,31 +137,31 @@ class ChatRepository(
                 kind = kind, text = text, media = media, replyTo = replyTo,
                 status = if (peers.isEmpty()) MsgStatus.READ else MsgStatus.PENDING,
             )
-            store.upsert(msg)                     // 1. durable + on screen (<1 frame)
+            store.upsert(msg)
             touchMeta(store, msg, unreadDelta = 0)
-            setTyping(chatId, false)
-            if (peers.isNotEmpty()) transmit(store, msg)  // 2. network, async
+            if (kind != MsgKind.CALL) setTyping(chatId, false)
+            if (peers.isNotEmpty()) transmit(store, msg)
         }
 
     private fun transmit(store: ChatStore, msg: Message) = scope.launch(Dispatchers.IO) {
         var wire = msg
         msg.media?.let { ref ->
             if (ref.remoteBlobId == null) {
-                val blobId = UUID.randomUUID().toString()
-                runCatching { blobs.upload(blobId, vault.mediaFile(msg.chatId, ref)) }
+                // Upload the vault file as-is: it is already ciphertext under a per-file key.
+                val path = "$me/${UUID.randomUUID()}"
+                runCatching { backend.upload("blobs", path, vault.mediaFile(msg.chatId, ref)) }
                     .onFailure { store.upsert(msg.copy(status = MsgStatus.FAILED)); return@launch }
-                wire = msg.copy(media = ref.copy(remoteBlobId = blobId))
+                wire = msg.copy(media = ref.copy(remoteBlobId = path))
                 store.upsert(wire)
             }
         }
-        relay.send(
-            Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text,
-                wire.media?.copy(fileName = wire.media.fileName), wire.replyTo),
-        )
+        val frame = Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text, wire.media, wire.replyTo)
+        val ok = peersOf(wire.chatId).all { transport.send(it, frame) }
+        if (ok) store.get(wire.id)?.takeIf { it.status == MsgStatus.PENDING }?.let { store.upsert(it.copy(status = MsgStatus.SENT)) }
     }
 
     private suspend fun resendPending() = withContext(Dispatchers.IO) {
-        vault.chatIds.value.forEach { id ->
+        vault.chatIds.value.filter { it != MomentsRepository.STORE }.forEach { id ->
             val store = vault.chat(id)
             store.messages.value.filter { it.senderId == me && it.status == MsgStatus.PENDING }.forEach { transmit(store, it) }
         }
@@ -158,6 +172,10 @@ class ChatRepository(
         store.get(id)?.let { store.upsert(it.copy(status = MsgStatus.PENDING)); transmit(store, it) }
     }
 
+    private fun broadcast(chatId: String, frame: Frame) = scope.launch(Dispatchers.IO) {
+        peersOf(chatId).forEach { transport.sendWithRetry(it, frame) }
+    }
+
     // ------------------------------------------------------------------ actions
 
     suspend fun edit(chatId: String, id: String, text: String) = withContext(Dispatchers.IO) {
@@ -165,29 +183,29 @@ class ChatRepository(
         val m = store.get(id)?.takeIf { it.senderId == me && it.kind == MsgKind.TEXT } ?: return@withContext
         val at = now()
         store.edit(m.id, text.trim(), at)
-        if (peersOf(chatId).isNotEmpty()) relay.send(Frame.Edit(chatId, me, id, text.trim(), at))
+        broadcast(chatId, Frame.Edit(chatId, me, id, text.trim(), at))
     }
 
-    /** Local purge: record + media + key rotation. Returns bytes freed. */
     suspend fun deleteForMe(chatId: String, ids: Collection<String>): Long = withContext(Dispatchers.IO) {
         vault.chat(chatId).purge(ids).also { refreshPreview(chatId) }
     }
 
-    /** Purge locally and instruct every peer device to purge its copy (own messages only). */
     suspend fun deleteForEveryone(chatId: String, ids: Collection<String>): Long = withContext(Dispatchers.IO) {
         val store = vault.chat(chatId)
-        val mine = ids.filter { store.get(it)?.senderId == me }
-        if (mine.isNotEmpty() && peersOf(chatId).isNotEmpty()) relay.send(Frame.Delete(chatId, me, mine))
+        val mine = ids.mapNotNull { store.get(it) }.filter { it.senderId == me }
+        if (mine.isNotEmpty()) {
+            broadcast(chatId, Frame.Delete(chatId, me, mine.map { it.id }))
+            mine.mapNotNull { it.media?.remoteBlobId }.forEach { backend.delete("blobs", it) }
+        }
         deleteForMe(chatId, ids)
     }
 
     suspend fun react(chatId: String, id: String, emoji: String?) = withContext(Dispatchers.IO) {
         val store = vault.chat(chatId)
         val m = store.get(id) ?: return@withContext
-        val current = m.reactions[me]
-        val next = if (emoji == null || emoji == current) null else emoji // tap same emoji = toggle off
+        val next = if (emoji == null || emoji == m.reactions[me]) null else emoji
         store.upsert(m.copy(reactions = if (next == null) m.reactions - me else m.reactions + (me to next)))
-        if (peersOf(chatId).isNotEmpty()) relay.send(Frame.React(chatId, me, id, next))
+        broadcast(chatId, Frame.React(chatId, me, id, next))
     }
 
     suspend fun markRead(chatId: String) = withContext(Dispatchers.IO) {
@@ -195,8 +213,8 @@ class ChatRepository(
         val unread = store.messages.value.filter { it.senderId != me && it.status != MsgStatus.READ }
         if (unread.isNotEmpty()) {
             store.upsertAll(unread.map { it.copy(status = MsgStatus.READ) })
-            unread.groupBy { it.senderId }.forEach { (_, ms) ->
-                relay.send(Frame.Receipt(chatId, me, ms.map { it.id }, MsgStatus.READ))
+            unread.groupBy { it.senderId }.forEach { (sender, ms) ->
+                scope.launch { transport.sendWithRetry(sender, Frame.Receipt(chatId, me, ms.map { it.id }, MsgStatus.READ)) }
             }
         }
         store.meta.value?.takeIf { it.unread > 0 }?.let { store.writeMeta(it.copy(unread = 0)) }
@@ -204,53 +222,52 @@ class ChatRepository(
 
     suspend fun deleteChat(chatId: String): Long = withContext(Dispatchers.IO) { vault.deleteChat(chatId) }
 
-    suspend fun setPinned(chatId: String, pinned: Boolean) = withContext(Dispatchers.IO) {
-        val store = vault.chat(chatId)
-        store.meta.value?.let { store.writeMeta(it.copy(pinned = pinned)) }
+    suspend fun clearKeyChanged(chatId: String) = withContext(Dispatchers.IO) {
+        val s = vault.chat(chatId); s.meta.value?.let { s.writeMeta(it.copy(keyChanged = false)) }
     }
 
-    // ------------------------------------------------------------------ incoming
+    // ------------------------------------------------------------------ incoming (already authenticated + decrypted)
 
-    private suspend fun handle(f: Frame) = withContext(Dispatchers.IO) {
+    suspend fun handle(from: String, f: Frame) = withContext(Dispatchers.IO) {
         when (f) {
             is Frame.Msg -> {
-                if (f.chatId == MomentsRepository.STORE) return@withContext
-            if (!vault.exists(f.chatId)) vault.createChat(ChatMeta(f.chatId, f.from, listOf(f.from), now()))
+                if (f.from != from || f.chatId == MomentsRepository.STORE) return@withContext
+                if (!vault.exists(f.chatId)) return@withContext // only conversations with accepted contacts exist
                 val store = vault.chat(f.chatId)
-                if (store.get(f.id) != null) return@withContext // idempotent: relay may redeliver
+                if (from !in peersOf(f.chatId) || store.get(f.id) != null) return@withContext
                 val media = f.media?.let { ref ->
                     val blob = ref.remoteBlobId ?: return@let null
-                    blobs.download(blob) { vault.adoptCiphertext(f.chatId, ref, it) }
+                    runCatching { backend.download("blobs", blob) { vault.adoptCiphertext(f.chatId, ref, it) } }.getOrNull()
                 }
-                val msg = Message(f.id, f.chatId, f.from, f.sentAt, f.kind, f.text, media, MsgStatus.DELIVERED, replyTo = f.replyTo)
+                val msg = Message(f.id, f.chatId, from, f.sentAt, f.kind, f.text, media, MsgStatus.DELIVERED, replyTo = f.replyTo)
                 store.upsert(msg)
                 touchMeta(store, msg, unreadDelta = 1)
-                typingMap.update { m -> m + (f.chatId to (m[f.chatId].orEmpty() - f.from)) }
-                relay.send(Frame.Receipt(f.chatId, me, listOf(f.id), MsgStatus.DELIVERED))
+                typingMap.update { m -> m + (f.chatId to (m[f.chatId].orEmpty() - from)) }
+                scope.launch { transport.sendWithRetry(from, Frame.Receipt(f.chatId, me, listOf(f.id), MsgStatus.DELIVERED)) }
             }
-            is Frame.Ack -> vault.chatIds.value.firstNotNullOfOrNull { id -> vault.chat(id).get(f.id)?.let { id to it } }
-                ?.let { (id, m) -> if (m.status == MsgStatus.PENDING) vault.chat(id).upsert(m.copy(status = MsgStatus.SENT)) }
             is Frame.Receipt -> {
+                if (f.from != from || !vault.exists(f.chatId)) return@withContext
                 val store = vault.chat(f.chatId)
                 val updates = f.ids.mapNotNull { store.get(it) }
                     .filter { it.senderId == me && it.status.ordinal < f.status.ordinal }
                     .map { it.copy(status = f.status) }
                 store.upsertAll(updates)
+                // Delivered → the peer has its own copy; remove our ciphertext from the server.
+                if (f.status >= MsgStatus.DELIVERED) updates.mapNotNull { it.media?.remoteBlobId }.forEach { backend.delete("blobs", it) }
             }
-            is Frame.Typing -> typingMap.update { m ->
+            is Frame.Typing -> if (f.from == from && from in peersOf(f.chatId)) typingMap.update { m ->
                 val users = m[f.chatId].orEmpty()
-                m + (f.chatId to if (f.active) users + (f.from to now() + 6_000) else users - f.from)
+                m + (f.chatId to if (f.active) users + (from to now() + 6_000) else users - from)
             }
-            is Frame.Edit -> vault.chat(f.chatId).let { s -> if (s.get(f.id)?.senderId == f.from) s.edit(f.id, f.text, f.at) }
-            is Frame.Delete -> {
+            is Frame.Presence -> if (f.userId == from) presence.update { it + (from to if (f.online) now() + 100_000 else 0L) }
+            is Frame.Edit -> if (f.from == from && vault.exists(f.chatId)) vault.chat(f.chatId).let { s -> if (s.get(f.id)?.senderId == from) s.edit(f.id, f.text, f.at) }
+            is Frame.Delete -> if (f.from == from && vault.exists(f.chatId)) {
                 val s = vault.chat(f.chatId)
-                s.purge(f.ids.filter { s.get(it)?.senderId == f.from }) // peers can only erase their own
+                s.purge(f.ids.filter { s.get(it)?.senderId == from })
                 refreshPreview(f.chatId)
             }
-            is Frame.React -> vault.chat(f.chatId).let { s ->
-                s.get(f.id)?.let { m ->
-                    s.upsert(m.copy(reactions = if (f.emoji == null) m.reactions - f.from else m.reactions + (f.from to f.emoji)))
-                }
+            is Frame.React -> if (f.from == from && vault.exists(f.chatId)) vault.chat(f.chatId).let { s ->
+                s.get(f.id)?.let { m -> s.upsert(m.copy(reactions = if (f.emoji == null) m.reactions - from else m.reactions + (from to f.emoji))) }
             }
             else -> Unit
         }
@@ -258,7 +275,7 @@ class ChatRepository(
 
     // ------------------------------------------------------------------ helpers
 
-    private fun peersOf(chatId: String): List<String> = vault.chat(chatId).meta.value?.peerIds.orEmpty()
+    fun peersOf(chatId: String): List<String> = vault.chat(chatId).meta.value?.peerIds.orEmpty()
 
     private suspend fun touchMeta(store: ChatStore, m: Message, unreadDelta: Int) {
         val meta = store.meta.value ?: return

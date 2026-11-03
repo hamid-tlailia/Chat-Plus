@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.zura.R
 import app.zura.graph
+import app.zura.ui.components.UserAvatar
 import app.zura.i18n.LocaleEngine
 import app.zura.i18n.ZuraFormat
 import app.zura.ui.components.glass
@@ -53,6 +54,7 @@ import app.zura.ui.theme.ZuraPalettes
 import app.zura.ui.theme.ZuraThemeId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
@@ -117,9 +119,26 @@ fun SettingsScreen(onBack: () -> Unit) {
             Text(stringResource(R.string.about_privacy), style = Zura.type.caption, color = c.textMuted)
         }
 
-        Section(R.string.my_id) {
-            Text(g.settings.userId, style = Zura.type.label, color = c.text)
+        Section(R.string.privacy) {
+            val secure by g.settings.secureScreen.collectAsStateWithLifecycle()
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { haptics.tick(); g.settings.setSecureScreen(!secure) }, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.secure_screen), style = Zura.type.label, color = c.text)
+                    Text(stringResource(R.string.secure_screen_hint), style = Zura.type.caption, color = c.textMuted)
+                }
+                androidx.compose.material3.Switch(
+                    secure, { g.settings.setSecureScreen(it) },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = c.accent, checkedThumbColor = c.onAccent),
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(stringResource(R.string.encrypted_storage), style = Zura.type.label, color = c.text)
+            Text(stringResource(R.string.encrypted_storage_hint), style = Zura.type.caption, color = c.textMuted)
+            Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.e2ee_note), style = Zura.type.caption, color = c.textMuted)
         }
+
+        Section(R.string.account) { AccountCard() }
         Spacer(Modifier.size(40.dp))
     }
 }
@@ -137,4 +156,69 @@ private fun themeName(id: ZuraThemeId) = when (id) {
     ZuraThemeId.OLED -> R.string.theme_oled
     ZuraThemeId.VELVET_GOLD -> R.string.theme_velvet
     ZuraThemeId.LIGHT -> R.string.theme_light
+}
+
+@Composable
+private fun AccountCard() {
+    val ctx = LocalContext.current
+    val g = ctx.graph
+    val c = Zura.colors
+    val me by g.s.contacts.myProfile.collectAsStateWithLifecycle()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var confirm by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var busy by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        busy = true
+        scope.launch {
+            withContext(Dispatchers.Default) {
+                runCatching {
+                    val src = ctx.contentResolver.openInputStream(uri)!!.use { android.graphics.BitmapFactory.decodeStream(it) }
+                    val side = minOf(src.width, src.height)
+                    val sq = android.graphics.Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
+                    val out = android.graphics.Bitmap.createScaledBitmap(sq, 512, 512, true)
+                    java.io.ByteArrayOutputStream().also { out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 86, it) }.toByteArray()
+                }.getOrNull()
+            }?.let { bytes -> runCatching { g.s.contacts.setAvatar(bytes); g.accountStore.avatar(g.s.uid).write(bytes) } }
+            busy = false
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.clickable { pick.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+            UserAvatar(me?.displayName ?: "", (g.s.uid.hashCode() and 0xFFFF) % 360f, me?.avatarPath, 64.dp)
+            if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(64.dp), color = c.accent, strokeWidth = 2.dp)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(me?.displayName ?: "", style = Zura.type.headline, color = c.text)
+            Text(app.zura.i18n.handle(me?.username ?: ""), style = Zura.type.label, color = c.textMuted)
+            Text(g.s.email, style = Zura.type.caption, color = c.textMuted)
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.danger.copy(alpha = 0.12f)).clickable { confirm = true }.padding(14.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(stringResource(R.string.logout), style = Zura.type.label, color = c.danger) }
+
+    if (confirm) {
+        var keep by remember { androidx.compose.runtime.mutableStateOf(g.accountStore.get(g.s.uid)?.remember ?: true) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirm = false },
+            containerColor = c.surfaceHigh,
+            title = { Text(stringResource(R.string.logout_title), color = c.text) },
+            text = {
+                Row(Modifier.clickable { keep = !keep }, verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Checkbox(keep, { keep = it }, colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = c.accent))
+                    Text(stringResource(R.string.logout_remember), style = Zura.type.label, color = c.text)
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { confirm = false; scope.launch { g.accounts.logout(remember = keep) } }) {
+                    Text(stringResource(R.string.logout), color = c.danger)
+                }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.cancel), color = c.text) } },
+        )
+    }
 }

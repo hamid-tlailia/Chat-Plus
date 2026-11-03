@@ -5,12 +5,8 @@ import app.zura.ui.theme.ZuraThemeId
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.UUID
 
 class SettingsStore(private val prefs: SharedPreferences) {
-
-    val userId: String = prefs.getString(K_UID, null) ?: UUID.randomUUID().toString().replace("-", "").take(20)
-        .also { prefs.edit().putString(K_UID, it).apply() }
 
     private val _theme = MutableStateFlow(
         runCatching { ZuraThemeId.valueOf(prefs.getString(K_THEME, null)!!) }.getOrDefault(ZuraThemeId.MIDNIGHT),
@@ -22,13 +18,17 @@ class SettingsStore(private val prefs: SharedPreferences) {
         prefs.edit().putString(K_THEME, id.name).apply()
     }
 
-    var lastSeq: Long
-        get() = prefs.getLong(K_SEQ, 0)
-        set(v) = prefs.edit().putLong(K_SEQ, v).apply()
+    /** Block screenshots/screen recording and hide content in the app switcher. */
+    private val _secureScreen = MutableStateFlow(prefs.getBoolean(K_SECURE, false))
+    val secureScreen: StateFlow<Boolean> = _secureScreen.asStateFlow()
+
+    fun setSecureScreen(on: Boolean) {
+        _secureScreen.value = on
+        prefs.edit().putBoolean(K_SECURE, on).apply()
+    }
 
     private companion object {
-        const val K_UID = "uid"
         const val K_THEME = "theme"
-        const val K_SEQ = "seq"
+        const val K_SECURE = "secure_screen"
     }
 }

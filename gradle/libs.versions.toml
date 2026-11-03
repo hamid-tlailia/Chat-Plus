@@ -1,16 +1,19 @@
 [versions]
 agp = "8.7.3"
-kotlin = "2.0.21"
+kotlin = "2.1.20"
 coreKtx = "1.15.0"
 activityCompose = "1.9.3"
 lifecycle = "2.8.7"
 composeBom = "2024.12.01"
-coroutines = "1.9.0"
-serialization = "1.7.3"
+coroutines = "1.10.1"
+serialization = "1.8.1"
 okhttp = "4.12.0"
 media3 = "1.5.0"
 profileInstaller = "1.4.1"
 junit = "4.13.2"
+supabase = "3.1.4"
+ktor = "3.1.2"
+webrtc = "1.3.10"
 robolectric = "4.14.1"
 roborazzi = "1.32.2"
 
@@ -34,6 +37,12 @@ media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = 
 media3-transformer = { module = "androidx.media3:media3-transformer", version.ref = "media3" }
 media3-effect = { module = "androidx.media3:media3-effect", version.ref = "media3" }
 junit = { module = "junit:junit", version.ref = "junit" }
+supabase-bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "supabase" }
+supabase-auth = { module = "io.github.jan-tennert.supabase:auth-kt" }
+supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt" }
+supabase-realtime = { module = "io.github.jan-tennert.supabase:realtime-kt" }
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+webrtc = { module = "io.getstream:stream-webrtc-android", version.ref = "webrtc" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 roborazzi = { module = "io.github.takahirom.roborazzi:roborazzi", version.ref = "roborazzi" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
