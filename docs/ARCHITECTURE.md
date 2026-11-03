@@ -187,6 +187,9 @@ MLS/Signal ratchet remains on the roadmap.
 1. Cloudflare Dashboard → **Calls** → **TURN Keys** → *Create*. Copy the **Key ID** and **API token**.
 2. Supabase Dashboard → project **zura** → Edge Functions → **Secrets** → add
    `CF_TURN_KEY_ID` and `CF_TURN_API_TOKEN`.
+Alternatively, any static TURN server (e.g. the relay the Hamidos web app already uses as
+`REACT_APP_TURN_URL` / `_USERNAME` / `_CREDENTIAL`) can be set as `TURN_URLS`, `TURN_USERNAME`,
+`TURN_CREDENTIAL`; each host is also offered over TCP/TLS 443 for carriers that block UDP.
 Until then calls use STUN only (works on most networks; strict carrier NATs may fail).
 
 ### Push wake-ups when the app is closed (FCM)
