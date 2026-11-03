@@ -158,26 +158,10 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 internal fun NavHost(nav: Navigator) {
-    // Same motion in English and Arabic, for every page:
-    //   open  → the new page slides in from the LEFT edge, moving left → right;
-    //           the page underneath drifts slightly right and dims.
-    //   close → reverse: the page slides back out to the left (right → left) and the
-    //           previous page settles back from the right.
-    // Offsets are absolute screen pixels (not mirrored by RTL), so both languages match.
-    val slide = spring(dampingRatio = 1f, stiffness = 420f, visibilityThreshold = IntOffset(1, 1))
-    val fade = spring<Float>(stiffness = 420f)
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     AnimatedContent(
         targetState = nav.top,
-        transitionSpec = {
-            val forward = nav.forward
-            if (forward) {
-                (slideInHorizontally(slide) { -it }) togetherWith
-                    (slideOutHorizontally(slide) { it / 5 } + fadeOut(fade, targetAlpha = 0.6f))
-            } else {
-                (slideInHorizontally(slide) { it / 5 } + fadeIn(fade, initialAlpha = 0.6f)) togetherWith
-                    (slideOutHorizontally(slide) { -it })
-            }.apply { targetContentZIndex = if (forward) 1f else 0f }
-        },
+        transitionSpec = { app.zura.ui.components.pageTransition(nav.forward, rtl) },
         label = "nav",
     ) { route ->
       // Each page is opaque, so the sliding page cleanly covers the one beneath it.

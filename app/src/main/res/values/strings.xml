@@ -196,4 +196,10 @@
     <string name="crash_report">Last crash report</string>
     <string name="crash_report_hint">Zura closed unexpectedly last time. Copy this report and send it to the developer — it contains only technical details, no messages.</string>
     <string name="copied">Copied</string>
+    <string name="my_username">Your username — friends find you with it</string>
+    <string name="share_my_username">Find me on Zura: @%1$s</string>
+    <string name="share">Share</string>
+    <string name="search_people">Username, name or email</string>
+    <string name="no_results_hint">No one found. Try their username, their name, or their exact email.</string>
+    <string name="search_failed">Couldn\'t search right now. Check your connection and try again.</string>
 </resources>

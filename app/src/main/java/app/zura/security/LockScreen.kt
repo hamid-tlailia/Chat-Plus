@@ -21,7 +21,8 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,7 +45,13 @@ fun LockScreen(lock: AppLock) {
         lock.legacyResult(r.resultCode == Activity.RESULT_OK)
     }
     val ask = { runCatching { lock.authenticate(activity, { legacy.launch(it) }) {} }; Unit }
-    LaunchedEffect(Unit) { ask() }
+    val error by lock.error.collectAsStateWithLifecycle()
+    // Ask only once the screen is really in front (RESUMED): a prompt requested earlier — during
+    // cold start — is silently dropped on some devices.
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        ask()
+        onPauseOrDispose { }
+    }
     val src = remember { MutableInteractionSource() }
     Box(
         // Swallow every touch so nothing underneath can be reached.
@@ -60,6 +67,10 @@ fun LockScreen(lock: AppLock) {
             Text(stringResource(R.string.zura_locked), style = Zura.type.title, color = c.text)
             Spacer(Modifier.height(8.dp))
             Text(stringResource(R.string.unlock_subtitle), style = Zura.type.label, color = c.textMuted)
+            error?.let {
+                Spacer(Modifier.height(12.dp))
+                Text(it, style = Zura.type.label, color = c.danger)
+            }
             Spacer(Modifier.height(36.dp))
             Box(
                 Modifier.pressScale(src).clip(CircleShape).background(c.accent).clickable(src, null) { ask() }

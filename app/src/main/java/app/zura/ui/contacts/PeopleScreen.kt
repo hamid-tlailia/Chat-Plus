@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -82,16 +83,21 @@ fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvite
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchHit>?>(null) }
     var searching by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
+    val me by repo.myProfile.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
     var inviteTarget by remember { mutableStateOf<SearchHit?>(null) }
     val scope = rememberCoroutineScope()
     val haptics = rememberHaptics()
 
     LaunchedEffect(query, contacts.size, invites.size) {
         val q = query.trim().removePrefix("@")
-        if (q.length < 3) { results = null; return@LaunchedEffect }
+        if (q.length < 2) { results = null; searchError = null; return@LaunchedEffect }
         delay(300)
         searching = true
-        results = runCatching { repo.search(q) }.getOrDefault(emptyList())
+        runCatching { repo.search(q) }
+            .onSuccess { results = it; searchError = null }
+            .onFailure { results = emptyList(); searchError = it.message }
         searching = false
     }
 
@@ -99,6 +105,27 @@ fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvite
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = c.text) }
             Text(stringResource(R.string.contacts), style = Zura.type.title, color = c.text)
+        }
+
+        // My handle — what friends type to find me — with a one-tap share.
+        me?.let { p ->
+            Row(
+                Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp).fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp)).background(c.accent.copy(alpha = 0.10f))
+                    .clickable {
+                        val text = ctx.getString(R.string.share_my_username, p.username)
+                        ctx.startActivity(android.content.Intent.createChooser(
+                            android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, text), null))
+                    }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.my_username), style = Zura.type.caption, color = c.textMuted)
+                    Text(app.zura.i18n.handle(p.username), style = Zura.type.headline, color = c.text)
+                }
+                Icon(Icons.Default.Share, stringResource(R.string.share), tint = c.accent)
+            }
         }
 
         // Search
@@ -109,7 +136,7 @@ fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvite
             Icon(Icons.Default.Search, null, tint = c.textMuted)
             Spacer(Modifier.width(10.dp))
             Box(Modifier.weight(1f)) {
-                if (query.isEmpty()) Text(stringResource(R.string.search_username), style = Zura.type.body, color = c.textMuted)
+                if (query.isEmpty()) Text(stringResource(R.string.search_people), style = Zura.type.body, color = c.textMuted)
                 BasicTextField(query, { query = it.take(25) }, singleLine = true, textStyle = Zura.type.body.copy(color = c.text), cursorBrush = SolidColor(c.accent), modifier = Modifier.fillMaxWidth())
             }
             if (searching) CircularProgressIndicator(Modifier.size(18.dp), color = c.accent, strokeWidth = 2.dp)
@@ -118,7 +145,7 @@ fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvite
         val r = results
         if (r != null) {
             LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-                if (r.isEmpty()) item { Empty(stringResource(R.string.no_results)) }
+                if (r.isEmpty()) item { Empty(searchError?.let { stringResource(R.string.search_failed) } ?: stringResource(R.string.no_results_hint)) }
                 items(r, key = { it.id }) { hit ->
                     PersonRow(hit.displayName, app.zura.i18n.handle(hit.username), hit.avatarPath, hit.id) {
                         when (hit.relation) {

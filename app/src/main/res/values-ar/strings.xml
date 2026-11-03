@@ -196,4 +196,10 @@
     <string name="crash_report">تقرير آخر توقف</string>
     <string name="crash_report_hint">توقف زورا بشكل مفاجئ في المرة السابقة. انسخ هذا التقرير وأرسله للمطوّر — يحتوي تفاصيل تقنية فقط، دون أي رسائل.</string>
     <string name="copied">تم النسخ</string>
+    <string name="my_username">اسم المستخدم الخاص بك — يجدك أصدقاؤك به</string>
+    <string name="share_my_username">تجدني على زورا: @%1$s</string>
+    <string name="share">مشاركة</string>
+    <string name="search_people">اسم المستخدم أو الاسم أو البريد</string>
+    <string name="no_results_hint">لم يُعثر على أحد. جرّب اسم المستخدم أو الاسم أو البريد الإلكتروني كاملاً.</string>
+    <string name="search_failed">تعذّر البحث الآن. تحقق من الاتصال وأعد المحاولة.</string>
 </resources>

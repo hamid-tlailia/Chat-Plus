@@ -313,6 +313,10 @@ private fun AppLockSection() {
     val enabled by g.appLock.enabled.collectAsStateWithLifecycle()
     val timeout by g.appLock.timeoutSec.collectAsStateWithLifecycle()
     val secure = remember { g.appLock.deviceSecure() }
+    val activity = ctx as Activity
+    val legacy = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { r -> if (r.resultCode == Activity.RESULT_OK) { g.appLock.legacyResult(true); g.appLock.setEnabled(true) } }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(stringResource(R.string.app_lock), style = Zura.type.label, color = c.text)
@@ -322,7 +326,14 @@ private fun AppLockSection() {
             )
         }
         androidx.compose.material3.Switch(
-            enabled, { on -> haptics.tick(); g.appLock.setEnabled(on) }, enabled = secure,
+            enabled,
+            { on ->
+                haptics.tick()
+                // Turning it ON first proves the fingerprint/PIN works, so the user can't lock themselves out.
+                if (on) g.appLock.authenticate(activity, { legacy.launch(it) }) { ok -> if (ok) g.appLock.setEnabled(true) }
+                else g.appLock.setEnabled(false)
+            },
+            enabled = secure,
             colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = c.accent, checkedThumbColor = c.onAccent),
         )
     }

@@ -34,6 +34,13 @@ class StorageEngineTest {
     private fun msg(id: String, text: String, at: Long = System.nanoTime()) =
         Message(id = id, chatId = "c1", senderId = "me", sentAt = at, kind = MsgKind.TEXT, text = text)
 
+    @Test fun tempFilesCanBeCreated() {
+        // Regression: a 1-char prefix made File.createTempFile throw, crashing voice recording.
+        val (v, _) = vault()
+        val f = v.paths.newTemp("ogg")
+        assertTrue(f.exists() && f.name.endsWith(".ogg"))
+    }
+
     @Test fun segmentedCipherRoundTripAndRandomAccess() {
         for (size in listOf(0, 1, SegmentedCipher.SEGMENT - 1, SegmentedCipher.SEGMENT, SegmentedCipher.SEGMENT * 3 + 17)) {
             val key = ByteArray(32).also { Random.nextBytes(it) }

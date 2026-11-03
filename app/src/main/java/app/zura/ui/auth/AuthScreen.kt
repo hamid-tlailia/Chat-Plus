@@ -85,6 +85,7 @@ import app.zura.account.SavedAccount
 import app.zura.graph
 import app.zura.ui.components.Avatar
 import app.zura.ui.components.glass
+import app.zura.ui.components.zuraBackground
 import app.zura.ui.components.pressScale
 import app.zura.ui.components.rememberHaptics
 import app.zura.ui.theme.Zura
@@ -94,6 +95,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import kotlin.math.min
+
+private fun Mode.rank() = when (this) { Mode.Picker -> 0; is Mode.Login -> 1; Mode.Register -> 2; is Mode.Confirm -> 3 }
 
 private sealed interface Mode {
     data object Picker : Mode
@@ -123,13 +126,29 @@ fun AuthScreen(previewLockedUid: String? = null, previewRegister: Boolean = fals
     }
 
     Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
-        AnimatedContent(mode, transitionSpec = { (fadeIn() + slideInHorizontally { it / 6 }) togetherWith fadeOut() }, label = "auth") { m ->
+        // Same page motion as the rest of the app; system Back walks back through the flow.
+        val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+        val root: Mode = if (saved.isNotEmpty()) Mode.Picker else Mode.Login()
+        androidx.activity.compose.BackHandler(enabled = mode.rank() > root.rank()) {
+            mode = when (mode) {
+                is Mode.Confirm -> Mode.Login()
+                Mode.Register -> root
+                else -> root
+            }
+        }
+        AnimatedContent(
+            mode,
+            transitionSpec = { app.zura.ui.components.pageTransition(targetState.rank() > initialState.rank(), rtl) },
+            label = "auth",
+        ) { m ->
+          Box(Modifier.fillMaxSize().then(Modifier.zuraBackground())) {
             when (m) {
                 Mode.Picker -> Picker(saved, onLogin = { mode = Mode.Login(it) }, onOther = { mode = Mode.Login() }, onRegister = { mode = Mode.Register })
                 is Mode.Login -> Login(m.locked, onBack = if (saved.isNotEmpty()) ({ mode = Mode.Picker }) else null, onRegister = { mode = Mode.Register })
                 Mode.Register -> Register(onBack = { mode = if (saved.isNotEmpty()) Mode.Picker else Mode.Login() }, onConfirm = { mode = Mode.Confirm(it) })
                 is Mode.Confirm -> Confirm(m.email) { mode = Mode.Login() }
             }
+          }
         }
     }
 }

@@ -149,7 +149,8 @@ class ContactsRepository(
     // ---------------------------------------------------------------- invitations
 
     suspend fun search(query: String): List<SearchHit> = withContext(Dispatchers.IO) {
-        if (query.trim().length < 3) return@withContext emptyList()
+        // Server matches: username prefix, display name (any script), or an exact email address.
+        if (query.trim().removePrefix("@").length < 2) return@withContext emptyList()
         val r = backend.client.postgrest.rpc("search_profiles", buildJsonObject { put("p_query", query.trim().removePrefix("@")) })
         decodeList(SearchHit.serializer(), r.data).filter { it.relation != "self" }
     }

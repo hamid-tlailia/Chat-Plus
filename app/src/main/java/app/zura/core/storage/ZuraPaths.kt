@@ -28,7 +28,8 @@ class ZuraPaths(filesDir: File, noBackupDir: File, cacheDir: File) {
 
     fun chatDir(chatId: String) = File(chats, safe(chatId))
     fun mediaDir(chatId: String) = File(chatDir(chatId), "media")
-    fun newTemp(ext: String): File = File.createTempFile("z", ".$ext", tmp)
+    // createTempFile requires a prefix of at least 3 characters (a 1-char prefix crashed voice recording).
+    fun newTemp(ext: String): File = File.createTempFile("zura_", ".$ext", tmp)
 
     companion object {
         /** IDs come from the network: never let one escape its directory. */

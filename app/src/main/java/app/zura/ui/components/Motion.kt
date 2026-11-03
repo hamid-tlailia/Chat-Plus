@@ -1,5 +1,11 @@
 package app.zura.ui.components
 
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -31,4 +37,26 @@ fun Modifier.pressScale(interaction: MutableInteractionSource, pressed: Float = 
     val isPressed by interaction.collectIsPressedAsState()
     val s by animateFloatAsState(if (isPressed) pressed else 1f, ZuraMotion.Press, label = "press")
     return graphicsLayer { scaleX = s; scaleY = s }
+}
+
+/**
+ * Page motion shared by every screen (main navigation and the sign-in flow):
+ *  • English (LTR): a new page enters from the RIGHT edge; going back it leaves to the right.
+ *  • Arabic (RTL): mirrored — enters from the LEFT edge; going back it leaves to the left.
+ * The page underneath drifts a fifth of the way the opposite direction and dims slightly.
+ * Offsets are absolute screen pixels, so direction is chosen explicitly from [rtl].
+ */
+fun pageTransition(forward: Boolean, rtl: Boolean): ContentTransform {
+    val dir = if (rtl) -1 else 1
+    val slide = spring(dampingRatio = 1f, stiffness = 420f, visibilityThreshold = IntOffset(1, 1))
+    val fade = spring<Float>(stiffness = 420f)
+    return if (forward) {
+        (slideInHorizontally(slide) { it * dir } togetherWith
+            (slideOutHorizontally(slide) { -it / 5 * dir } + fadeOut(fade, targetAlpha = 0.6f)))
+            .apply { targetContentZIndex = 1f }
+    } else {
+        ((slideInHorizontally(slide) { -it / 5 * dir } + fadeIn(fade, initialAlpha = 0.6f)) togetherWith
+            slideOutHorizontally(slide) { it * dir })
+            .apply { targetContentZIndex = 0f }
+    }
 }
