@@ -15,13 +15,21 @@ create table public.profiles (
 );
 alter table public.profiles enable row level security;
 
+-- Creates the profile from sign-up metadata. If the username is missing/invalid/taken we fall back to
+-- "user_<8 hex>" instead of failing the whole sign-up; the user can rename later. Display name falls
+-- back to the username, and is clipped to the 48-char limit.
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = '' as $$
+declare
+  v_username text := trim(coalesce(new.raw_user_meta_data->>'username', ''));
+  v_display  text := trim(coalesce(new.raw_user_meta_data->>'display_name', ''));
 begin
+  if v_username !~ '^[A-Za-z0-9_]{3,24}$'
+     or exists (select 1 from public.profiles where username = v_username::extensions.citext) then
+    v_username := 'user_' || substr(replace(new.id::text, '-', ''), 1, 8);
+  end if;
   insert into public.profiles (id, username, display_name)
-  values (new.id,
-          new.raw_user_meta_data->>'username',
-          coalesce(nullif(trim(new.raw_user_meta_data->>'display_name'), ''), new.raw_user_meta_data->>'username'));
+  values (new.id, v_username, left(coalesce(nullif(v_display, ''), v_username), 48));
   return new;
 end $$;
 create trigger on_auth_user_created after insert on auth.users
