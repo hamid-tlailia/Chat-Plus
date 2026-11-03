@@ -98,6 +98,8 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
         }
 
+        Section(R.string.chat_colors) { BubblePicker() }
+
         Section(R.string.language) {
             val current = LocaleEngine.current(ctx)
             Row(Modifier.fillMaxWidth().clip(CircleShape).background(c.surfaceHigh).padding(4.dp)) {
@@ -150,7 +152,29 @@ fun SettingsScreen(onBack: () -> Unit) {
             Text(stringResource(R.string.e2ee_note), style = Zura.type.caption, color = c.textMuted)
         }
 
+        Section(R.string.app_lock) { AppLockSection() }
+
+        Section(R.string.security_title) {
+            Text(stringResource(R.string.security_details), style = Zura.type.label, color = c.textMuted)
+        }
+
         Section(R.string.account) { AccountCard() }
+
+        app.zura.CrashLog.read(ctx)?.let { crash ->
+            Section(R.string.crash_report) {
+                Text(stringResource(R.string.crash_report_hint), style = Zura.type.caption, color = c.textMuted)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.clip(CircleShape).background(c.accent).clickable {
+                        ctx.getSystemService(android.content.ClipboardManager::class.java)
+                            .setPrimaryClip(android.content.ClipData.newPlainText("zura-crash", crash))
+                        android.widget.Toast.makeText(ctx, R.string.copied, android.widget.Toast.LENGTH_SHORT).show()
+                    }.padding(horizontal = 16.dp, vertical = 9.dp)) { Text(stringResource(R.string.action_copy), color = c.onAccent, style = Zura.type.label) }
+                    Box(Modifier.clip(CircleShape).background(c.surfaceHigh).clickable { app.zura.CrashLog.clear(ctx) }
+                        .padding(horizontal = 16.dp, vertical = 9.dp)) { Text(stringResource(R.string.delete), color = c.text, style = Zura.type.label) }
+                }
+            }
+        }
         Spacer(Modifier.size(40.dp))
     }
 }
@@ -232,5 +256,89 @@ private fun AccountCard() {
             },
             dismissButton = { androidx.compose.material3.TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.cancel), color = c.text) } },
         )
+    }
+}
+
+/** Message colour presets: each swatch shows "my" bubble over "their" bubble, in the current theme. */
+@Composable
+private fun BubblePicker() {
+    val g = LocalContext.current.graph
+    val c = Zura.colors
+    val haptics = rememberHaptics()
+    val current by g.settings.bubbles.collectAsStateWithLifecycle()
+    val theme by g.settings.theme.collectAsStateWithLifecycle()
+    val base = ZuraPalettes.of(theme)
+    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(app.zura.ui.theme.BubbleStyle.entries.size) { i ->
+            val style = app.zura.ui.theme.BubbleStyle.entries[i]
+            val p = style.applyTo(base)
+            val ring by animateDpAsState(if (style == current) 2.dp else 0.dp, label = "bubble")
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    Modifier.size(64.dp, 76.dp).clip(RoundedCornerShape(16.dp)).background(base.bg)
+                        .border(ring, c.accent, RoundedCornerShape(16.dp))
+                        .clickable { haptics.tick(); g.settings.setBubbles(style) }
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(Modifier.size(34.dp, 14.dp).clip(CircleShape).background(p.bubbleTheirs))
+                    Box(Modifier.align(Alignment.End).size(38.dp, 14.dp).clip(CircleShape).background(Brush.linearGradient(listOf(p.bubbleMine, p.bubbleMineAlt))))
+                    Box(Modifier.size(26.dp, 14.dp).clip(CircleShape).background(p.bubbleTheirs))
+                }
+                Text(
+                    androidx.compose.ui.res.stringResource(bubbleName(style)),
+                    style = Zura.type.caption, color = if (style == current) c.text else c.textMuted, modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun bubbleName(s: app.zura.ui.theme.BubbleStyle) = when (s) {
+    app.zura.ui.theme.BubbleStyle.THEME -> R.string.bubbles_theme
+    app.zura.ui.theme.BubbleStyle.OCEAN -> R.string.bubbles_ocean
+    app.zura.ui.theme.BubbleStyle.LAVENDER -> R.string.bubbles_lavender
+    app.zura.ui.theme.BubbleStyle.ROSE -> R.string.bubbles_rose
+    app.zura.ui.theme.BubbleStyle.EMERALD -> R.string.bubbles_emerald
+    app.zura.ui.theme.BubbleStyle.SUNSET -> R.string.bubbles_sunset
+    app.zura.ui.theme.BubbleStyle.GRAPHITE -> R.string.bubbles_graphite
+}
+
+@Composable
+private fun AppLockSection() {
+    val ctx = LocalContext.current
+    val g = ctx.graph
+    val c = Zura.colors
+    val haptics = rememberHaptics()
+    val enabled by g.appLock.enabled.collectAsStateWithLifecycle()
+    val timeout by g.appLock.timeoutSec.collectAsStateWithLifecycle()
+    val secure = remember { g.appLock.deviceSecure() }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(R.string.app_lock), style = Zura.type.label, color = c.text)
+            Text(
+                stringResource(if (secure) R.string.app_lock_hint else R.string.app_lock_needs_screen_lock),
+                style = Zura.type.caption, color = if (secure) c.textMuted else c.danger,
+            )
+        }
+        androidx.compose.material3.Switch(
+            enabled, { on -> haptics.tick(); g.appLock.setEnabled(on) }, enabled = secure,
+            colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = c.accent, checkedThumbColor = c.onAccent),
+        )
+    }
+    if (enabled) {
+        Spacer(Modifier.height(12.dp))
+        Text(stringResource(R.string.lock_after), style = Zura.type.caption, color = c.textMuted)
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth().clip(CircleShape).background(c.surfaceHigh).padding(4.dp)) {
+            listOf(0 to R.string.lock_immediately, 60 to R.string.lock_1m, 300 to R.string.lock_5m, 1800 to R.string.lock_30m).forEach { (sec, label) ->
+                val sel = sec == timeout
+                Box(
+                    Modifier.weight(1f).clip(CircleShape).background(if (sel) c.accent else c.surfaceHigh)
+                        .clickable { haptics.tick(); g.appLock.setTimeout(sec) }.padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(stringResource(label), style = Zura.type.caption, color = if (sel) c.onAccent else c.text, maxLines = 1) }
+            }
+        }
     }
 }

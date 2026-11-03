@@ -114,7 +114,13 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
 
     // ---- voice
     val recorder get() = g.recorder
-    fun startRecording() { g.playback.stop(); g.recorder.start(); g.chats.setTyping(chatId, true) }
+    /** @return false if the microphone could not be started (shown to the user, never a crash). */
+    fun startRecording(): Boolean {
+        runCatching { g.playback.stop() }
+        val ok = g.recorder.start()
+        if (ok) g.chats.setTyping(chatId, true)
+        return ok
+    }
     fun cancelRecording() { g.recorder.cancel(); g.chats.setTyping(chatId, false) }
     fun finishRecording() = viewModelScope.launch {
         g.recorder.stop(chatId)?.let { g.chats.sendMedia(chatId, MsgKind.VOICE, it) }

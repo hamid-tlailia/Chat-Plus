@@ -206,6 +206,17 @@ Until then calls use STUN only (works on most networks; strict carrier NATs may 
   If the caller hangs up first, a `call_end` push stops the ringing.
 - **One-time setup:** see README → "Enable push".
 
+### v0.3 additions
+- **App lock**: platform BiometricPrompt (Class 3 biometrics or the phone PIN), lock timeout (immediately / 1 / 5 / 30 min);
+  while locked no chat UI is composed; calls still ring above the lock; notifications hide content; recents thumbnail hidden.
+- **Unlocked-device keys**: new chat-content KEKs use `setUnlockedDeviceRequired(true)` (API 28+) on StrongBox/TEE.
+  A locked phone cannot decrypt chats; messages arriving meanwhile stay E2EE on the server and are pulled on
+  `ACTION_USER_PRESENT`, with a content-free "New message" notification. Account/identity keys stay usable so calls ring.
+- **Message colours**: 7 bubble presets independent of the app theme (dark/light variants).
+- **Email confirmation deep link** `zura://auth/callback` signs the user in directly (needs the URL in Supabase Auth settings).
+- **Voice recorder** walks Opus → AAC and VOICE_COMMUNICATION → MIC configurations until one starts (OEM firmware quirks);
+  all MediaRecorder access is serialized. A crash handler keeps the last stack trace for Settings → "Last crash report".
+
 ### Known limits (v0.2)
 - Push needs the Firebase setup (README). Without it, calls/messages arrive only while the app is open.
 - The UI has been rendered and reviewed via JVM screenshots; it still needs a pass on physical phones,

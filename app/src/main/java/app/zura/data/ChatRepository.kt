@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -56,6 +57,8 @@ class ChatRepository(
             }
         }
         .flowOn(Dispatchers.IO)
+        // A chat key can be temporarily unusable (phone locked); retry instead of crashing.
+        .retryWhen { _, _ -> delay(3_000); true }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     fun messages(chatId: String): Flow<List<Message>> = flowOf(chatId).flatMapLatest { vault.chat(it).messages }.flowOn(Dispatchers.IO)

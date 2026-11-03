@@ -28,6 +28,17 @@ class MessageNotifier(private val context: Context) {
         ensureChannel()
         val sender = Person.Builder().setName(meta.title).setKey(m.senderId).build()
         val me = Person.Builder().setName(context.getString(R.string.app_name)).build()
+        // App lock on → never reveal who wrote what in the notification shade.
+        if ((context.applicationContext as app.zura.ZuraApp).graph.appLock.enabled.value) {
+            val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_launcher)
+                .setContentTitle(context.getString(R.string.app_name)).setContentText(context.getString(R.string.new_message))
+                .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setContentIntent(PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+                .build()
+            ensureChannel()
+            runCatching { NotificationManagerCompat.from(context).notify(LOCKED_ID, n) }
+            return
+        }
         val text = m.text?.takeIf { it.isNotBlank() && m.kind != MsgKind.CALL } ?: context.getString(
             when (m.kind) {
                 MsgKind.IMAGE -> R.string.photo
@@ -62,6 +73,18 @@ class MessageNotifier(private val context: Context) {
         runCatching { NotificationManagerCompat.from(context).notify(meta.id.hashCode(), n) }
     }
 
+    /** A message arrived but stays encrypted until the phone is unlocked. */
+    fun showPending(sender: String?) {
+        ensureChannel()
+        val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_launcher)
+            .setContentTitle(sender ?: context.getString(R.string.app_name))
+            .setContentText(context.getString(R.string.new_message))
+            .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setContentIntent(PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify(LOCKED_ID, n) }
+    }
+
     fun clear(chatId: String) {
         synchronized(lines) { lines.remove(chatId) }
         nm.cancel(chatId.hashCode())
@@ -72,5 +95,8 @@ class MessageNotifier(private val context: Context) {
         nm.createNotificationChannel(NotificationChannel(CHANNEL, context.getString(R.string.messages_channel), NotificationManager.IMPORTANCE_HIGH))
     }
 
-    private companion object { const val CHANNEL = "messages" }
+    private companion object {
+        const val CHANNEL = "messages"
+        const val LOCKED_ID = 7100
+    }
 }

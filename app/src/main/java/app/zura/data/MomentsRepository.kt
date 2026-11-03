@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,6 +65,7 @@ class MomentsRepository(
             list.sortedWith(compareByDescending<MomentGroup> { it.mine }.thenBy { it.allSeen }.thenByDescending { g -> g.items.last().sentAt })
         }
         .flowOn(Dispatchers.IO)
+        .retryWhen { _, _ -> kotlinx.coroutines.delay(3_000); true }
         .stateIn(scope, SharingStarted.Lazily, emptyList())
 
     suspend fun post(media: MediaRef, kind: MsgKind, caption: String?) = withContext(Dispatchers.IO) {

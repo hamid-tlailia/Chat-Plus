@@ -19,6 +19,31 @@ import androidx.compose.ui.unit.sp
 
 enum class ZuraThemeId { MIDNIGHT, OLED, VELVET_GOLD, LIGHT }
 
+/**
+ * Message colours, chosen independently of the app theme: a gradient for my bubbles and a calm
+ * tint for the other person's, each with a dark-mode and a light-mode variant so every combination
+ * keeps readable contrast. THEME = use the theme's own bubble colours.
+ */
+enum class BubbleStyle(
+    val mineA: Long, val mineB: Long, val onMine: Long,
+    val theirsDark: Long, val theirsLight: Long,
+) {
+    THEME(0, 0, 0, 0, 0),
+    OCEAN(0xFF0EA5E9, 0xFF2563EB, 0xFFFFFFFF, 0xFF13283A, 0xFFE4F1FB),
+    LAVENDER(0xFFA78BFA, 0xFF7C3AED, 0xFFFFFFFF, 0xFF241B3A, 0xFFF0EBFE),
+    ROSE(0xFFF43F5E, 0xFFDB2777, 0xFFFFFFFF, 0xFF341822, 0xFFFCE8EE),
+    EMERALD(0xFF10B981, 0xFF047857, 0xFFFFFFFF, 0xFF12302A, 0xFFE3F6EE),
+    SUNSET(0xFFFBBF24, 0xFFF97316, 0xFF1A1206, 0xFF33240F, 0xFFFDF0DC),
+    GRAPHITE(0xFF52525B, 0xFF27272A, 0xFFFFFFFF, 0xFF18181B, 0xFFEDEDF0);
+
+    fun applyTo(p: ZuraPalette): ZuraPalette = if (this == THEME) p else p.copy(
+        bubbleMine = Color(mineA), bubbleMineAlt = Color(mineB), onBubbleMine = Color(onMine),
+        bubbleTheirs = Color(if (p.isDark) theirsDark else theirsLight),
+        onBubbleTheirs = if (p.isDark) Color(0xFFF2F1F7) else Color(0xFF111114),
+        read = if (onMine == 0xFF1A1206) Color(0xFF6B3E00) else Color(0xFFBDF4FF),
+    )
+}
+
 /** Every color the UI uses. No component reads Material colors directly. */
 @Immutable
 data class ZuraPalette(
@@ -127,8 +152,8 @@ object Zura {
 
 /** Theme switch cross-fades every token over 450 ms — no activity recreate, no flash. */
 @Composable
-fun ZuraTheme(id: ZuraThemeId, content: @Composable () -> Unit) {
-    val t = ZuraPalettes.of(id)
+fun ZuraTheme(id: ZuraThemeId, bubbles: BubbleStyle = BubbleStyle.THEME, content: @Composable () -> Unit) {
+    val t = bubbles.applyTo(ZuraPalettes.of(id))
     @Composable fun a(c: Color) = animateColorAsState(c, tween(450), label = "theme").value
     val p = ZuraPalette(
         t.isDark, a(t.bg), a(t.bgAccent), a(t.surface), a(t.surfaceHigh), a(t.glass), a(t.glassStroke),

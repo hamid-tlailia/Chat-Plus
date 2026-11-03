@@ -15,6 +15,7 @@ open class ZuraApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
         graph = AppGraph(this)
         app.zura.push.Push.init(this)
         // Resume the remembered account immediately (also when woken by a push in the background).
@@ -25,11 +26,19 @@ open class ZuraApp : Application() {
         // and for the whole duration of a call.
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             private var pending: Job? = null
-            override fun onStart(owner: LifecycleOwner) { pending?.cancel(); graph.session.value?.onForeground() }
+            override fun onStart(owner: LifecycleOwner) { pending?.cancel(); graph.appLock.onForeground(); graph.session.value?.onForeground() }
             override fun onStop(owner: LifecycleOwner) {
+                graph.appLock.onBackground()
                 pending = graph.scope.launch { delay(30_000); graph.session.value?.onBackground() }
             }
         })
+        // Phone unlocked → chat keys work again: pull anything that waited on the server.
+        registerReceiver(object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: android.content.Context, i: android.content.Intent) {
+                graph.session.value?.let { s -> s.scope.launch { runCatching { s.transport.syncInbox() } } }
+            }
+        }, android.content.IntentFilter(android.content.Intent.ACTION_USER_PRESENT))
+
         // A new sign-in while the app is visible connects immediately.
         graph.scope.launch {
             graph.accounts.session.collect { s ->

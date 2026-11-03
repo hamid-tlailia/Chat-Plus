@@ -84,18 +84,23 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         deepLink.value = intent.getStringExtra(EXTRA_CHAT)
+        handleAuthLink(intent)
 
-        // Optional: block screenshots / screen recording and blank the app in "recents".
+        // Block screenshots / screen recording when asked. With app lock on, also keep chats out of
+        // the recents thumbnail (API 33+ can do that without blocking screenshots altogether).
         lifecycleScope.launch {
-            g.settings.secureScreen.collect { on ->
-                if (on) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            kotlinx.coroutines.flow.combine(g.settings.secureScreen, g.appLock.enabled) { s, l -> s to l }.collect { (secure, lock) ->
+                val flag = secure || (lock && android.os.Build.VERSION.SDK_INT < 33)
+                if (flag) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                if (android.os.Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!lock && !secure)
             }
         }
 
         setContent {
             val theme by g.settings.theme.collectAsStateWithLifecycle()
             val auth by g.accounts.state.collectAsStateWithLifecycle()
-            ZuraTheme(theme) {
+            val bubbles by g.settings.bubbles.collectAsStateWithLifecycle()
+            ZuraTheme(theme, bubbles) {
                 Box(Modifier.fillMaxSize().zuraBackground()) {
                     when (val a = auth) {
                         AuthState.Loading -> Unit
@@ -116,18 +121,33 @@ class MainActivity : ComponentActivity() {
             session.chats.chats.debounce(2_000).collect { DirectShare.publish(this@MainActivity, it) }
         }
         val call by session.calls.ui.collectAsStateWithLifecycle()
+        val locked by graph.appLock.locked.collectAsStateWithLifecycle()
         BackHandler(enabled = nav.stack.size > 1 && call.phase == app.zura.call.CallPhase.IDLE) { nav.pop() }
         Box(Modifier.fillMaxSize()) {
-            NavHost(nav)
-            // The call UI sits above everything, so navigation state is untouched by calls.
+            // Locked: chats are not even composed — nothing to leak.
+            if (locked) app.zura.security.LockScreen(graph.appLock)
+            else {
+                NavHost(nav)
+                app.zura.push.PushPermissionPrompts()
+            }
+            // Calls ring and can be answered above the lock (like WhatsApp).
             CallScreen(session.calls)
-            app.zura.push.PushPermissionPrompts()
         }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_CHAT)?.let { deepLink.value = it }
+        handleAuthLink(intent)
+    }
+
+    /** Email-confirmation link → sign in directly. */
+    private fun handleAuthLink(intent: Intent?) {
+        val uri = intent?.data?.takeIf { it.scheme == "zura" && it.host == "auth" } ?: return
+        lifecycleScope.launch {
+            val r = graph.accounts.handleAuthLink(uri)
+            if (r is app.zura.account.AuthResult.Error) android.widget.Toast.makeText(this@MainActivity, r.message, android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 
     companion object { const val EXTRA_CHAT = "zura.chat" }

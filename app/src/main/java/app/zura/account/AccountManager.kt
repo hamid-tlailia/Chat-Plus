@@ -97,7 +97,8 @@ class AccountManager(
         lock.withLock {
             withContext(Dispatchers.IO) {
                 runCatching {
-                    val user = backend.client.auth.signUpWith(Email) {
+                    // The confirmation link opens the app directly (zura://auth/callback) and signs in.
+                    val user = backend.client.auth.signUpWith(Email, redirectUrl = AUTH_CALLBACK) {
                         this.email = email.trim(); this.password = password
                         data = buildJsonObject { put("username", username.trim()); put("display_name", displayName.trim()) }
                     }
@@ -142,6 +143,28 @@ class AccountManager(
                 store.session(uid).shred()
                 AuthResult.NeedPassword
             }
+        }
+    }
+
+    /**
+     * The email-confirmation link came back to the app: zura://auth/callback#access_token=…&refresh_token=…
+     * Import that session and sign straight in — no password needed.
+     */
+    suspend fun handleAuthLink(uri: android.net.Uri): AuthResult = lock.withLock {
+        withContext(Dispatchers.IO) {
+            val raw = uri.fragment ?: uri.query ?: return@withContext AuthResult.Error(app.getString(R.string.err_generic))
+            val p = raw.split('&').mapNotNull { kv -> kv.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to android.net.Uri.decode(it[1]) } }.toMap()
+            p["error_description"]?.let { return@withContext AuthResult.Error(it.replace('+', ' ')) }
+            val access = p["access_token"] ?: return@withContext AuthResult.Error(app.getString(R.string.err_generic))
+            val refresh = p["refresh_token"] ?: return@withContext AuthResult.Error(app.getString(R.string.err_generic))
+            runCatching {
+                backend.client.auth.importAuthToken(access, refresh, retrieveUser = true, autoRefresh = true)
+                val s = backend.client.auth.currentSessionOrNull() ?: error("no session")
+                val uid = s.user?.id ?: error("no user")
+                val email = s.user?.email ?: store.get(uid)?.email.orEmpty()
+                activate(uid, email, store.get(uid)?.remember ?: true, s)
+                AuthResult.Ok
+            }.getOrElse { AuthResult.Error(friendly(it)) }
         }
     }
 
@@ -217,5 +240,8 @@ class AccountManager(
         }
     }
 
-    private companion object { const val K_ACTIVE = "active_uid" }
+    companion object {
+        private const val K_ACTIVE = "active_uid"
+        const val AUTH_CALLBACK = "zura://auth/callback"
+    }
 }

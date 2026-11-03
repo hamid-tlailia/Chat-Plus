@@ -10,6 +10,7 @@ import app.zura.core.crypto.AndroidKeystoreWrapper
 import app.zura.core.crypto.KeyWrapper
 import app.zura.data.SettingsStore
 import app.zura.net.Backend
+import app.zura.security.AppLock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,6 +29,7 @@ class AppGraph(val app: Application) {
     val backend by lazy { Backend() }
     val accountStore by lazy { AccountStore(File(app.filesDir, "zura"), keys) }
     val accounts by lazy { AccountManager(app, backend, accountStore, scope) }
+    val appLock by lazy { AppLock(app, app.getSharedPreferences("zura_lock", Context.MODE_PRIVATE)) }
     val avatars by lazy { AvatarCache(backend, File(app.cacheDir, "av"), keys) }
 
     val session: StateFlow<AccountSession?> get() = accounts.session

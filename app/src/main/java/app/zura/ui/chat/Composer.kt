@@ -61,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -103,7 +104,8 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
-    Column(modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 8.dp, vertical = 8.dp)) {
+    // Gesture-nav phones report a tiny bottom inset; keep a comfortable thumb margin above the edge.
+    Column(modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 14.dp)) {
         // Reply / edit context banner
         AnimatedVisibility(vm.replyTo != null || vm.editing != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             val target = vm.editing ?: vm.replyTo
@@ -113,6 +115,18 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
             ) {
                 Icon(if (vm.editing != null) Icons.Default.Edit else ZuraIcons.Reply, null, tint = c.accent, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(10.dp))
+                // Replying to a photo/video: show it, like the quote inside the bubble will.
+                val thumb = androidx.compose.runtime.remember(target?.media?.preview) {
+                    target?.media?.preview?.let(app.zura.media.Previews::decode)?.asImageBitmap()
+                }
+                if (thumb != null) {
+                    androidx.compose.foundation.Image(
+                        thumb, null,
+                        Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                }
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(if (vm.editing != null) R.string.action_edit else R.string.action_reply), style = Zura.type.caption, color = c.accent)
                     Text(target?.text ?: target?.let { stringResource(kindLabel(it.kind)) } ?: "", style = Zura.type.label, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -178,16 +192,26 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
                                 if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                                     micPermission.launch(Manifest.permission.RECORD_AUDIO); return@awaitEachGesture
                                 }
-                                haptics.start(); vm.startRecording(); cancelDrag = 0f
+                                if (!vm.startRecording()) {
+                                    haptics.reject()
+                                    android.widget.Toast.makeText(ctx, R.string.mic_unavailable, android.widget.Toast.LENGTH_SHORT).show()
+                                    return@awaitEachGesture
+                                }
+                                haptics.start(); cancelDrag = 0f
                                 var cancelled = false
-                                while (true) {
-                                    val ev = awaitPointerEvent()
-                                    val ch = ev.changes.first()
-                                    val dx = ch.positionChange().x
-                                    cancelDrag = (cancelDrag + if (rtl) dx else -dx).coerceAtLeast(0f)
-                                    ch.consume()
-                                    if (cancelDrag > cancelAt) { cancelled = true; haptics.reject(); vm.cancelRecording(); break }
-                                    if (!ch.pressed) break
+                                try {
+                                    while (true) {
+                                        val ev = awaitPointerEvent()
+                                        val ch = ev.changes.firstOrNull() ?: break
+                                        val dx = ch.positionChange().x
+                                        cancelDrag = (cancelDrag + if (rtl) dx else -dx).coerceAtLeast(0f)
+                                        ch.consume()
+                                        if (cancelDrag > cancelAt) { cancelled = true; haptics.reject(); vm.cancelRecording(); break }
+                                        if (!ch.pressed) break
+                                    }
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    // Gesture interrupted (screen left, system dialog…): discard, don't crash.
+                                    vm.cancelRecording(); throw e
                                 }
                                 if (!cancelled) { haptics.confirm(); vm.finishRecording() }
                                 cancelDrag = 0f

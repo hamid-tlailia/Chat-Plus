@@ -69,7 +69,7 @@
     <string name="have_account">لديك حساب؟ سجّل الدخول</string>
     <string name="no_account">جديد في زورا؟ أنشئ حساباً</string>
     <string name="confirm_email_title">أكّد بريدك الإلكتروني</string>
-    <string name="confirm_email_body">أرسلنا رابط تأكيد إلى %1$s. افتحه ثم سجّل الدخول هنا.</string>
+    <string name="confirm_email_body">أرسلنا رابط تأكيد إلى %1$s. افتحه على هذا الهاتف — سيفتح زورا ويسجّل دخولك تلقائياً.</string>
     <string name="remove_account">إزالة من هذا الجهاز</string>
     <string name="remove_account_confirm">مسح محادثات هذا الحساب ووسائطه ومفاتيحه من هذا الهاتف؟ لن يُحذف الحساب نفسه.</string>
     <string name="signing_in">جارٍ تسجيل الدخول…</string>
@@ -166,4 +166,34 @@
     <string name="push_on">مفعّل — يستيقظ هاتفك للمكالمات والرسائل</string>
     <string name="push_off">غير مفعّل — يحتاج إعداد Firebase في بناء التطبيق</string>
     <string name="fullscreen_calls">المكالمات الواردة بملء الشاشة</string>
+    <string name="mic_unavailable">الميكروفون غير متاح حالياً</string>
+    <string name="chat_colors">ألوان الرسائل</string>
+    <string name="bubbles_theme">السمة</string>
+    <string name="bubbles_ocean">محيط</string>
+    <string name="bubbles_lavender">لافندر</string>
+    <string name="bubbles_rose">وردي</string>
+    <string name="bubbles_emerald">زمرّدي</string>
+    <string name="bubbles_sunset">غروب</string>
+    <string name="bubbles_graphite">رمادي</string>
+    <string name="unlock_zura">فتح زورا</string>
+    <string name="unlock_subtitle">استخدم البصمة أو الوجه أو رمز قفل الهاتف</string>
+    <string name="zura_locked">زورا مقفل</string>
+    <string name="unlock">فتح</string>
+    <string name="app_lock">قفل التطبيق</string>
+    <string name="app_lock_hint">يلزم البصمة أو الوجه أو رمز الهاتف لفتح زورا</string>
+    <string name="app_lock_needs_screen_lock">فعّل قفل شاشة للهاتف أولاً (رمز أو نمط أو كلمة مرور)</string>
+    <string name="lock_after">القفل</string>
+    <string name="lock_immediately">فوراً</string>
+    <string name="lock_1m">بعد دقيقة</string>
+    <string name="lock_5m">بعد 5 دقائق</string>
+    <string name="lock_30m">بعد 30 دقيقة</string>
+    <string name="security_title">حماية البيانات</string>
+    <string name="security_details">• كل محادثة وصورة وفيديو ورسالة صوتية مشفّرة على هذا الهاتف بـ AES-256-GCM، ولكل محادثة ولكل ملف مفتاحه الخاص.
+• المفاتيح محفوظة داخل الشريحة الآمنة للهاتف (StrongBox/TEE) ولا يمكن إخراجها أبداً: أي نسخة من ملفات زورا — على حاسوب أو في نسخة احتياطية أو على هاتف آخر — مجرد بيانات عشوائية لا تُفتح أبداً.
+• مفاتيح المحادثات الجديدة لا تعمل إلا والهاتف مفتوح القفل: حتى من يمسك الهاتف وهو مقفل لا يستطيع فك المحادثات.
+• الحذف يتلف المفتاح نفسه داخل الشريحة الآمنة، فلا يمكن استرجاع المحذوف أبداً.
+• الرسائل والمكالمات مشفّرة من الطرف إلى الطرف؛ الخادم يمرّر بيانات مبهمة فقط ويمسحها فور التسليم.</string>
+    <string name="crash_report">تقرير آخر توقف</string>
+    <string name="crash_report_hint">توقف زورا بشكل مفاجئ في المرة السابقة. انسخ هذا التقرير وأرسله للمطوّر — يحتوي تفاصيل تقنية فقط، دون أي رسائل.</string>
+    <string name="copied">تم النسخ</string>
 </resources>

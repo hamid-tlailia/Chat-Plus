@@ -10,6 +10,8 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
@@ -255,6 +257,27 @@ class DesignScreenshots {
         setup = { it!!.calls.previewForTest(callUi(CallPhase.INCOMING, video = true, ar = false)) }) { CallScreen(rule.activity.graph.s.calls) }
     @Test fun s16_call_active_ar() = shoot("16_call_active_voice_ar", true, ZuraThemeId.MIDNIGHT, manualClock = true,
         setup = { it!!.calls.previewForTest(callUi(CallPhase.ACTIVE, video = false, ar = true, net = NetType.CELLULAR)) }) { CallScreen(rule.activity.graph.s.calls) }
+    @Test fun s18_lock_ar() = shoot("18_app_lock_velvet_ar", true, ZuraThemeId.VELVET_GOLD, setup = {
+        org.robolectric.Shadows.shadowOf(rule.activity.getSystemService(android.app.KeyguardManager::class.java)).setIsDeviceSecure(true)
+        rule.activity.graph.appLock.setEnabled(true); rule.activity.graph.appLock.lockNow()
+    }) { app.zura.security.LockScreen(rule.activity.graph.appLock) }
+
+    @Test fun s19_reply_photo_ocean() = shoot("19_reply_photo_ocean_en", false, ZuraThemeId.MIDNIGHT,
+        setup = { rule.activity.graph.settings.setBubbles(app.zura.ui.theme.BubbleStyle.OCEAN) },
+        after = {
+            rule.runOnUiThread {
+                val vm = androidx.lifecycle.ViewModelProvider(rule.activity.viewModelStore, androidx.lifecycle.ViewModelProvider.NewInstanceFactory())[sara, app.zura.ui.chat.ChatViewModel::class.java]
+                vm.replyTo = rule.activity.graph.s.vault.chat(sara).get("m3")
+            }
+        }) {
+        val b by rule.activity.graph.settings.bubbles.collectAsStateWithLifecycle()
+        ZuraTheme(ZuraThemeId.MIDNIGHT, b) { ChatScreen(sara, {}, {}) }
+    }
+
+    @Test fun s20_bubbles_rose_light() = shoot("20_bubbles_rose_light_en", false, ZuraThemeId.LIGHT) {
+        ZuraTheme(ZuraThemeId.LIGHT, app.zura.ui.theme.BubbleStyle.ROSE) { ChatScreen(sara, {}, {}) }
+    }
+
     @Test fun s17_call_reconnecting() = shoot("17_call_reconnecting_en", false, ZuraThemeId.MIDNIGHT, manualClock = true,
         setup = { it!!.calls.previewForTest(callUi(CallPhase.RECONNECTING, video = false, ar = false, quality = NetQuality.POOR, net = NetType.CELLULAR)) }) { CallScreen(rule.activity.graph.s.calls) }
 }

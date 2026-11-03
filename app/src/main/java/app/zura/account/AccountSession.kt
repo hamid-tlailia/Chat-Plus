@@ -75,7 +75,13 @@ class AccountSession(
                 is Frame.MomentPost -> moments.handle(from, f)
                 is Frame.CallOffer, is Frame.CallAnswer, is Frame.CallIce, is Frame.CallEnd,
                 is Frame.CallRinging, is Frame.CallRestartRequest, is Frame.CallMedia -> calls.handle(from, f)
-                else -> chats.handle(from, f)
+                else -> try {
+                    chats.handle(from, f)
+                } catch (e: Exception) {
+                    // Couldn't store it (phone locked → chat keys unusable). Still tell the user.
+                    if (f is Frame.Msg) notifier.showPending(contacts.profile(from)?.displayName)
+                    throw e
+                }
             }
         }
     }

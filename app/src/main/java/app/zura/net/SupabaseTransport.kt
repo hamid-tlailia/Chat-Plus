@@ -157,9 +157,16 @@ class SupabaseTransport(
                 if (!seen.add(r.id)) { done += r.id; return@synchronized null } else Unit
             } ?: continue
             if (seen.size > 2048) synchronized(seen) { repeat(1024) { seen.remove(seen.first()) } }
+            // Sender's key not fetchable right now (offline) → keep the row and retry later.
+            if (peerKey(r.senderId) == null) { synchronized(seen) { seen.remove(r.id) }; continue }
             val frame = open(r.senderId, r.payload)
-            if (frame != null) runCatching { onFrame(r.senderId, frame) }
-            // Delete even undecryptable rows: they can never be read and must not linger server-side.
+            if (frame != null && runCatching { onFrame(r.senderId, frame) }.isFailure) {
+                // Not stored locally (e.g. the phone is locked, so chat keys refuse to work):
+                // leave it on the server, it is processed on the next sync after unlock.
+                synchronized(seen) { seen.remove(r.id) }
+                continue
+            }
+            // Delivered — or permanently undecryptable (forged/corrupt): either way it must not linger server-side.
             done += r.id
         }
         if (done.isNotEmpty()) runCatching {

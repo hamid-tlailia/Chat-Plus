@@ -69,7 +69,7 @@
     <string name="have_account">Already have an account? Log in</string>
     <string name="no_account">New to Zura? Create an account</string>
     <string name="confirm_email_title">Confirm your email</string>
-    <string name="confirm_email_body">We sent a confirmation link to %1$s. Open it, then log in here.</string>
+    <string name="confirm_email_body">We sent a confirmation link to %1$s. Open it on this phone — Zura will open and sign you in.</string>
     <string name="remove_account">Remove from this device</string>
     <string name="remove_account_confirm">Erase this account\'s chats, media and keys from this phone? Your account itself is not deleted.</string>
     <string name="signing_in">Signing in…</string>
@@ -166,4 +166,34 @@
     <string name="push_on">On — your phone wakes for calls and messages</string>
     <string name="push_off">Off — needs Firebase configuration in the app build</string>
     <string name="fullscreen_calls">Full-screen incoming calls</string>
+    <string name="mic_unavailable">The microphone is unavailable right now</string>
+    <string name="chat_colors">Message colors</string>
+    <string name="bubbles_theme">Theme</string>
+    <string name="bubbles_ocean">Ocean</string>
+    <string name="bubbles_lavender">Lavender</string>
+    <string name="bubbles_rose">Rose</string>
+    <string name="bubbles_emerald">Emerald</string>
+    <string name="bubbles_sunset">Sunset</string>
+    <string name="bubbles_graphite">Graphite</string>
+    <string name="unlock_zura">Unlock Zura</string>
+    <string name="unlock_subtitle">Use your fingerprint, face or phone PIN</string>
+    <string name="zura_locked">Zura is locked</string>
+    <string name="unlock">Unlock</string>
+    <string name="app_lock">App lock</string>
+    <string name="app_lock_hint">Fingerprint, face or your phone PIN is required to open Zura</string>
+    <string name="app_lock_needs_screen_lock">Set a screen lock (PIN, pattern or password) on your phone first</string>
+    <string name="lock_after">Lock</string>
+    <string name="lock_immediately">Immediately</string>
+    <string name="lock_1m">After 1 min</string>
+    <string name="lock_5m">After 5 min</string>
+    <string name="lock_30m">After 30 min</string>
+    <string name="security_title">Data protection</string>
+    <string name="security_details">• Every chat, photo, video and voice note is encrypted on this phone with AES-256-GCM, each chat and each file with its own key.
+• The keys live inside the phone\'s secure chip (StrongBox/TEE) and can never be exported: a copy of Zura\'s files — on a computer, in a backup or on another phone — is unreadable noise, forever.
+• New chat keys only work while the phone is unlocked: even with the phone in hand, a locked phone cannot decrypt your chats.
+• Deleting destroys the key itself inside the secure chip, so deleted data can never be recovered.
+• Messages and calls are end-to-end encrypted; the server only ever relays opaque data and erases it on delivery.</string>
+    <string name="crash_report">Last crash report</string>
+    <string name="crash_report_hint">Zura closed unexpectedly last time. Copy this report and send it to the developer — it contains only technical details, no messages.</string>
+    <string name="copied">Copied</string>
 </resources>

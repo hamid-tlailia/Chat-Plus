@@ -69,7 +69,9 @@ class ShareReceiverActivity : ComponentActivity() {
             val g = graph
             val theme by g.settings.theme.collectAsStateWithLifecycle()
             val chats by g.chats.chats.collectAsStateWithLifecycle()
+            val locked by g.appLock.locked.collectAsStateWithLifecycle()
             ZuraTheme(theme) {
+                if (locked) { app.zura.security.LockScreen(g.appLock); return@ZuraTheme }
                 Box(Modifier.fillMaxSize().clickable(onClick = ::finish), contentAlignment = Alignment.BottomCenter) {
                     Column(
                         Modifier

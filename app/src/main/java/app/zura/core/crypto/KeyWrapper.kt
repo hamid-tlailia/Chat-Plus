@@ -33,13 +33,33 @@ class AndroidKeystoreWrapper : KeyWrapper {
     private val ks: KeyStore by lazy { KeyStore.getInstance(PROVIDER).apply { load(null) } }
 
     private fun kek(alias: String): SecretKey =
-        (ks.getKey(alias, null) as? SecretKey) ?: generate(alias, strongBox = Build.VERSION.SDK_INT >= 28)
+        (ks.getKey(alias, null) as? SecretKey) ?: generateBest(alias)
+
+    /**
+     * Chat-content keys ("…zc_…") additionally require an UNLOCKED phone (API 28+): a seized or
+     * stolen phone that is locked cannot decrypt a single chat, even with forensic tools driving
+     * the app. Account/session/identity keys stay usable while locked so calls can still ring.
+     * Tries the strongest combination first and degrades only if the hardware refuses.
+     */
+    private fun generateBest(alias: String): SecretKey {
+        val content = alias.contains("zc_") && Build.VERSION.SDK_INT >= 28
+        val attempts = buildList {
+            if (Build.VERSION.SDK_INT >= 28) add(true to content)
+            add(false to content)
+            if (content) add(false to false)
+        }
+        var last: Exception? = null
+        for ((sb, unlocked) in attempts) {
+            try { return generate(alias, sb, unlocked) } catch (e: Exception) { last = e }
+        }
+        throw last ?: IllegalStateException("key generation failed")
+    }
 
     /**
      * Prefer StrongBox (a dedicated tamper-resistant secure chip, e.g. Titan M) and fall back to
      * the TEE when the device has none. Either way the key material never exists in app memory.
      */
-    private fun generate(alias: String, strongBox: Boolean): SecretKey = try {
+    private fun generate(alias: String, strongBox: Boolean, unlockedOnly: Boolean): SecretKey =
         KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, PROVIDER).apply {
             init(
                 KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
@@ -47,14 +67,15 @@ class AndroidKeystoreWrapper : KeyWrapper {
                     .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                     .setKeySize(256)
                     .setRandomizedEncryptionRequired(true)
-                    .apply { if (strongBox && Build.VERSION.SDK_INT >= 28) setIsStrongBoxBacked(true) }
+                    .apply {
+                        if (Build.VERSION.SDK_INT >= 28) {
+                            if (strongBox) setIsStrongBoxBacked(true)
+                            if (unlockedOnly) setUnlockedDeviceRequired(true)
+                        }
+                    }
                     .build(),
             )
         }.generateKey()
-    } catch (e: Exception) {
-        if (strongBox && Build.VERSION.SDK_INT >= 28 && e is android.security.keystore.StrongBoxUnavailableException) generate(alias, false)
-        else throw e
-    }
 
     override fun wrap(alias: String, plain: ByteArray): ByteArray {
         val c = Cipher.getInstance(Crypto.GCM)
