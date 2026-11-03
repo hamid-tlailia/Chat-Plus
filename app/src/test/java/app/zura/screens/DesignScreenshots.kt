@@ -278,6 +278,27 @@ class DesignScreenshots {
         ZuraTheme(ZuraThemeId.LIGHT, app.zura.ui.theme.BubbleStyle.ROSE) { ChatScreen(sara, {}, {}) }
     }
 
+    /** Mid-transition frames: settings opening / closing, English and Arabic. */
+    private fun transition(name: String, ar: Boolean, open: Boolean) {
+        if (ar) RuntimeEnvironment.setQualifiers("+ar-ldrtl")
+        signIn(ar)
+        val nav = app.zura.Navigator(app.zura.Route.Chats).apply { if (!open) push(app.zura.Route.Settings) }
+        rule.mainClock.autoAdvance = false
+        rule.setContent { ZuraTheme(ZuraThemeId.MIDNIGHT) { Box(Modifier.fillMaxSize().zuraBackground()) { app.zura.NavHost(nav) } } }
+        repeat(6) { Thread.sleep(200); rule.mainClock.advanceTimeBy(400) }
+        rule.runOnUiThread {
+            if (open) nav.push(app.zura.Route.Settings) else nav.pop()
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        }
+        repeat(3) { rule.mainClock.advanceTimeByFrame() }
+        rule.mainClock.advanceTimeBy(90)
+        rule.onRoot().captureRoboImage("$out/$name.png")
+    }
+    @Test fun t1_open_en() = transition("t1_settings_open_en", false, true)
+    @Test fun t2_close_en() = transition("t2_settings_close_en", false, false)
+    @Test fun t3_open_ar() = transition("t3_settings_open_ar", true, true)
+    @Test fun t4_close_ar() = transition("t4_settings_close_ar", true, false)
+
     @Test fun s17_call_reconnecting() = shoot("17_call_reconnecting_en", false, ZuraThemeId.MIDNIGHT, manualClock = true,
         setup = { it!!.calls.previewForTest(callUi(CallPhase.RECONNECTING, video = false, ar = false, quality = NetQuality.POOR, net = NetType.CELLULAR)) }) { CallScreen(rule.activity.graph.s.calls) }
 }

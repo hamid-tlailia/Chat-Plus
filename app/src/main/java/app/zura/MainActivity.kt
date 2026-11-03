@@ -64,9 +64,12 @@ sealed interface Route {
 class Navigator(start: Route) {
     val stack = mutableStateListOf(start)
     val top: Route get() = stack.last()
-    fun push(r: Route) { if (top != r) stack.add(r) }
-    fun pop(): Boolean = if (stack.size > 1) { stack.removeAt(stack.lastIndex); true } else false
-    fun reset(vararg r: Route) { stack.clear(); stack.addAll(r) }
+    /** Direction of the last navigation; read by the transition (idempotent, unlike counting). */
+    var forward = true
+        private set
+    fun push(r: Route) { if (top != r) { forward = true; stack.add(r) } }
+    fun pop(): Boolean = if (stack.size > 1) { forward = false; stack.removeAt(stack.lastIndex); true } else false
+    fun reset(vararg r: Route) { forward = true; stack.clear(); stack.addAll(r) }
 }
 
 class MainActivity : ComponentActivity() {
@@ -154,27 +157,31 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun NavHost(nav: Navigator) {
-    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val dir = if (rtl) -1 else 1
-    val slide = spring(dampingRatio = 1f, stiffness = 500f, visibilityThreshold = IntOffset(1, 1))
-    val depth = remember { intArrayOf(nav.stack.size) }
+internal fun NavHost(nav: Navigator) {
+    // Same motion in English and Arabic, for every page:
+    //   open  → the new page slides in from the LEFT edge, moving left → right;
+    //           the page underneath drifts slightly right and dims.
+    //   close → reverse: the page slides back out to the left (right → left) and the
+    //           previous page settles back from the right.
+    // Offsets are absolute screen pixels (not mirrored by RTL), so both languages match.
+    val slide = spring(dampingRatio = 1f, stiffness = 420f, visibilityThreshold = IntOffset(1, 1))
+    val fade = spring<Float>(stiffness = 420f)
     AnimatedContent(
         targetState = nav.top,
         transitionSpec = {
-            val forward = nav.stack.size >= depth[0]
-            depth[0] = nav.stack.size
-            val overlay = targetState is Route.Moments || targetState is Route.Media || initialState is Route.Moments || initialState is Route.Media
-            when {
-                // Immersive viewers zoom from the content instead of sliding.
-                overlay -> (fadeIn(spring(stiffness = 600f)) + scaleIn(spring(stiffness = 600f), initialScale = 0.94f)) togetherWith
-                    (fadeOut(spring(stiffness = 800f)) + scaleOut(spring(stiffness = 800f), targetScale = 0.97f))
-                forward -> slideInHorizontally(slide) { it * dir } togetherWith slideOutHorizontally(slide) { -it / 4 * dir } + fadeOut()
-                else -> slideInHorizontally(slide) { -it / 4 * dir } + fadeIn() togetherWith slideOutHorizontally(slide) { it * dir }
-            }
+            val forward = nav.forward
+            if (forward) {
+                (slideInHorizontally(slide) { -it }) togetherWith
+                    (slideOutHorizontally(slide) { it / 5 } + fadeOut(fade, targetAlpha = 0.6f))
+            } else {
+                (slideInHorizontally(slide) { it / 5 } + fadeIn(fade, initialAlpha = 0.6f)) togetherWith
+                    (slideOutHorizontally(slide) { -it })
+            }.apply { targetContentZIndex = if (forward) 1f else 0f }
         },
         label = "nav",
     ) { route ->
+      // Each page is opaque, so the sliding page cleanly covers the one beneath it.
+      Box(Modifier.fillMaxSize().zuraBackground()) {
         when (route) {
             Route.Chats -> ChatListScreen(
                 onOpen = { nav.push(Route.Chat(it)) },
@@ -188,5 +195,6 @@ private fun NavHost(nav: Navigator) {
             is Route.Moments -> MomentViewer(route.startOwner, onClose = { nav.pop() })
             is Route.Media -> MediaViewer(route.chatId, route.messageId, onClose = { nav.pop() })
         }
+      }
     }
 }
