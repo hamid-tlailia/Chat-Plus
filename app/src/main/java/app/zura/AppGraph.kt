@@ -32,7 +32,7 @@ class AppGraph(val app: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val settings by lazy { SettingsStore(app.getSharedPreferences("zura", Context.MODE_PRIVATE)) }
-    val keys: KeyWrapper by lazy { AndroidKeystoreWrapper() }
+    val keys: KeyWrapper by lazy { keyOverride ?: AndroidKeystoreWrapper() }
     val vault by lazy { VaultStore(ZuraPaths(app.filesDir, app.noBackupFilesDir, app.cacheDir), keys) }
     val relay by lazy {
         RelayClient(BuildConfig.RELAY_URL, scope) { Frame.Hello(settings.userId, token = "", since = settings.lastSeq) }
@@ -48,4 +48,10 @@ class AppGraph(val app: Application) {
     val playback by lazy { MediaPlayback(app, vault, scope) }
     val exporter by lazy { MediaExporter(app, vault) }
     val janitor by lazy { StorageJanitor(vault, keys) }
+
+    companion object {
+        /** Test hook: JVM screenshot/unit tests have no Android Keystore. */
+        @androidx.annotation.VisibleForTesting
+        var keyOverride: KeyWrapper? = null
+    }
 }

@@ -203,6 +203,11 @@ private fun Quote(q: Message, onFill: Color) {
     ) {
         Box(Modifier.width(3.dp).height(32.dp).clip(CircleShape).background(onFill.copy(alpha = 0.6f)))
         Spacer(Modifier.width(8.dp))
+        val thumb = remember(q.media?.preview) { q.media?.preview?.let(Previews::decode)?.asImageBitmap() }
+        if (thumb != null) {
+            Image(thumb, null, Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
+            Spacer(Modifier.width(8.dp))
+        }
         Text(
             q.text ?: stringResource(kindLabel(q.kind)), color = onFill.copy(alpha = 0.85f),
             style = Zura.type.label.copy(textDirection = TextDirection.Content), maxLines = 2, overflow = TextOverflow.Ellipsis,

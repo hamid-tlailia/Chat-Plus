@@ -131,7 +131,7 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
 
         // Floating glass top bar
         Row(
-            Modifier.fillMaxWidth().glass(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp))
+            Modifier.fillMaxWidth().glass(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp), solid = 0.88f)
                 .padding(top = top).height(56.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -202,7 +202,7 @@ private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, onClick: () -> Unit, onLongCli
                     MsgKind.VIDEO -> stringResource(R.string.video)
                     MsgKind.VOICE -> stringResource(R.string.voice_message)
                     MsgKind.FILE -> stringResource(R.string.file)
-                    MsgKind.TEXT -> ""
+                    MsgKind.TEXT -> if (c.peerIds.isEmpty()) stringResource(R.string.notes_hint) else ""
                 }
                 Text(preview, style = Zura.type.label.copy(fontWeight = null), color = col.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (c.unread > 0) {

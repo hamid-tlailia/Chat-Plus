@@ -146,7 +146,7 @@ private fun GroupPlayer(group: MomentGroup, active: Boolean, onNextGroup: () -> 
             else {
                 val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
                 val full by rememberVaultImage(g.images, MomentsRepository.STORE, ref, 1920)
-                (full ?: preview)?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                (full ?: preview)?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
             }
         }
 

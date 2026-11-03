@@ -51,6 +51,14 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.systemProperty("roborazzi.test.record", "true")
+            it.systemProperty("roborazzi.record.filePathStrategy", "relativePathFromCurrentDirectory")
+            it.maxHeapSize = "3g"
+        }
+    }
     packaging {
         resources.excludes += listOf(
             "/META-INF/{AL2.0,LGPL2.1}",
@@ -89,4 +97,9 @@ dependencies {
     implementation(libs.media3.effect)
 
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }

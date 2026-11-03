@@ -31,6 +31,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
 import app.zura.R
 import app.zura.data.MomentGroup
+import app.zura.data.MomentsRepository
+import app.zura.graph
+import app.zura.media.rememberVaultImage
+import androidx.compose.ui.platform.LocalContext
 import app.zura.media.Previews
 import app.zura.ui.components.Avatar
 import app.zura.ui.components.pressScale
@@ -58,14 +62,17 @@ private fun RingItem(label: String, group: MomentGroup?, name: String, hue: Floa
     val src = remember { MutableInteractionSource() }
     val c = Zura.colors
     Column(
-        Modifier.width(68.dp).pressScale(src).clickable(src, null, onClick = onClick),
+        Modifier.width(78.dp).pressScale(src).clickable(src, null, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box {
             Avatar(name, hue, 66.dp, ring = group != null, ringSeen = group?.allSeen == true) {
                 // Ring shows the latest moment's micro-preview — painted instantly from the record.
-                val preview = group?.items?.lastOrNull()?.media?.preview
-                val bmp = remember(preview) { preview?.let(Previews::decode)?.asImageBitmap() }
+                val last = group?.items?.lastOrNull()?.media
+                val preview = remember(last?.preview) { last?.preview?.let(Previews::decode)?.asImageBitmap() }
+                val g = LocalContext.current.graph
+                val sharp = last?.let { rememberVaultImage(g.images, MomentsRepository.STORE, it, 180).value }
+                val bmp = sharp ?: preview
                 if (bmp != null) Image(bmp, null, Modifier.size(59.dp).clip(CircleShape), contentScale = ContentScale.Crop)
                 else Text(name.take(1).uppercase(), color = androidx.compose.ui.graphics.Color.White, style = Zura.type.headline)
             }

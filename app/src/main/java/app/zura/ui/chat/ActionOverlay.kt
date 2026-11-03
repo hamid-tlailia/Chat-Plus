@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -70,16 +71,19 @@ fun ActionOverlay(
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) { enter.animateTo(1f, ZuraMotion.Snappy) }
     Box(
-        Modifier.fillMaxSize().graphicsLayer { alpha = enter.value }.background(Color.Black.copy(alpha = 0.45f)).clickable(onClick = onDismiss),
+        Modifier.fillMaxSize().graphicsLayer { alpha = enter.value }.background(Color.Black.copy(alpha = 0.72f)).clickable(onClick = onDismiss),
         contentAlignment = Alignment.BottomCenter,
     ) {
         Column(
             Modifier.navigationBarsPadding().padding(16.dp).graphicsLayer { translationY = (1f - enter.value) * 80f },
             horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
         ) {
+            // The focused message, lifted out of the list
+            FocusedPreview(m, mine)
+            Spacer(Modifier.height(12.dp))
             // Reaction bar
             Row(
-                Modifier.glass(CircleShape).padding(horizontal = 10.dp, vertical = 6.dp),
+                Modifier.glass(CircleShape, solid = 0.94f).padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 QuickReactions.forEachIndexed { i, e ->
@@ -95,7 +99,7 @@ fun ActionOverlay(
                 }
             }
             Spacer(Modifier.height(10.dp))
-            Column(Modifier.width(250.dp).glass(RoundedCornerShape(22.dp)).padding(vertical = 6.dp)) {
+            Column(Modifier.width(250.dp).glass(RoundedCornerShape(22.dp), solid = 0.94f).padding(vertical = 6.dp)) {
                 Action(ZuraIcons.Reply, R.string.action_reply, c.text, onReply)
                 if (mine && m.kind == MsgKind.TEXT) Action(Icons.Default.Edit, R.string.action_edit, c.text, onEdit)
                 if (!m.text.isNullOrEmpty()) Action(ZuraIcons.Copy, R.string.action_copy, c.text, onCopy)
@@ -106,6 +110,21 @@ fun ActionOverlay(
             }
         }
     }
+}
+
+@Composable
+private fun FocusedPreview(m: Message, mine: Boolean) {
+    val c = Zura.colors
+    val label = m.text ?: androidx.compose.ui.res.stringResource(kindLabel(m.kind))
+    Text(
+        label,
+        style = Zura.type.body.copy(textDirection = androidx.compose.ui.text.style.TextDirection.Content),
+        color = if (mine) c.onBubbleMine else c.onBubbleTheirs,
+        maxLines = 4,
+        modifier = Modifier.widthIn(max = 300.dp).clip(RoundedCornerShape(20.dp))
+            .background(if (mine) androidx.compose.ui.graphics.Brush.linearGradient(listOf(c.bubbleMine, c.bubbleMineAlt)) else androidx.compose.ui.graphics.Brush.linearGradient(listOf(c.bubbleTheirs, c.bubbleTheirs)))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    )
 }
 
 @Composable

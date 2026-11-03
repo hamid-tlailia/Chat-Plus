@@ -49,4 +49,5 @@
     <string name="clear_media">Erase all media</string>
     <string name="freed">%1$s freed</string>
     <string name="about_privacy">Everything is stored encrypted on this device only. Deleting a message destroys its key and file immediately.</string>
+    <string name="notes_hint">Your private notes · only on this device</string>
 </resources>

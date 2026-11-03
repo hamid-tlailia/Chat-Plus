@@ -49,4 +49,5 @@
     <string name="clear_media">مسح كل الوسائط</string>
     <string name="freed">تم تحرير %1$s</string>
     <string name="about_privacy">كل شيء مخزّن مشفّراً على هذا الجهاز فقط. حذف أي رسالة يتلف مفتاحها وملفها فوراً.</string>
+    <string name="notes_hint">ملاحظاتك الخاصة · على هذا الجهاز فقط</string>
 </resources>

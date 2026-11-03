@@ -30,13 +30,14 @@ import app.zura.ui.theme.Zura
  * This reads as frosted glass at a fraction of the cost.
  */
 @Composable
-fun Modifier.glass(shape: Shape = RoundedCornerShape(24.dp)): Modifier {
+fun Modifier.glass(shape: Shape = RoundedCornerShape(24.dp), solid: Float = 0f): Modifier {
     val c = Zura.colors
     val sheen = remember(c.glassStroke) {
         Brush.verticalGradient(listOf(c.glassStroke.copy(alpha = c.glassStroke.alpha * 2.2f), c.glassStroke.copy(alpha = 0.02f)))
     }
     return this
         .clip(shape)
+        .background(c.bg.copy(alpha = solid))
         .background(c.glass)
         .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = if (c.isDark) 0.035f else 0.25f), Color.Transparent)))
         .border(1.dp, sheen, shape)
