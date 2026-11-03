@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window background matches Midnight so cold start never flashes white. -->
+    <style name="Theme.Zura" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/zura_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+    <style name="Theme.Zura.Sheet" parent="Theme.Zura">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">true</item>
+    </style>
+    <color name="zura_bg">#0B0B10</color>
+</resources>

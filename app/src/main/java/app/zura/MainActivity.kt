@@ -1,0 +1,136 @@
+package app.zura
+
+import android.content.Context
+import android.content.Intent
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.zura.i18n.LocaleEngine
+import app.zura.share.DirectShare
+import app.zura.ui.chat.ChatScreen
+import app.zura.ui.chats.ChatListScreen
+import app.zura.ui.components.zuraBackground
+import app.zura.ui.media.MediaViewer
+import app.zura.ui.moments.MomentViewer
+import app.zura.ui.settings.SettingsScreen
+import app.zura.ui.theme.ZuraPalettes
+import app.zura.ui.theme.ZuraTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.debounce
+
+sealed interface Route {
+    data object Chats : Route
+    data class Chat(val id: String) : Route
+    data object Settings : Route
+    data class Moments(val startOwner: String) : Route
+    data class Media(val chatId: String, val messageId: String) : Route
+}
+
+/** 30-line back stack instead of navigation-compose: no reflection, no serialization, ~0 KB. */
+class Navigator(start: Route) {
+    val stack = mutableStateListOf(start)
+    val top: Route get() = stack.last()
+    fun push(r: Route) { if (top != r) stack.add(r) }
+    fun pop(): Boolean = if (stack.size > 1) { stack.removeAt(stack.lastIndex); true } else false
+    fun reset(vararg r: Route) { stack.clear(); stack.addAll(r) }
+}
+
+class MainActivity : ComponentActivity() {
+
+    private val deepLink = MutableStateFlow<String?>(null)
+
+    override fun attachBaseContext(newBase: Context) = super.attachBaseContext(LocaleEngine.wrap(newBase))
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        val g = graph
+        val dark = ZuraPalettes.of(g.settings.theme.value).isDark
+        enableEdgeToEdge(
+            statusBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
+            navigationBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
+        )
+        super.onCreate(savedInstanceState)
+        deepLink.value = intent.getStringExtra(EXTRA_CHAT)
+
+        setContent {
+            val theme by g.settings.theme.collectAsStateWithLifecycle()
+            ZuraTheme(theme) {
+                val nav = remember { Navigator(Route.Chats) }
+                val link by deepLink.collectAsStateWithLifecycle()
+                LaunchedEffect(link) { link?.let { nav.reset(Route.Chats, Route.Chat(it)); deepLink.value = null } }
+                LaunchedEffect(Unit) {
+                    g.chats.ensureNotesChat(getString(R.string.app_name))
+                    g.chats.chats.debounce(2_000).collect { DirectShare.publish(this@MainActivity, it) }
+                }
+                BackHandler(enabled = nav.stack.size > 1) { nav.pop() }
+                Box(Modifier.fillMaxSize().zuraBackground()) { NavHost(nav) }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(EXTRA_CHAT)?.let { deepLink.value = it }
+    }
+
+    companion object { const val EXTRA_CHAT = "zura.chat" }
+}
+
+@Composable
+private fun NavHost(nav: Navigator) {
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val dir = if (rtl) -1 else 1
+    val slide = spring(dampingRatio = 1f, stiffness = 500f, visibilityThreshold = IntOffset(1, 1))
+    val depth = remember { intArrayOf(nav.stack.size) }
+    AnimatedContent(
+        targetState = nav.top,
+        transitionSpec = {
+            val forward = nav.stack.size >= depth[0]
+            depth[0] = nav.stack.size
+            val overlay = targetState is Route.Moments || targetState is Route.Media || initialState is Route.Moments || initialState is Route.Media
+            when {
+                // Immersive viewers zoom from the content instead of sliding.
+                overlay -> (fadeIn(spring(stiffness = 600f)) + scaleIn(spring(stiffness = 600f), initialScale = 0.94f)) togetherWith
+                    (fadeOut(spring(stiffness = 800f)) + scaleOut(spring(stiffness = 800f), targetScale = 0.97f))
+                forward -> slideInHorizontally(slide) { it * dir } togetherWith slideOutHorizontally(slide) { -it / 4 * dir } + fadeOut()
+                else -> slideInHorizontally(slide) { -it / 4 * dir } + fadeIn() togetherWith slideOutHorizontally(slide) { it * dir }
+            }
+        },
+        label = "nav",
+    ) { route ->
+        when (route) {
+            Route.Chats -> ChatListScreen(
+                onOpen = { nav.push(Route.Chat(it)) },
+                onSettings = { nav.push(Route.Settings) },
+                onMoments = { nav.push(Route.Moments(it)) },
+            )
+            is Route.Chat -> ChatScreen(route.id, onBack = { nav.pop() }, onOpenMedia = { nav.push(Route.Media(route.id, it)) })
+            Route.Settings -> SettingsScreen(onBack = { nav.pop() })
+            is Route.Moments -> MomentViewer(route.startOwner, onClose = { nav.pop() })
+            is Route.Media -> MediaViewer(route.chatId, route.messageId, onClose = { nav.pop() })
+        }
+    }
+}

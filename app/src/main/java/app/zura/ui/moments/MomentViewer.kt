@@ -1,0 +1,180 @@
+package app.zura.ui.moments
+
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.zura.core.model.MsgKind
+import app.zura.data.MomentGroup
+import app.zura.data.MomentsRepository
+import app.zura.graph
+import app.zura.i18n.ZuraFormat
+import app.zura.media.Previews
+import app.zura.media.rememberVaultImage
+import app.zura.ui.components.Avatar
+import app.zura.ui.components.ZuraMotion
+import app.zura.ui.components.rememberHaptics
+import app.zura.ui.media.VaultVideo
+import kotlinx.coroutines.launch
+
+/**
+ * Immersive Moments viewer: pager across people (cube-ish depth via graphicsLayer), segmented
+ * progress per person, tap start/end edge = previous/next (mirrored for RTL), press-and-hold =
+ * pause, swipe down = dismiss with spring.
+ */
+@Composable
+fun MomentViewer(startOwner: String, onClose: () -> Unit) {
+    val g = LocalContext.current.graph
+    val groups by g.moments.groups.collectAsStateWithLifecycle()
+    if (groups.isEmpty()) { LaunchedEffect(Unit) { onClose() }; return }
+    val start = groups.indexOfFirst { it.ownerId == startOwner }.coerceAtLeast(0)
+    val pager = rememberPagerState(start) { groups.size }
+    val scope = rememberCoroutineScope()
+    val dismiss = remember { Animatable(0f) }
+
+    Box(
+        Modifier.fillMaxSize().background(Color.Black)
+            .graphicsLayer { translationY = dismiss.value; val s = 1f - (dismiss.value / 4000f).coerceIn(0f, 0.15f); scaleX = s; scaleY = s }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = { scope.launch { if (dismiss.value > 260f) onClose() else dismiss.animateTo(0f, ZuraMotion.Snappy) } },
+                ) { _, dy -> scope.launch { dismiss.snapTo((dismiss.value + dy).coerceAtLeast(0f)) } }
+            },
+    ) {
+        HorizontalPager(pager, beyondViewportPageCount = 0) { page ->
+            val offset = (pager.currentPage - page) + pager.currentPageOffsetFraction
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                // Depth parallax between people
+                val f = offset.coerceIn(-1f, 1f)
+                rotationY = f * -18f
+                cameraDistance = 12f * density
+                alpha = 1f - kotlin.math.abs(f) * 0.4f
+            }) {
+                GroupPlayer(
+                    groups[page], active = pager.currentPage == page,
+                    onNextGroup = { if (page < groups.lastIndex) scope.launch { pager.animateScrollToPage(page + 1) } else onClose() },
+                    onPrevGroup = { if (page > 0) scope.launch { pager.animateScrollToPage(page - 1) } },
+                    onClose = onClose,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GroupPlayer(group: MomentGroup, active: Boolean, onNextGroup: () -> Unit, onPrevGroup: () -> Unit, onClose: () -> Unit) {
+    val g = LocalContext.current.graph
+    val haptics = rememberHaptics()
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val locale = LocalConfiguration.current.locales[0]
+    var index by remember(group.ownerId) { mutableIntStateOf(group.items.indexOfFirst { it.status != app.zura.core.model.MsgStatus.READ }.coerceAtLeast(0)) }
+    var paused by remember { mutableStateOf(false) }
+    val progress = remember(group.ownerId, index) { Animatable(0f) }
+    val item = group.items.getOrNull(index) ?: return
+
+    LaunchedEffect(active, index, paused) {
+        if (!active || paused) return@LaunchedEffect
+        g.moments.markSeen(item.id)
+        val total = if (item.kind == MsgKind.VIDEO) item.media?.durationMs?.coerceIn(1000, 30_000) ?: 5000L else 5000L
+        val remaining = ((1f - progress.value) * total).toInt()
+        progress.animateTo(1f, tween(remaining, easing = LinearEasing))
+        if (index < group.items.lastIndex) index++ else onNextGroup()
+    }
+
+    Box(
+        Modifier.fillMaxSize().pointerInput(group.ownerId, rtl) {
+            detectTapGestures(
+                onPress = { paused = true; tryAwaitRelease(); paused = false },
+                onTap = { o ->
+                    val startSide = if (rtl) o.x > size.width * 0.7f else o.x < size.width * 0.3f
+                    haptics.tick()
+                    if (startSide) { if (index > 0) index-- else onPrevGroup() }
+                    else { if (index < group.items.lastIndex) index++ else onNextGroup() }
+                },
+            )
+        },
+    ) {
+        val ref = item.media
+        if (ref != null) {
+            if (item.kind == MsgKind.VIDEO && active) VaultVideo(MomentsRepository.STORE, item.id, ref, playing = !paused, Modifier.fillMaxSize())
+            else {
+                val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
+                val full by rememberVaultImage(g.images, MomentsRepository.STORE, ref, 1920)
+                (full ?: preview)?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+            }
+        }
+
+        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                group.items.forEachIndexed { i, _ ->
+                    val f = when { i < index -> 1f; i == index -> progress.value; else -> 0f }
+                    Box(Modifier.weight(1f).height(2.5.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.3f))) {
+                        Box(Modifier.fillMaxWidth(f).height(2.5.dp).background(Color.White))
+                    }
+                }
+            }
+            Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Avatar(group.name, group.hue, 36.dp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(group.name, color = Color.White, style = app.zura.ui.theme.Zura.type.label)
+                    Text(ZuraFormat(locale).time(item.sentAt), color = Color.White.copy(alpha = 0.7f), style = app.zura.ui.theme.Zura.type.caption)
+                }
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, null, tint = Color.White) }
+            }
+        }
+        item.text?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                it, color = Color.White, style = app.zura.ui.theme.Zura.type.body.copy(textDirection = TextDirection.Content),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(24.dp)
+                    .clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)).padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
