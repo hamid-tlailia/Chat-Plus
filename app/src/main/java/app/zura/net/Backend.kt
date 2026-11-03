@@ -111,6 +111,18 @@ class Backend {
         http.newCall(req).execute().use { it.isSuccessful }
     }
 
+    // ---------------------------------------------------------------- push wake-ups (FCM via edge function)
+
+    /** Fire-and-forget wake-up for a contact's devices. Never carries message content. */
+    suspend fun push(to: String, kind: String, data: Map<String, String> = emptyMap()) {
+        runCatching {
+            function("push", buildJsonObject {
+                put("to", to); put("kind", kind)
+                put("data", buildJsonObject { data.forEach { (k, v) -> put(k, v) } })
+            })
+        }
+    }
+
     // ---------------------------------------------------------------- edge functions
 
     suspend fun function(name: String, body: JsonObject = JsonObject(emptyMap())): JsonElement = withContext(Dispatchers.IO) {

@@ -2,6 +2,8 @@ package app.zura.account
 
 import android.app.Application
 import app.zura.call.CallManager
+import app.zura.push.MessageNotifier
+import app.zura.push.Push
 import app.zura.core.crypto.SecureFile
 import app.zura.core.storage.StorageJanitor
 import app.zura.core.storage.VaultStore
@@ -24,6 +26,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
+import kotlinx.serialization.json.put
 import java.io.File
 
 /**
@@ -59,6 +64,9 @@ class AccountSession(
     val exporter by lazy { MediaExporter(app, vault) }
     private val janitor by lazy { StorageJanitor(vault, keys) }
 
+    val notifier by lazy { MessageNotifier(app) }
+    private var pushToken: String? = null
+
     private var foreground = false
 
     init {
@@ -72,6 +80,23 @@ class AccountSession(
         }
     }
 
+    /** Register this device for wake-up pushes for this account (replaces any previous owner of the token). */
+    suspend fun registerPush(token: String? = null) {
+        val t = token ?: Push.token() ?: return
+        pushToken = t
+        runCatching {
+            backend.client.postgrest.rpc("register_device", kotlinx.serialization.json.buildJsonObject { put("p_token", t) })
+        }
+    }
+
+    /** Stop pushes to this device for this account (on sign-out). */
+    suspend fun unregisterPush() {
+        val t = pushToken ?: Push.token() ?: return
+        runCatching {
+            backend.client.postgrest.rpc("unregister_device", kotlinx.serialization.json.buildJsonObject { put("p_token", t) })
+        }
+    }
+
     fun contactIds(): List<String> = contacts.contacts.value.filterNot { it.blocked }.map { it.profile.id }
 
     /** First run after sign-in: publish E2EE identity, start social graph sync. */
@@ -79,7 +104,9 @@ class AccountSession(
         scope.launch {
             runCatching { contacts.publishIdentity(identity.publicB64) }
             chats.ensureNotesChat(notesTitle)
+            registerPush()
         }
+        chats.onIncoming = { meta, m -> notifier.show(meta, m) }
         contacts.start()
         scope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(4_000)

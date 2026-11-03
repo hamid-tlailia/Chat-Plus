@@ -154,4 +154,16 @@
     <string name="quality_fair">Fair</string>
     <string name="quality_poor">Poor</string>
     <string name="e2ee_short">End-to-end encrypted</string>
+    <string name="new_message">New message</string>
+    <string name="messages_channel">Messages</string>
+    <string name="incoming_calls_ring">Incoming calls (ringing)</string>
+    <string name="notif_permission_title">Don\'t miss calls</string>
+    <string name="notif_permission_body">Allow notifications so Zura can ring and show messages when the app is closed.</string>
+    <string name="fullscreen_permission_body">Allow full-screen notifications so incoming calls appear even when your phone is locked.</string>
+    <string name="allow">Allow</string>
+    <string name="not_now">Not now</string>
+    <string name="push_status">Calls &amp; messages when closed</string>
+    <string name="push_on">On — your phone wakes for calls and messages</string>
+    <string name="push_off">Off — needs Firebase configuration in the app build</string>
+    <string name="fullscreen_calls">Full-screen incoming calls</string>
 </resources>

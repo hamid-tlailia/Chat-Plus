@@ -61,6 +61,9 @@ class ChatRepository(
     fun messages(chatId: String): Flow<List<Message>> = flowOf(chatId).flatMapLatest { vault.chat(it).messages }.flowOn(Dispatchers.IO)
     fun meta(chatId: String): Flow<ChatMeta?> = flowOf(chatId).flatMapLatest { vault.chat(it).meta }.flowOn(Dispatchers.IO)
 
+    /** Called for every new incoming message (used for local notifications). */
+    var onIncoming: (ChatMeta, Message) -> Unit = { _, _ -> }
+
     // ------------------------------------------------------------------ typing & presence (ephemeral)
 
     private val typingMap = MutableStateFlow<Map<String, Map<String, Long>>>(emptyMap())
@@ -158,6 +161,8 @@ class ChatRepository(
         val frame = Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text, wire.media, wire.replyTo)
         val ok = peersOf(wire.chatId).all { transport.send(it, frame) }
         if (ok) store.get(wire.id)?.takeIf { it.status == MsgStatus.PENDING }?.let { store.upsert(it.copy(status = MsgStatus.SENT)) }
+        // Peer not connected right now → wake their phone (content-free push; they pull + decrypt).
+        if (ok) peersOf(wire.chatId).filterNot { isOnline(it) }.forEach { backend.push(it, "msg") }
     }
 
     private suspend fun resendPending() = withContext(Dispatchers.IO) {
@@ -242,6 +247,7 @@ class ChatRepository(
                 val msg = Message(f.id, f.chatId, from, f.sentAt, f.kind, f.text, media, MsgStatus.DELIVERED, replyTo = f.replyTo)
                 store.upsert(msg)
                 touchMeta(store, msg, unreadDelta = 1)
+                store.meta.value?.let { onIncoming(it, msg) }
                 typingMap.update { m -> m + (f.chatId to (m[f.chatId].orEmpty() - from)) }
                 scope.launch { transport.sendWithRetry(from, Frame.Receipt(f.chatId, me, listOf(f.id), MsgStatus.DELIVERED)) }
             }
@@ -274,6 +280,8 @@ class ChatRepository(
     }
 
     // ------------------------------------------------------------------ helpers
+
+    private fun isOnline(userId: String) = (presence.value[userId] ?: 0) > System.currentTimeMillis()
 
     fun peersOf(chatId: String): List<String> = vault.chat(chatId).meta.value?.peerIds.orEmpty()
 

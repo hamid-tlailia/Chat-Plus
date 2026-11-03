@@ -61,7 +61,7 @@ import kotlin.math.sin
 /** Renders the real screens with seeded demo data → PNGs under design/screenshots. No network. */
 @RunWith(AndroidJUnit4::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [32], qualifiers = "w400dp-h860dp-xhdpi")
+@Config(sdk = [32], qualifiers = "w400dp-h860dp-xhdpi", application = TestZuraApp::class)
 class DesignScreenshots {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 

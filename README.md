@@ -17,3 +17,12 @@ See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full blueprint: sta
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:assembleRelease
 ```
+
+## Enable push (calls & messages while the app is closed)
+
+1. [Firebase console](https://console.firebase.google.com) → **Add project** → add an **Android app** with package name `app.zura`.
+2. Download **google-services.json** and put it at `app/google-services.json`, then rebuild. The build reads it directly; no plugin is needed.
+3. Firebase → Project settings → **Service accounts** → **Generate new private key** (a JSON file).
+4. Supabase → project **zura** → Edge Functions → **Secrets** → add `FCM_SERVICE_ACCOUNT` = the whole JSON content.
+
+The service-account JSON is a server secret: put it only in Supabase secrets, never in the app or the repo.

@@ -132,6 +132,18 @@ fun SettingsScreen(onBack: () -> Unit) {
                 )
             }
             Spacer(Modifier.height(12.dp))
+            Text(stringResource(R.string.push_status), style = Zura.type.label, color = c.text)
+            Text(
+                stringResource(if (app.zura.push.Push.enabled) R.string.push_on else R.string.push_off),
+                style = Zura.type.caption, color = if (app.zura.push.Push.enabled) c.textMuted else c.danger,
+            )
+            if (!app.zura.push.PushPermissions.fullScreenAllowed(ctx)) {
+                Text(
+                    stringResource(R.string.fullscreen_calls) + " →", style = Zura.type.label, color = c.accent,
+                    modifier = Modifier.padding(top = 6.dp).clickable { app.zura.push.PushPermissions.openFullScreenSettings(ctx) },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
             Text(stringResource(R.string.encrypted_storage), style = Zura.type.label, color = c.text)
             Text(stringResource(R.string.encrypted_storage_hint), style = Zura.type.caption, color = c.textMuted)
             Spacer(Modifier.height(8.dp))

@@ -1,0 +1,48 @@
+package app.zura.push
+
+import app.zura.account.AuthState
+import app.zura.core.sync.Frame
+import app.zura.graph
+import com.google.firebase.messaging.FirebaseMessagingService
+import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * Receives FCM wake-ups while Zura is closed or the phone is asleep (high-priority data messages
+ * bypass Doze). Runs on a background thread with ~10 s of guaranteed execution.
+ *
+ *  msg      → restore the remembered session, pull the E2EE inbox over HTTPS, decrypt, notify.
+ *  call     → decrypt the sealed invite, ring (full-screen call notification), connect Realtime so
+ *             the caller's SDP offer arrives; the call then proceeds exactly as in-app.
+ *  call_end → the caller hung up before we answered: stop ringing.
+ */
+class ZuraMessagingService : FirebaseMessagingService() {
+
+    override fun onNewToken(token: String) {
+        graph.session.value?.let { s -> runBlocking { s.registerPush(token) } }
+    }
+
+    override fun onMessageReceived(msg: RemoteMessage) {
+        val data = msg.data
+        val kind = data["t"] ?: return
+        val from = data["f"] ?: return
+        runBlocking {
+            // Cold start: AccountManager resumes the remembered account on its own; wait for it.
+            val session = withTimeoutOrNull(7_000) {
+                (graph.accounts.state.first { it is AuthState.SignedIn } as AuthState.SignedIn).session
+            } ?: return@runBlocking
+            when (kind) {
+                "msg" -> withTimeoutOrNull(8_000) { session.transport.syncInbox() }
+                "call" -> {
+                    val sealed = data["e"] ?: return@runBlocking
+                    val invite = session.transport.openFrom(from, sealed) as? Frame.CallInvite ?: return@runBlocking
+                    if (invite.from != from || System.currentTimeMillis() - invite.at > 40_000) return@runBlocking
+                    session.calls.onPushInvite(invite)
+                }
+                "call_end" -> data["c"]?.let { session.calls.onPushCancelled(it, from) }
+            }
+        }
+    }
+}

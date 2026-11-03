@@ -1,3 +1,28 @@
+import groovy.json.JsonSlurper
+
+/**
+ * Firebase config is read from app/google-services.json (Firebase console → Project settings →
+ * Your apps → google-services.json). No Google Services Gradle plugin needed. Without the file the
+ * app builds normally and push wake-ups are simply disabled.
+ */
+@Suppress("UNCHECKED_CAST")
+val firebase: Map<String, String> = run {
+    val f = file("google-services.json")
+    if (!f.exists()) return@run emptyMap()
+    val root = JsonSlurper().parse(f) as Map<String, Any?>
+    val project = root["project_info"] as Map<String, Any?>
+    val clients = root["client"] as List<Map<String, Any?>>
+    val client = clients.firstOrNull {
+        ((it["client_info"] as Map<String, Any?>)["android_client_info"] as Map<String, Any?>)["package_name"] == "app.zura"
+    } ?: clients.first()
+    mapOf(
+        "PROJECT_ID" to project["project_id"].toString(),
+        "SENDER_ID" to project["project_number"].toString(),
+        "APP_ID" to (client["client_info"] as Map<String, Any?>)["mobilesdk_app_id"].toString(),
+        "API_KEY" to ((client["api_key"] as List<Map<String, Any?>>).first()["current_key"]).toString(),
+    )
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -18,6 +43,9 @@ android {
         // Supabase project "zura". The publishable key is designed to ship in clients:
         // every table is protected by Row Level Security, the key alone grants nothing.
         buildConfigField("String", "SUPABASE_URL", "\"https://vsilugnplrtguvwlmzjc.supabase.co\"")
+        listOf("PROJECT_ID", "SENDER_ID", "APP_ID", "API_KEY").forEach { k ->
+            buildConfigField("String", "FIREBASE_$k", "\"${firebase[k].orEmpty()}\"")
+        }
         buildConfigField("String", "SUPABASE_KEY", "\"sb_publishable_0gbWNjqx9KQG719r0By2YQ_KTzn6mpB\"")
         // Ship only the two supported locales: strips every AndroidX translation from the APK.
         resourceConfigurations += listOf("en", "ar")
@@ -47,7 +75,7 @@ android {
             signingConfig = signingConfigs.getByName("debug") // replace with release keystore in CI
         }
         debug {
-            applicationIdSuffix = ".debug"
+            // Same package as release so one Firebase app config serves both.
         }
     }
 
@@ -110,6 +138,9 @@ dependencies {
     implementation(libs.supabase.realtime)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.webrtc)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+    implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.transformer)
     implementation(libs.media3.effect)

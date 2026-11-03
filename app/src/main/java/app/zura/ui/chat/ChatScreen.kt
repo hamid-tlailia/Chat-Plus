@@ -89,6 +89,13 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
     val scope = rememberCoroutineScope()
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
+    // This chat is on screen: no notifications for it, and clear any already shown.
+    androidx.compose.runtime.DisposableEffect(chatId) {
+        app.zura.push.Push.openChatId = chatId
+        g.s.notifier.clear(chatId)
+        onDispose { if (app.zura.push.Push.openChatId == chatId) app.zura.push.Push.openChatId = null }
+    }
+
     // Read receipts fire while the chat is on screen and resumed.
     LifecycleResumeEffect(items.size) {
         vm.markRead()

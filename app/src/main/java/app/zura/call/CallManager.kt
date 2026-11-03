@@ -140,14 +140,42 @@ class CallManager(
         createPeer(video)
         val offer = pc!!.awaitCreate(offer = true, iceRestart = false)
         pc!!.awaitSetLocal(offer)
-        transport.signal(peerId, Frame.CallOffer(callId, me, video, offer.description))
+        val frame = Frame.CallOffer(callId, me, video, offer.description)
+        transport.signal(peerId, frame)
+        // Their phone may be asleep / app closed: wake it with an E2EE-sealed invite over FCM,
+        // and keep re-offering every 2.5 s until it rings (the woken app needs ~1–3 s to connect).
+        scope.launch {
+            transport.sealFor(peerId, Frame.CallInvite(callId, me, video, System.currentTimeMillis()))
+                ?.let { backend.push(peerId, "call", mapOf("e" to it)) }
+        }
+        timers += scope.launch(rtc) {
+            repeat(16) {
+                delay(2_500)
+                if (_ui.value.callId != callId || _ui.value.phase != CallPhase.OUTGOING) return@launch
+                transport.signal(peerId, frame)
+            }
+        }
         // No answer within 45 s → missed call.
         timers += scope.launch(rtc) { delay(45_000); if (_ui.value.phase in setOf(CallPhase.OUTGOING, CallPhase.RINGING)) end("timeout", notify = true) }
     }
 
     fun accept() = scope.launch(rtc) {
-        val offer = pendingOffer ?: return@launch
         if (_ui.value.phase != CallPhase.INCOMING) return@launch
+        val offer = pendingOffer
+        if (offer == null) {
+            // Woken by push and the caller's offer hasn't arrived yet: answer as soon as it does.
+            acceptWhenOffer = true
+            audio.stopTones()
+            _ui.update { it.copy(phase = CallPhase.CONNECTING) }
+            return@launch
+        }
+        answer(offer)
+    }
+
+    private var acceptWhenOffer = false
+
+    private suspend fun answer(offer: Frame.CallOffer) {
+        acceptWhenOffer = false
         audio.stopTones()
         _ui.update { it.copy(phase = CallPhase.CONNECTING, speaker = offer.video) }
         CallService.start(context, _ui.value)
@@ -158,6 +186,35 @@ class CallManager(
         pc!!.awaitSetLocal(answer)
         transport.signal(offer.from, Frame.CallAnswer(offer.callId, me, answer.description))
         pendingOffer = null
+    }
+
+    // ================================================================= push (phone was asleep / app closed)
+
+    /** An FCM call invite arrived: start ringing now, connect Realtime so the SDP offer can follow. */
+    suspend fun onPushInvite(inv: Frame.CallInvite) = withContext(rtc) {
+        val s = _ui.value
+        if (s.callId == inv.callId) return@withContext
+        if (s.inCall) { transport.signal(inv.from, Frame.CallEnd(inv.callId, me, "busy")); return@withContext }
+        if (contacts.contacts.value.none { it.profile.id == inv.from }) runCatching { contacts.refresh() }
+        val p = contacts.profile(inv.from) ?: return@withContext
+        pendingOffer = null; acceptWhenOffer = false
+        pendingIce.clear(); remoteSet = false
+        _ui.value = CallUi(
+            phase = CallPhase.INCOMING, callId = inv.callId, peerId = inv.from, peerName = p.displayName,
+            peerAvatar = p.avatarPath, peerHue = (inv.from.hashCode() and 0xFFFF) % 360f, outgoing = false,
+            video = inv.video, cameraOn = inv.video, speaker = inv.video, remoteVideoOn = inv.video, net = network.type.value,
+        )
+        CallService.start(context, _ui.value)
+        if (app.zura.push.Push.appVisible) audio.startRingtone() // in background the notification itself rings
+        transport.start()
+        transport.signal(inv.from, Frame.CallRinging(inv.callId, me))
+        val id = inv.callId
+        timers += scope.launch(rtc) { delay(45_000); if (_ui.value.callId == id && _ui.value.phase == CallPhase.INCOMING) end("timeout", notify = false) }
+    }
+
+    suspend fun onPushCancelled(callId: String, from: String) = withContext(rtc) {
+        val s = _ui.value
+        if (s.callId == callId && s.peerId == from && (s.phase == CallPhase.INCOMING || s.phase == CallPhase.CONNECTING)) end("hangup", notify = false)
     }
 
     fun decline() = scope.launch(rtc) { if (_ui.value.phase == CallPhase.INCOMING) end("declined", notify = true) }
@@ -211,6 +268,15 @@ class CallManager(
                         val answer = pc!!.awaitCreate(offer = false, iceRestart = false)
                         pc!!.awaitSetLocal(answer)
                         transport.signal(from, Frame.CallAnswer(f.callId, me, answer.description))
+                    }
+                    return@withContext
+                }
+                // Same call announced earlier by push: attach the offer (and answer now if the user already tapped Answer).
+                if (s.callId == f.callId) {
+                    if (pendingOffer == null && (s.phase == CallPhase.INCOMING || s.phase == CallPhase.CONNECTING) && pc == null) {
+                        pendingOffer = f
+                        transport.signal(from, Frame.CallRinging(f.callId, me))
+                        if (acceptWhenOffer) answer(f)
                     }
                     return@withContext
                 }
@@ -448,7 +514,13 @@ class CallManager(
     private suspend fun end(reason: String, notify: Boolean) {
         val s = _ui.value
         if (!s.inCall) return
-        if (notify) s.peerId?.let { peer -> s.callId?.let { transport.signal(peer, Frame.CallEnd(it, me, reason)) } }
+        if (notify) s.peerId?.let { peer ->
+            s.callId?.let { id ->
+                transport.signal(peer, Frame.CallEnd(id, me, reason))
+                // They may still be ringing from a push with no socket yet: stop it via push too.
+                if (s.outgoing && s.connectedAt == null) scope.launch { backend.push(peer, "call_end", mapOf("c" to id)) }
+            }
+        }
         timers.forEach { it.cancel() }; timers.clear()
         reconnectJob?.cancel(); statsJob?.cancel()
         audio.stopTones()
@@ -477,7 +549,7 @@ class CallManager(
         audioSource?.dispose(); audioSource = null
         pc?.close(); pc?.dispose(); pc = null
         videoSender = null
-        pendingOffer = null; pendingIce.clear(); remoteSet = false
+        pendingOffer = null; pendingIce.clear(); remoteSet = false; acceptWhenOffer = false
         degraded = false; goodStreak = 0; poorStreak = 0; lastLost = 0; lastRecv = 0
     }
 

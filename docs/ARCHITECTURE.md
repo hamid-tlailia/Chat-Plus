@@ -189,9 +189,22 @@ MLS/Signal ratchet remains on the roadmap.
    `CF_TURN_KEY_ID` and `CF_TURN_API_TOKEN`.
 Until then calls use STUN only (works on most networks; strict carrier NATs may fail).
 
+### Push wake-ups when the app is closed (FCM)
+- `push` Edge Function: signed-in caller + mutual, non-blocked contacts only → FCM HTTP v1, **high priority**
+  (bypasses Doze). Stale tokens are deleted automatically. `device_tokens` is reachable only via
+  `register_device` / `unregister_device` RPCs; a token belongs to the account currently signed in on that phone,
+  and is removed on sign-out (a signed-out account never rings the phone).
+- **Messages:** the push is a content-free wake-up, sent only when the recipient isn't online. The phone restores
+  the remembered session, pulls its E2EE inbox over HTTPS, decrypts locally and builds the notification itself
+  (MessagingStyle; lock screen shows only "New message").
+- **Calls:** the push carries an E2EE-sealed `CallInvite` (Google sees only opaque bytes). The phone rings at once
+  (insistent ringtone notification, full-screen on a locked phone), connects Realtime and sends *Ringing*; the
+  caller re-sends the SDP offer every 2.5 s until then. Answering before the offer arrives is handled.
+  If the caller hangs up first, a `call_end` push stops the ringing.
+- **One-time setup:** see README → "Enable push".
+
 ### Known limits (v0.2)
-- Incoming calls/messages ring only while the app is open or recently backgrounded (≤30 s); background wake-up
-  needs **FCM** (Firebase project) — next step.
+- Push needs the Firebase setup (README). Without it, calls/messages arrive only while the app is open.
 - The UI has been rendered and reviewed via JVM screenshots; it still needs a pass on physical phones,
   especially calls across real networks.
 - Supabase **Confirm email** is on by default: after sign-up the user confirms via email, then logs in (handled in

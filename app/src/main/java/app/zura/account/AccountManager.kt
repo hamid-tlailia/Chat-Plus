@@ -150,6 +150,7 @@ class AccountManager(
     suspend fun logout(remember: Boolean) = lock.withLock {
         withContext(Dispatchers.IO) {
             val active = (state.value as? AuthState.SignedIn)?.session ?: return@withContext
+            active.unregisterPush() // a signed-out account must never ring this phone
             active.close()
             store.get(active.uid)?.let { store.upsert(it.copy(remember = remember, lastUsed = System.currentTimeMillis())) }
             if (!remember) {

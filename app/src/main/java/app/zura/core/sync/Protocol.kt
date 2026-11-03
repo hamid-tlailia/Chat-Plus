@@ -66,6 +66,10 @@ sealed interface Frame {
 
     // ───────────── calls (ephemeral, E2EE over the peer's private realtime topic)
 
+    /** Sent inside an FCM push to wake a sleeping phone; the full SDP offer follows over Realtime. */
+    @Serializable @SerialName("call_invite")
+    data class CallInvite(val callId: String, val from: String, val video: Boolean, val at: Long) : Frame
+
     @Serializable @SerialName("call_offer")
     data class CallOffer(val callId: String, val from: String, val video: Boolean, val sdp: String, val restart: Boolean = false) : Frame
 

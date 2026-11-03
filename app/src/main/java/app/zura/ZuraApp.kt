@@ -9,13 +9,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-class ZuraApp : Application() {
+open class ZuraApp : Application() {
     lateinit var graph: AppGraph
         private set
 
     override fun onCreate() {
         super.onCreate()
         graph = AppGraph(this)
+        app.zura.push.Push.init(this)
+        // Resume the remembered account immediately (also when woken by a push in the background).
+        graph.accounts
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
 
         // Realtime connection lives while the UI is visible (+30 s grace for quick app switches),

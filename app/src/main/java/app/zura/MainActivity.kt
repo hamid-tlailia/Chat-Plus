@@ -121,6 +121,7 @@ class MainActivity : ComponentActivity() {
             NavHost(nav)
             // The call UI sits above everything, so navigation state is untouched by calls.
             CallScreen(session.calls)
+            app.zura.push.PushPermissionPrompts()
         }
     }
 

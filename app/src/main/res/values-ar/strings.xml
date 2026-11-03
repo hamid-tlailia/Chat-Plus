@@ -154,4 +154,16 @@
     <string name="quality_fair">متوسط</string>
     <string name="quality_poor">ضعيف</string>
     <string name="e2ee_short">مشفّرة من الطرف إلى الطرف</string>
+    <string name="new_message">رسالة جديدة</string>
+    <string name="messages_channel">الرسائل</string>
+    <string name="incoming_calls_ring">المكالمات الواردة (رنين)</string>
+    <string name="notif_permission_title">لا تفوّت أي مكالمة</string>
+    <string name="notif_permission_body">اسمح بالإشعارات حتى يرن زورا ويعرض الرسائل والتطبيق مغلق.</string>
+    <string name="fullscreen_permission_body">اسمح بإشعارات ملء الشاشة لتظهر المكالمات الواردة حتى والهاتف مقفل.</string>
+    <string name="allow">سماح</string>
+    <string name="not_now">ليس الآن</string>
+    <string name="push_status">المكالمات والرسائل والتطبيق مغلق</string>
+    <string name="push_on">مفعّل — يستيقظ هاتفك للمكالمات والرسائل</string>
+    <string name="push_off">غير مفعّل — يحتاج إعداد Firebase في بناء التطبيق</string>
+    <string name="fullscreen_calls">المكالمات الواردة بملء الشاشة</string>
 </resources>

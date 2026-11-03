@@ -124,6 +124,15 @@ class SupabaseTransport(
         return runCatching { backend.broadcast(to, EVENT, buildJsonObject { put("f", me); put("p", seal(key, frame)) }) }.getOrDefault(false) == true
     }
 
+    /** E2EE-seal a frame for [to] (used for FCM call invites). */
+    suspend fun sealFor(to: String, frame: Frame): String? = peerKey(to)?.let { seal(it, frame) }
+
+    /** Open an E2EE payload from [from] that arrived outside the transport (FCM). */
+    suspend fun openFrom(from: String, payload: String): Frame? = open(from, payload)
+
+    /** Pull the encrypted inbox over plain HTTPS (used when a push wakes us without a socket). */
+    suspend fun syncInbox() = drainBacklog()
+
     // ---------------------------------------------------------------- receiving
 
     private suspend fun drainBacklog() = drainLock.withLock {
