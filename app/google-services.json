@@ -1,0 +1,68 @@
+{
+  "project_info": {
+    "project_number": "780475317216",
+    "project_id": "hamidos-chat-39107",
+    "storage_bucket": "hamidos-chat-39107.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:780475317216:android:e351ef0d9b18071c74c985",
+        "android_client_info": {
+          "package_name": "app.zura"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "780475317216-rlueutptd5di1q1qf11os5c06pnu9fib.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAPzIy633UjGY3TKSDZCFwyZpX41guahQo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "780475317216-rlueutptd5di1q1qf11os5c06pnu9fib.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:780475317216:android:ee067f52c4b6a64674c985",
+        "android_client_info": {
+          "package_name": "com.hamidos.chat"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "780475317216-rlueutptd5di1q1qf11os5c06pnu9fib.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAPzIy633UjGY3TKSDZCFwyZpX41guahQo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "780475317216-rlueutptd5di1q1qf11os5c06pnu9fib.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
