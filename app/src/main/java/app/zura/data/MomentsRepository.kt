@@ -54,6 +54,8 @@ class MomentsRepository(
 
     val groups: StateFlow<List<MomentGroup>> = flowOf(Unit)
         .flatMapLatest { combine(store.messages, chats.chats) { ms, metas -> ms to metas } }
+        // Locked phone: the moments store opens after unlock — retry instead of dying.
+        .retryWhen { _, _ -> kotlinx.coroutines.delay(3_000); true }
         .map { (ms, metas) ->
             val now = System.currentTimeMillis()
             val list = ms.filter { now - it.sentAt < TTL_MS }.groupBy { it.senderId }.map { (owner, items) ->

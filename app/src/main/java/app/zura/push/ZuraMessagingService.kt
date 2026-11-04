@@ -2,6 +2,7 @@ package app.zura.push
 
 import app.zura.account.AuthState
 import app.zura.core.sync.Frame
+import app.zura.data.ContactsRepository
 import app.zura.graph
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -24,10 +25,17 @@ class ZuraMessagingService : FirebaseMessagingService() {
         graph.session.value?.let { s -> runBlocking { s.registerPush(token) } }
     }
 
+    private fun prioName(p: Int) = when (p) { RemoteMessage.PRIORITY_HIGH -> "high"; RemoteMessage.PRIORITY_NORMAL -> "normal"; else -> "unknown" }
+
     override fun onMessageReceived(msg: RemoteMessage) {
         val data = msg.data
         val kind = data["t"] ?: return
         val from = data["f"] ?: return
+        // Stage log: delay since the server sent it, and whether FCM downgraded our priority
+        // (it does when high-priority pushes don't lead to a visible notification).
+        app.zura.DiagLog.record("push", detail = "$kind received after ${System.currentTimeMillis() - msg.sentTime} ms, prio=${prioName(msg.priority)}" +
+            (if (msg.priority != msg.originalPriority) " (DOWNGRADED from ${prioName(msg.originalPriority)})" else "") +
+            ", locked=${!app.zura.security.DeviceLock.chatKeysUsable(this)}")
         // A call: start ringing immediately — before opening the account or touching the network.
         if (kind == "call") app.zura.call.CallService.preRing(this)
         try { runBlocking {
@@ -37,6 +45,13 @@ class ZuraMessagingService : FirebaseMessagingService() {
             } ?: return@runBlocking
             when (kind) {
                 "msg" -> {
+                    // Phone locked: chat keys refuse to work → don't touch chat storage. Show a
+                    // content-free notification; the message stays on the server until unlock.
+                    if (!app.zura.security.DeviceLock.chatKeysUsable(this@ZuraMessagingService)) {
+                        session.notifier.showPending(session.contacts.profile(from)?.displayName, ContactsRepository.dmChatId(session.uid, from))
+                        app.zura.DiagLog.record("push", detail = "msg: locked → pending notification shown")
+                        return@runBlocking
+                    }
                     // Message carried in the push (E2EE): store + notify right away, no network.
                     data["e"]?.let { sealed ->
                         withTimeoutOrNull(4_000) {

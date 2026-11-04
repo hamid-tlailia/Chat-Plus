@@ -68,6 +68,7 @@ class ChatRepository(
      * once in the background to fill it. Called at start and again after every unlock.
      */
     suspend fun ensureIndex() {
+        if (vault.isLocked()) return // redone on unlock (onUnlocked)
         vault.retryIndex()
         val missing = (vault.chatIds.value - MomentsRepository.STORE).filter { it !in vault.metaIndex.value }
         if (missing.isEmpty()) { chatsLoaded.value = true; return }
@@ -204,7 +205,20 @@ class ChatRepository(
     }
 
     /** Call history entry, written on the caller's side and mirrored to the callee. */
-    suspend fun logCall(chatId: String, summary: String) = send(chatId, MsgKind.CALL, summary, null, null)
+    /** Call-log lines that ended while the phone was locked: written after unlock. */
+    private val deferredCallLogs = java.util.concurrent.ConcurrentLinkedQueue<Pair<String, String>>()
+
+    suspend fun logCall(chatId: String, summary: String) {
+        // Calls never wait for (or fail on) chat storage: locked → keep it for after unlock.
+        if (vault.isLocked()) { deferredCallLogs += chatId to summary; return }
+        send(chatId, MsgKind.CALL, summary, null, null)
+    }
+
+    /** Phone unlocked: finish everything that needed the chat keys. */
+    suspend fun onUnlocked() {
+        ensureIndex()
+        while (true) { val (id, s) = deferredCallLogs.poll() ?: break; runCatching { send(id, MsgKind.CALL, s, null, null) } }
+    }
 
     data class MediaItem(val chatId: String, val chatTitle: String, val m: Message)
 
@@ -267,7 +281,7 @@ class ChatRepository(
     private var expiryLoop: Job? = null
     fun startExpiry() {
         expiryLoop?.cancel()
-        expiryLoop = scope.launch { while (isActive) { runCatching { expire() }; delay(30_000) } }
+        expiryLoop = scope.launch { while (isActive) { if (!vault.isLocked()) runCatching { expire() }; delay(30_000) } }
     }
 
     /** A system line both sides see, e.g. [EVENT_SCREENSHOT] when I capture this chat. */

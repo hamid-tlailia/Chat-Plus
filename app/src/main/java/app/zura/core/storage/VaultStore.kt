@@ -21,7 +21,15 @@ import java.util.concurrent.ConcurrentHashMap
  * Entry point to all on-device persistence. Owns the open [ChatStore]s and the media vault.
  * Pure JVM (no android.* imports) so the whole storage engine is unit-tested on the host.
  */
-class VaultStore(val paths: ZuraPaths, private val wrapper: KeyWrapper) {
+/** Chat storage is closed while the phone is locked (chat keys need an unlocked device). */
+class VaultLockedException : IllegalStateException("phone locked: chat storage opens after unlock")
+
+class VaultStore(
+    val paths: ZuraPaths,
+    private val wrapper: KeyWrapper,
+    /** True while chat keys can't be used (lock screen up / before first unlock). */
+    val isLocked: () -> Boolean = { false },
+) {
 
     private val open = ConcurrentHashMap<String, ChatStore>()
 
@@ -69,7 +77,17 @@ class VaultStore(val paths: ZuraPaths, private val wrapper: KeyWrapper) {
     private val _chatIds = MutableStateFlow(scanChatIds())
     val chatIds: StateFlow<Set<String>> = _chatIds.asStateFlow()
 
-    fun chat(chatId: String): ChatStore = open.getOrPut(ZuraPaths.safe(chatId)) {
+    /**
+     * Opens (or returns the already-open) chat. While the phone is locked, a chat that isn't open
+     * yet is NOT attempted: a clean [VaultLockedException] instead of a Keystore failure; the
+     * work is redone after unlock.
+     */
+    fun chat(chatId: String): ChatStore = open[ZuraPaths.safe(chatId)] ?: run {
+        if (isLocked()) throw VaultLockedException()
+        openChat(chatId)
+    }
+
+    private fun openChat(chatId: String): ChatStore = open.getOrPut(ZuraPaths.safe(chatId)) {
         ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }.also { _chatIds.value = _chatIds.value + chatId }
     }
 

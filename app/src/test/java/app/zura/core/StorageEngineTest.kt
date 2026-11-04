@@ -8,6 +8,7 @@ import app.zura.core.model.MsgKind
 import app.zura.core.model.MsgStatus
 import app.zura.core.storage.StorageJanitor
 import app.zura.core.storage.VaultStore
+import app.zura.core.storage.VaultLockedException
 import app.zura.core.storage.ZuraPaths
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
@@ -102,6 +103,23 @@ class StorageEngineTest {
         v2.deleteChat("c2")
         val (v3, _) = vault(w)
         assertEquals(setOf("c1"), v3.metaIndex.value.keys)
+    }
+
+    @Test fun lockedPhoneRefusesToOpenChatsCleanlyButKeepsOpenOnes() = runBlocking {
+        var locked = false
+        val w = SoftwareKeyWrapper()
+        val root = tmp.root
+        val v = VaultStore(ZuraPaths(File(root, "files"), File(root, "nb"), File(root, "cache")), w) { locked }
+        v.createChat(ChatMeta("c1", "Sara", listOf("u2"), 1L))
+        v.createChat(ChatMeta("c2", "Omar", listOf("u3"), 1L))
+        val v2 = VaultStore(ZuraPaths(File(root, "files"), File(root, "nb"), File(root, "cache")), w) { locked }
+        v2.chat("c1") // opened while unlocked
+        locked = true
+        assertEquals("Sara", v2.chat("c1").meta.value?.title) // stays usable
+        val err = runCatching { v2.chat("c2") }.exceptionOrNull()
+        assertTrue(err is VaultLockedException) // clean refusal, no Keystore call
+        locked = false
+        assertEquals("Omar", v2.chat("c2").meta.value?.title) // after unlock: normal
     }
 
     @Test fun janitorNeverDestroysTheChatListIndexKey() = runBlocking {

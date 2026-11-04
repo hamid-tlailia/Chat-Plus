@@ -45,12 +45,16 @@ open class ZuraApp : Application() {
             override fun onReceive(c: android.content.Context, i: android.content.Intent) {
                 graph.session.value?.let { s ->
                     s.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        runCatching { s.chats.ensureIndex() } // the chat list was unreadable while locked
-                        runCatching { s.transport.syncInbox() }
+                        DiagLog.record("lock", detail = "unlocked (${i.action?.substringAfterLast('.')}) → open chat storage")
+                        runCatching { s.chats.onUnlocked() } // chat list + deferred call logs
+                        runCatching { s.transport.syncInbox() } // messages that waited for the keys
                     }
                 }
             }
-        }, android.content.IntentFilter(android.content.Intent.ACTION_USER_PRESENT))
+        }, android.content.IntentFilter().apply {
+            addAction(android.content.Intent.ACTION_USER_PRESENT) // lock screen dismissed
+            addAction(android.content.Intent.ACTION_USER_UNLOCKED) // first unlock after boot
+        })
 
         // A new sign-in while the app is visible connects immediately.
         graph.scope.launch {

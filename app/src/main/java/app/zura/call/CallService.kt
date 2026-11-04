@@ -48,6 +48,7 @@ class CallService : Service() {
             }
             ACTION_HANGUP, ACTION_DECLINE, ACTION_ANSWER -> {
                 val action = intent.action
+                app.zura.DiagLog.record("call", detail = "notification button ${action?.substringAfterLast('.')} (call known=${session?.calls?.ui?.value?.inCall == true})")
                 if (action == ACTION_ANSWER) startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 // A freshly woken app may still be opening the account / decrypting the invite:
                 // wait a moment for the call instead of ignoring the tap.

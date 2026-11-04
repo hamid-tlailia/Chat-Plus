@@ -5,6 +5,7 @@ import app.zura.BuildConfig
 import app.zura.DiagLog
 import app.zura.call.CallManager
 import app.zura.call.Walkie
+import app.zura.security.DeviceLock
 import app.zura.call.Telecom
 import app.zura.core.crypto.E2EE
 import app.zura.core.model.ChatMeta
@@ -60,7 +61,9 @@ class AccountSession(
     private val dir = store.dir(uid)
     private val short = uid.replace("-", "").take(12)
 
-    val vault = VaultStore(ZuraPaths(dir, File(app.noBackupFilesDir, short), File(app.cacheDir, short)), keys)
+    val vault = VaultStore(ZuraPaths(dir, File(app.noBackupFilesDir, short), File(app.cacheDir, short)), keys) {
+        !DeviceLock.chatKeysUsable(app)
+    }
     val identity = Identity(dir, keys)
     val contacts = ContactsRepository(backend, uid, vault, SecureFile(File(dir, "pins.zs"), keys, "zpins"), scope, SecureFile(File(dir, "contacts.zs"), keys, "zcontacts"))
     val transport = SupabaseTransport(backend, uid, identity, contacts::peerKey, scope)
@@ -202,8 +205,11 @@ class AccountSession(
         contacts.start()
         scope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(4_000)
-            runCatching { janitor.sweep() }
-            runCatching { moments.expire() }
+            // Housekeeping needs the chat keys: only on an unlocked phone (else after the next unlock).
+            if (!vault.isLocked()) {
+                runCatching { janitor.sweep() }
+                runCatching { moments.expire() }
+            }
         }
     }
 
