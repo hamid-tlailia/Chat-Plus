@@ -26,6 +26,11 @@ class CallService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /** Foreground-service types currently granted (null = not in the foreground yet). */
+    private var runningType: Int? = null
+
+    override fun onDestroy() { runningType = null; super.onDestroy() }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val session = graph.session.value
         when (intent?.action) {
@@ -56,17 +61,27 @@ class CallService : Service() {
             if (ui.sharingScreen) t = t or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             t
         } else 0
+        val nm = getSystemService(NotificationManager::class.java)
+        // Same types as now → only refresh the notification. Re-calling startForeground from the
+        // background with microphone/camera is refused by Android, and the old fallback then
+        // DOWNGRADED the running service — the call could lose its mic after a reconnect.
+        if (runningType == type) { nm.notify(ID, n); return START_NOT_STICKY }
         runCatching {
             if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, type) else startForeground(ID, n)
+            runningType = type
             if (ui.sharingScreen) projectionReady = true
         }.recoverCatching {
-            // e.g. camera permission denied: keep the call alive with fewer types rather than none.
             app.zura.DiagLog.record("call fgs", it)
-            val basic = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL else 0
-            if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, basic) else startForeground(ID, n)
+            if (runningType != null) nm.notify(ID, n) // already running: keep the types it has
+            else {
+                // First start refused (e.g. camera permission denied): run with the basic type.
+                val basic = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL else 0
+                if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, basic) else startForeground(ID, n)
+                runningType = basic
+            }
         }.onFailure {
             app.zura.DiagLog.record("call fgs basic", it)
-            getSystemService(NotificationManager::class.java).notify(ID, n)
+            nm.notify(ID, n)
         }
         return START_NOT_STICKY
     }

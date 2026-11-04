@@ -9,6 +9,8 @@ import app.zura.core.crypto.E2EE
 import app.zura.core.model.ChatMeta
 import app.zura.push.MessageNotifier
 import app.zura.push.Push
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import app.zura.core.crypto.SecureFile
 import app.zura.core.storage.StorageJanitor
 import app.zura.core.storage.VaultStore
@@ -201,7 +203,17 @@ class AccountSession(
         }
     }
 
+    init {
+        // A call that ended while the app was in the background: now go fully to background.
+        scope.launch {
+            calls.ui.map { it.inCall }.distinctUntilChanged().collect { inCall ->
+                if (!inCall && !Push.appVisible) { kotlinx.coroutines.delay(2_000); if (!Push.appVisible && !calls.ui.value.inCall) onBackground() }
+            }
+        }
+    }
+
     fun onForeground() {
+        calls.onAppForeground() // a video call resumes the camera
         if (foreground) return
         foreground = true
         transport.start()
@@ -210,7 +222,9 @@ class AccountSession(
     }
 
     fun onBackground() {
-        if (!foreground || calls.ui.value.inCall) return
+        // In a call: everything keeps running (audio, connection); only the camera pauses.
+        if (calls.ui.value.inCall) { calls.onAppBackground(); return }
+        if (!foreground) return
         foreground = false
         chats.stopPresence(contactIds())
         chats.lockedRevealed.value = false // locked chats close again

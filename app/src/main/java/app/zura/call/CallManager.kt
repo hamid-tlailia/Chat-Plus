@@ -556,7 +556,7 @@ class CallManager(
     private suspend fun announceMedia() {
         val s = _ui.value
         val peer = s.peerId ?: return
-        transport.signal(peer, Frame.CallMedia(s.callId ?: return, me, s.cameraOn && !s.sharingScreen, s.muted, s.sharingScreen))
+        transport.signal(peer, Frame.CallMedia(s.callId ?: return, me, s.cameraOn && !s.sharingScreen && !bgPaused, s.muted, s.sharingScreen))
     }
 
     // ================================================================= teardown
@@ -587,6 +587,32 @@ class CallManager(
         }
         _ui.value = s.copy(phase = CallPhase.ENDED, endReason = reason)
         scope.launch(rtc) { delay(1_600); if (_ui.value.phase == CallPhase.ENDED && _ui.value.callId == s.callId) _ui.value = CallUi(net = network.type.value) }
+    }
+
+    // ================================================================= app in background
+
+    /** Camera paused because the user left the app (not because they turned it off). */
+    @Volatile private var bgPaused = false
+
+    /**
+     * Left the app during a video call: audio keeps flowing (foreground service); the camera
+     * pauses — the other side sees my avatar instead of a frozen frame — unless I'm sharing my screen.
+     */
+    fun onAppBackground() = scope.launch(rtc) {
+        val s = _ui.value
+        if (!s.inCall || !s.video || !s.cameraOn || s.sharingScreen || bgPaused) return@launch
+        bgPaused = true
+        runCatching { capturer?.stopCapture() }
+        announceMedia()
+    }
+
+    /** Back in the app: camera on again and the other side's video comes back automatically. */
+    fun onAppForeground() = scope.launch(rtc) {
+        if (!bgPaused) return@launch
+        bgPaused = false
+        val s = _ui.value
+        if (s.inCall && s.video && s.cameraOn && !s.sharingScreen) runCatching { capturer?.startCapture(1280, 720, 30) }
+        announceMedia()
     }
 
     // ================================================================= screen sharing
@@ -661,6 +687,7 @@ class CallManager(
     }
 
     private fun release() {
+        bgPaused = false
         disposeScreen()
         runCatching { capturer?.stopCapture() }
         capturer?.dispose(); capturer = null

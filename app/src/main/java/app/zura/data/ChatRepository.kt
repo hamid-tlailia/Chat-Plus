@@ -295,7 +295,7 @@ class ChatRepository(
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             app.zura.DiagLog.record("transmit", e)
-            store.get(msg.id)?.takeIf { it.status == MsgStatus.PENDING }?.let { store.upsert(it.copy(status = MsgStatus.FAILED)) }
+            store.get(msg.id)?.takeIf { it.status == MsgStatus.PENDING }?.let { store.upsert(it.copy(status = notSent())) }
         }
     }
 
@@ -306,7 +306,7 @@ class ChatRepository(
                 // Upload the vault file as-is: it is already ciphertext under a per-file key.
                 val path = "$me/${UUID.randomUUID()}"
                 runCatching { backend.upload("blobs", path, vault.mediaFile(msg.chatId, ref)) }
-                    .onFailure { app.zura.DiagLog.record("blob upload", it); store.upsert(msg.copy(status = MsgStatus.FAILED)); return }
+                    .onFailure { app.zura.DiagLog.record("blob upload", it); store.upsert(msg.copy(status = notSent())); return }
                 wire = msg.copy(media = ref.copy(remoteBlobId = path))
                 store.upsert(wire)
             }
@@ -316,7 +316,7 @@ class ChatRepository(
         // Never leave a message on the clock forever: sent → ✓, otherwise → "failed, tap to retry"
         // (also retried automatically on the next reconnect).
         store.get(wire.id)?.takeIf { it.status == MsgStatus.PENDING || it.status == MsgStatus.FAILED }
-            ?.let { store.upsert(it.copy(status = if (ok) MsgStatus.SENT else MsgStatus.FAILED)) }
+            ?.let { store.upsert(it.copy(status = if (ok) MsgStatus.SENT else notSent())) }
         // Always wake the peer's phone with a push. A short text travels INSIDE the push, sealed
         // end-to-end for that peer (FCM/Google see only ciphertext): their phone decrypts and
         // shows it at once, without first reconnecting and downloading the inbox. Bigger
@@ -328,6 +328,12 @@ class ChatRepository(
             }
         }
     }
+
+    /**
+     * Couldn't send. Offline → stay "waiting" (clock) and go out by itself when the connection
+     * returns, like other messengers; online → a real failure (tap to retry, also auto-retried).
+     */
+    private fun notSent() = if (transport.online.value) MsgStatus.FAILED else MsgStatus.PENDING
 
     private suspend fun resendPending() = withContext(Dispatchers.IO) {
         vault.chatIds.value.filter { it != MomentsRepository.STORE }.forEach { id ->
