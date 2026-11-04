@@ -24,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -140,10 +141,12 @@ class MainActivity : ComponentActivity() {
             ZuraTheme(theme, bubbles, active, font, wall) {
                 Box(Modifier.fillMaxSize().zuraBackground()) {
                     when (val a = auth) {
-                        AuthState.Loading -> Unit
+                        AuthState.Loading -> SplashScreen()
                         AuthState.SignedOut -> AuthScreen()
                         is AuthState.SignedIn -> key(a.session.uid) { SignedIn(a.session) }
                     }
+                    // Sheets (confirmations, pickers, walkie-talkie) draw here, above everything.
+                    app.zura.ui.components.OverlayLayer()
                 }
             }
         }
@@ -252,5 +255,16 @@ internal fun NavHost(nav: Navigator) {
             is Route.Media -> MediaViewer(route.chatId, route.messageId, onClose = { nav.pop() })
         }
       }
+    }
+}
+
+/** Shown for the moment the saved account is being opened (never a blank page). */
+@Composable
+private fun SplashScreen() {
+    val c = app.zura.ui.theme.Zura.colors
+    Column(Modifier.fillMaxSize(), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center) {
+        androidx.compose.material3.Text("Zura", style = app.zura.ui.theme.Zura.type.title, color = c.text)
+        androidx.compose.foundation.layout.Spacer(Modifier.padding(10.dp))
+        androidx.compose.material3.CircularProgressIndicator(Modifier.padding(4.dp), color = c.accent, strokeWidth = 2.dp)
     }
 }

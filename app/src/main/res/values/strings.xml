@@ -353,4 +353,5 @@
     <string name="moment_quote_theirs">Reacted to your moment</string>
     <string name="moment_quote_mine">You replied to their moment</string>
     <string name="moment_notif">On your moment: %1$s</string>
+    <string name="walkie_draft">Not heard live — send it as a voice note?</string>
 </resources>

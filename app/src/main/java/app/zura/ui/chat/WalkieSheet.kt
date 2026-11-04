@@ -50,6 +50,7 @@ import app.zura.graph
 import app.zura.ui.ZuraIcons
 import app.zura.ui.components.rememberHaptics
 import app.zura.ui.theme.Zura
+import kotlinx.coroutines.launch
 
 /**
  * Push-to-talk. Peer in the app → live voice while the button is held. Peer away → the same
@@ -63,11 +64,11 @@ fun WalkieSheet(vm: ChatViewModel, peerName: String, onDismiss: () -> Unit) {
     val haptics = rememberHaptics()
     val online by vm.peerOnline.collectAsStateWithLifecycle()
     val sending by g.s.walkie.sending.collectAsStateWithLifecycle()
-    val rec by vm.recorder.live.collectAsStateWithLifecycle()
-    val active = sending || rec.recording
+    val draft by g.s.walkie.draft.collectAsStateWithLifecycle()
+    val active = sending
     val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     val pulse by rememberInfiniteTransition(label = "ptt").animateFloat(1f, 1.18f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "s")
-    DisposableEffect(Unit) { onDispose { g.s.walkie.stopTalking(); if (vm.recorder.live.value.recording) vm.cancelRecording() } }
+    DisposableEffect(Unit) { onDispose { g.s.walkie.stopTalking(); g.s.walkie.discardDraft() } }
     BackHandler(onBack = onDismiss)
 
     app.zura.ui.components.SheetHost(onDismiss = onDismiss) {
@@ -79,7 +80,11 @@ fun WalkieSheet(vm: ChatViewModel, peerName: String, onDismiss: () -> Unit) {
                     .clickable(remember { MutableInteractionSource() }, null) {}.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("📻 " + stringResource(R.string.walkie) + " · " + peerName, style = Zura.type.headline, color = c.text)
+                androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(ZuraIcons.Walkie, null, tint = c.accent, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.walkie) + " · " + peerName, style = Zura.type.headline, color = c.text)
+                }
                 Spacer(Modifier.height(6.dp))
                 Text(
                     stringResource(if (online) R.string.walkie_live else R.string.walkie_offline),
@@ -96,19 +101,49 @@ fun WalkieSheet(vm: ChatViewModel, peerName: String, onDismiss: () -> Unit) {
                                     mic.launch(Manifest.permission.RECORD_AUDIO); return@awaitEachGesture
                                 }
                                 val peer = vm.peerId ?: return@awaitEachGesture
-                                val live = online
-                                val started = if (live) g.s.walkie.startTalking(peer, vm.chatId) else vm.startRecording()
-                                if (!started) { haptics.reject(); return@awaitEachGesture }
+                                // Live when they're in the app; otherwise (or if live fails) it becomes a draft below.
+                                if (!g.s.walkie.startTalking(peer, vm.chatId, live = online)) { haptics.reject(); return@awaitEachGesture }
                                 haptics.start()
                                 waitForUpOrCancellation()
                                 haptics.confirm()
-                                if (live) g.s.walkie.stopTalking() else vm.finishRecording()
+                                g.s.walkie.stopTalking()
                             }
                         },
                     contentAlignment = Alignment.Center,
                 ) { Icon(ZuraIcons.Mic, null, tint = c.onAccent, modifier = Modifier.size(56.dp)) }
                 Spacer(Modifier.height(16.dp))
                 Text(stringResource(if (active) R.string.walkie_you else R.string.walkie_hold), style = Zura.type.label, color = c.text)
+                // Not heard live: the user decides — send as a voice note, or delete.
+                draft?.let { d ->
+                    Spacer(Modifier.height(18.dp))
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.text.copy(alpha = 0.06f)).padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(stringResource(R.string.walkie_draft) + " · " + app.zura.i18n.ZuraFormat(java.util.Locale.getDefault()).duration(d.durationMs), style = Zura.type.label, color = c.text, textAlign = TextAlign.Center)
+                        Spacer(Modifier.height(12.dp))
+                        androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
+                            Box(
+                                Modifier.weight(1f).height(46.dp).clip(CircleShape).background(c.danger.copy(alpha = 0.14f))
+                                    .clickable { haptics.reject(); g.s.walkie.discardDraft() },
+                                contentAlignment = Alignment.Center,
+                            ) { Text(stringResource(R.string.delete), style = Zura.type.label, color = c.danger) }
+                            Box(
+                                Modifier.weight(1f).height(46.dp).clip(CircleShape).background(c.accent).clickable {
+                                    haptics.confirm()
+                                    g.s.walkie.discardDraft()
+                                    g.s.scope.launch {
+                                        runCatching {
+                                            val ref = g.vault.importMedia(d.chatId, java.io.ByteArrayInputStream(d.wav), "audio/wav", durationMs = d.durationMs, waveform = d.waveform)
+                                            g.chats.sendMedia(d.chatId, app.zura.core.model.MsgKind.VOICE, ref)
+                                        }
+                                    }
+                                },
+                                contentAlignment = Alignment.Center,
+                            ) { Text(stringResource(R.string.send), style = Zura.type.label, color = c.onAccent) }
+                        }
+                    }
+                }
             }
         }
     }
@@ -124,5 +159,11 @@ fun WalkieIndicator(modifier: Modifier = Modifier) {
     val name = session.contacts.profile(id)?.displayName ?: ""
     Box(
         modifier.clip(CircleShape).background(Zura.colors.accent).padding(horizontal = 16.dp, vertical = 8.dp),
-    ) { Text("📻 " + stringResource(R.string.walkie_talking, name), style = Zura.type.label, color = Zura.colors.onAccent) }
+    ) {
+        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(ZuraIcons.Walkie, null, tint = Zura.colors.onAccent, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+            Text(stringResource(R.string.walkie_talking, name), style = Zura.type.label, color = Zura.colors.onAccent)
+        }
+    }
 }

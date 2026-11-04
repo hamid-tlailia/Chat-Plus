@@ -353,4 +353,5 @@
     <string name="moment_quote_theirs">تفاعل مع لحظتك</string>
     <string name="moment_quote_mine">رددتَ على لحظته</string>
     <string name="moment_notif">على لحظتك: %1$s</string>
+    <string name="walkie_draft">لم يُسمع مباشرة — إرساله كرسالة صوتية؟</string>
 </resources>

@@ -224,7 +224,8 @@ class ChatRepository(
      */
     suspend fun expire(chatId: String? = null, leaving: Boolean = false) = withContext(Dispatchers.IO) {
         val now = now()
-        val ids = if (chatId != null) listOf(chatId) else chats.value.map { it.id }
+        // Periodic sweep: only chats with a timer (cheap). Any chat is also checked when opened/left.
+        val ids = if (chatId != null) listOf(chatId) else chats.value.filter { it.disappearMs != null }.map { it.id }
         ids.forEach { id ->
             if (!vault.exists(id)) return@forEach
             val store = vault.chat(id)
@@ -258,10 +259,11 @@ class ChatRepository(
     suspend fun logEvent(chatId: String, code: String) = send(chatId, MsgKind.EVENT, code, null, null)
 
     /** React / reply to a contact's moment: a normal E2EE message in our chat, carrying a preview of it. */
-    suspend fun replyToMoment(ownerId: String, item: Message, text: String) {
+    /** [thumb] = a sharp small JPEG of the moment (base64); falls back to its blurred micro-preview. */
+    suspend fun replyToMoment(ownerId: String, item: Message, text: String, thumb: String? = null) {
         val chatId = ContactsRepository.dmChatId(me, ownerId)
         if (!vault.exists(chatId)) return
-        send(chatId, MsgKind.TEXT, text.trim(), null, null, MomentQuote(item.media?.preview, item.text?.take(80), item.kind == MsgKind.VIDEO))
+        send(chatId, MsgKind.TEXT, text.trim(), null, null, MomentQuote(thumb ?: item.media?.preview, item.text?.take(80), item.kind == MsgKind.VIDEO))
     }
 
     private suspend fun send(chatId: String, kind: MsgKind, text: String?, media: MediaRef?, replyTo: String?, moment: MomentQuote? = null) =

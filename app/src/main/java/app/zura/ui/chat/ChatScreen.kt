@@ -136,8 +136,12 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
         vm.markRead()
         onPauseOrDispose { }
     }
-    // Stick to bottom when a new message arrives and we're already near it.
-    LaunchedEffect(items.firstOrNull()?.key) { if (list.firstVisibleItemIndex <= 2) list.animateScrollToItem(0) }
+    // A message was sent or received → always bring the newest into view, even after scrolling up
+    // (far away: jump close first, then glide the last bit).
+    LaunchedEffect(items.firstOrNull()?.key) {
+        if (list.firstVisibleItemIndex > 12) list.scrollToItem(6)
+        list.animateScrollToItem(0)
+    }
 
     val byId = remember(items) { items.filterIsInstance<ChatItem.Bubble>().associateBy({ it.m.id }, { it.m }) }
 
@@ -265,7 +269,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                 var walkieOpen by remember { mutableStateOf(false) }
                 if (walkieOpen) WalkieSheet(vm, meta?.title.orEmpty()) { walkieOpen = false }
                 if (vm.peerId != null && !blockedEither) {
-                    IconButton(onClick = { haptics.tick(); walkieOpen = true }) { Text("📻", style = Zura.type.headline) }
+                    IconButton(onClick = { haptics.tick(); walkieOpen = true }) { Icon(app.zura.ui.ZuraIcons.Walkie, stringResource(R.string.walkie), tint = Zura.colors.text) }
                     IconButton(onClick = { haptics.tick(); callVideo(ctx) }) { Icon(app.zura.ui.ZuraIcons.VideoCam, stringResource(R.string.video_call), tint = Zura.colors.text) }
                     IconButton(onClick = { haptics.tick(); callVoice(ctx) }) { Icon(Icons.Default.Call, stringResource(R.string.voice_call), tint = Zura.colors.text) }
                 }

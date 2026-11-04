@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -93,8 +94,11 @@ class AccountManager(
             val acct = last?.let(store::get)
             // Remembered account: restore it straight away, offline-first (no "Loading → sign-in"
             // flash, and a cold start from a push with no network must NOT log the user out).
-            if (acct != null && acct.remember && restore(acct.uid)) return@launch
-            _state.value = AuthState.SignedOut
+            // Safety net: never sit on the loading screen for long.
+            val watchdog = launch { kotlinx.coroutines.delay(8_000); if (_state.value == AuthState.Loading) _state.value = AuthState.SignedOut }
+            if (acct != null && acct.remember && restore(acct.uid)) { watchdog.cancel(); return@launch }
+            watchdog.cancel()
+            if (_state.value == AuthState.Loading) _state.value = AuthState.SignedOut
         }
     }
 
@@ -105,8 +109,15 @@ class AccountManager(
             val saved = store.session(uid).readText()?.let { runCatching { json.decodeFromString(UserSession.serializer(), it) }.getOrNull() }
                 ?: return@withContext false
             runCatching {
-                backend.client.auth.importSession(saved, autoRefresh = true) // refreshes in the background, retrying on network errors
+                // No network here: with autoRefresh the library refreshes an EXPIRED session inside
+                // importSession and keeps retrying on a slow network — the app sat on a blank screen.
+                withTimeoutOrNull(3_000) { backend.client.auth.importSession(saved, autoRefresh = false) }
                 activate(uid, acct.email, true, backend.client.auth.currentSessionOrNull() ?: saved)
+                // Refresh + keep refreshing in the background.
+                scope.launch {
+                    withTimeoutOrNull(20_000) { runCatching { backend.ensureFresh() } }
+                    runCatching { backend.client.auth.startAutoRefreshForCurrentSession() }
+                }
                 true
             }.getOrElse { DiagLog.record("auth restore", it); false }
         }
@@ -159,9 +170,11 @@ class AccountManager(
             val acct = store.get(uid) ?: return@withContext AuthResult.NeedPassword
             val saved = store.session(uid).readText()?.let { runCatching { json.decodeFromString(UserSession.serializer(), it) }.getOrNull() }
                 ?: return@withContext AuthResult.NeedPassword
-            runCatching { backend.client.auth.importSession(saved, autoRefresh = true) }
+            runCatching { withTimeoutOrNull(3_000) { backend.client.auth.importSession(saved, autoRefresh = false) } }
                 .onFailure { return@withContext AuthResult.NeedPassword }
-            val refreshed = runCatching { backend.client.auth.refreshCurrentSession() }
+            val refreshed = runCatching {
+                withTimeoutOrNull(10_000) { backend.client.auth.refreshCurrentSession() } ?: error("refresh timeout")
+            }
             val err = refreshed.exceptionOrNull()
             if (err is io.github.jan.supabase.exceptions.RestException) {
                 // Only a real "invalid / revoked refresh token" answer from the server asks for the password.
@@ -169,6 +182,7 @@ class AccountManager(
                 return@withContext AuthResult.NeedPassword
             }
             if (err != null) DiagLog.record("auth refresh deferred", err)
+            scope.launch { runCatching { backend.client.auth.startAutoRefreshForCurrentSession() } }
             runCatching {
                 val s = backend.client.auth.currentSessionOrNull() ?: saved
                 check(s.user?.id == uid || s.user == null)

@@ -71,7 +71,8 @@ class Backend {
         refreshLock.withLock {
             val again = client.auth.currentSessionOrNull() ?: return
             if (again.expiresAt.toEpochMilliseconds() - System.currentTimeMillis() > 60_000) return
-            runCatching { client.auth.refreshCurrentSession() }
+            // Bounded: a hung refresh must never stall every request behind this lock.
+            kotlinx.coroutines.withTimeoutOrNull(12_000) { runCatching { client.auth.refreshCurrentSession() } }
         }
     }
 

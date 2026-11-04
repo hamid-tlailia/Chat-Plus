@@ -416,7 +416,7 @@ private fun MomentQuoteCard(q: app.zura.core.model.MomentQuote, mine: Boolean, o
         Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp).clip(RoundedCornerShape(12.dp)).background(onFill.copy(alpha = 0.1f)).padding(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(width = 34.dp, height = 52.dp).clip(RoundedCornerShape(8.dp)).background(onFill.copy(alpha = 0.15f))) {
+        Box(Modifier.size(width = 46.dp, height = 70.dp).clip(RoundedCornerShape(10.dp)).background(onFill.copy(alpha = 0.15f))) {
             thumb?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         }
         Spacer(Modifier.width(8.dp))

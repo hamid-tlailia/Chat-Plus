@@ -62,6 +62,7 @@ import app.zura.ui.components.ZuraMotion
 import app.zura.ui.components.rememberHaptics
 import app.zura.ui.media.VaultVideo
 import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.clickable
@@ -201,7 +202,19 @@ private fun MomentReplyBar(ownerId: String, item: app.zura.core.model.Message, m
     LaunchedEffect(burst) { if (burst != null) { pop.snapTo(0f); pop.animateTo(1f, tween(700)); burst = null } }
     fun send(t: String) {
         if (t.isBlank()) return
-        g.s.scope.launch { g.chats.replyToMoment(ownerId, item, t) }
+        g.s.scope.launch {
+            // A crisp 240 px thumbnail of the photo (≈10 KB) instead of the blurred placeholder.
+            val thumb = if (item.kind == MsgKind.IMAGE) item.media?.let { ref ->
+                runCatching {
+                    g.images.load(MomentsRepository.STORE, ref, 240)?.asAndroidBitmap()?.let { bmp ->
+                        val out = java.io.ByteArrayOutputStream()
+                        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 72, out)
+                        android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+                    }
+                }.getOrNull()
+            } else null
+            g.chats.replyToMoment(ownerId, item, t, thumb)
+        }
         android.widget.Toast.makeText(ctx, app.zura.R.string.moment_sent, android.widget.Toast.LENGTH_SHORT).show()
     }
     Box(modifier.fillMaxWidth()) {

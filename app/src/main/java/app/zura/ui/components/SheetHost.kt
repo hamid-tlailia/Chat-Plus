@@ -1,28 +1,38 @@
 package app.zura.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 
 /**
- * Full-window, edge-to-edge host for Zura's own sheets. The look is entirely ours (scrim, card,
- * spring); a dialog window is used only because, unlike a Popup, it receives the system-bar
- * insets — the sheet's bottom used to slide under the gesture bar.
+ * Zura's sheets draw in an overlay layer of the app's own (edge-to-edge) screen — not in a
+ * separate dialog/popup window. Separate windows got laid out under the status bar on some phones
+ * and pushed the sheet's bottom off screen; here the system-bar insets are always right.
  */
+object Overlays {
+    class Entry(val content: MutableState<@Composable () -> Unit>)
+    internal val entries = mutableStateListOf<Entry>()
+}
+
+/** Shows [content] full-screen above everything while this composable is in the tree. */
 @Composable
 fun SheetHost(onDismiss: () -> Unit, content: @Composable () -> Unit) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
-        SideEffect {
-            window?.setDimAmount(0f) // we draw our own animated scrim
-            window?.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
-        }
-        content()
+    val entry = remember { Overlays.Entry(mutableStateOf(content)) }
+    SideEffect { entry.content.value = { BackHandler(onBack = onDismiss); content() } }
+    DisposableEffect(entry) {
+        Overlays.entries.add(entry)
+        onDispose { Overlays.entries.remove(entry) }
     }
+}
+
+/** Place once, last, in the root of the app's content. */
+@Composable
+fun OverlayLayer() {
+    Overlays.entries.forEach { e -> key(e) { e.content.value() } }
 }
