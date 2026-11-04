@@ -173,9 +173,11 @@ class ShareReceiverActivity : ComponentActivity() {
                     g.chats.sendMedia(chatId, MsgKind.VIDEO, g.videoCompressor.import(chatId, uri), caption)
                 else -> {
                     val ref = withContext(Dispatchers.IO) {
-                        f.file.inputStream().buffered().use { g.vault.importMedia(chatId, it, f.mime, originalName = f.name) }
+                        // Music / audio: keep its length so the bubble shows it (it's a file, not a voice note).
+                        val dur = if (f.mime.startsWith("audio/")) app.zura.media.AudioMeta.durationMs(f.file) else 0L
+                        f.file.inputStream().buffered().use { g.vault.importMedia(chatId, it, f.mime, durationMs = dur, originalName = f.name ?: if (f.mime.startsWith("audio/")) "audio" else null) }
                     }
-                    g.chats.sendMedia(chatId, if (f.mime.startsWith("audio/")) MsgKind.VOICE else MsgKind.FILE, ref, caption)
+                    g.chats.sendMedia(chatId, MsgKind.FILE, ref, caption)
                 }
             }
         } catch (_: Exception) {

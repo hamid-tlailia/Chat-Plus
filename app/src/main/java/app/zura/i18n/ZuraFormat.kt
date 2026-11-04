@@ -42,6 +42,20 @@ class ZuraFormat(private val locale: Locale, private val zone: ZoneId = ZoneId.s
         }
     }
 
+    /** "last seen today at 1:15 PM" / "yesterday at …" / "Monday at …" / "3 March". */
+    fun lastSeen(context: Context, epochMs: Long): String {
+        val d = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
+        val today = LocalDate.now(zone)
+        val t = time(epochMs)
+        return when {
+            System.currentTimeMillis() - epochMs < 60_000 -> context.getString(R.string.last_seen_just_now)
+            d == today -> context.getString(R.string.last_seen_today, t)
+            d == today.minusDays(1) -> context.getString(R.string.last_seen_yesterday, t)
+            d.isAfter(today.minusDays(7)) -> context.getString(R.string.last_seen_on, weekday.format(d), t)
+            else -> context.getString(R.string.last_seen_date, if (d.year == today.year) dayMonth.format(d) else full.format(d))
+        }
+    }
+
     /** Chat-list timestamp: time today, weekday this week, short date otherwise. */
     fun listStamp(epochMs: Long): String {
         val z = Instant.ofEpochMilli(epochMs).atZone(zone)

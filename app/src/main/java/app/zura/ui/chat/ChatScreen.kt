@@ -165,6 +165,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
 
         // Glass header
         val peerOnline by vm.peerOnline.collectAsStateWithLifecycle()
+        val peerSeen by vm.peerLastSeen.collectAsStateWithLifecycle()
         val callVoice = rememberCallPermissions(false) { ok -> if (ok) vm.call(false) }
         val callVideo = rememberCallPermissions(true) { ok -> if (ok) vm.call(true) }
         var showSafety by remember { mutableStateOf(false) }
@@ -193,6 +194,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                             when {
                                 meta?.peerIds.isNullOrEmpty() -> stringResource(R.string.about_privacy).substringBefore('.')
                                 peerOnline -> stringResource(R.string.online_now)
+                                peerSeen != null -> fmt.lastSeen(ctx, peerSeen!!)
                                 else -> "🔒 " + stringResource(R.string.e2ee_short)
                             },
                             style = Zura.type.caption, color = if (peerOnline) Zura.colors.accent else Zura.colors.textMuted,

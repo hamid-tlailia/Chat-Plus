@@ -34,7 +34,17 @@ class ZuraMessagingService : FirebaseMessagingService() {
                 (graph.accounts.state.first { it is AuthState.SignedIn } as AuthState.SignedIn).session
             } ?: return@runBlocking
             when (kind) {
-                "msg" -> withTimeoutOrNull(8_000) { session.transport.syncInbox() }
+                "msg" -> {
+                    // Message carried in the push (E2EE): store + notify right away, no network.
+                    data["e"]?.let { sealed ->
+                        withTimeoutOrNull(4_000) {
+                            val f = session.transport.openFrom(from, sealed) as? Frame.Msg
+                            if (f != null && f.from == from) runCatching { session.transport.onFrame(from, f) }
+                        }
+                    }
+                    // Then catch up on anything else (also removes it from the server inbox).
+                    withTimeoutOrNull(8_000) { session.transport.syncInbox() }
+                }
                 "call" -> {
                     val sealed = data["e"] ?: return@runBlocking
                     val invite = session.transport.openFrom(from, sealed) as? Frame.CallInvite ?: return@runBlocking

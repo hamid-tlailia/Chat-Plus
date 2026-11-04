@@ -229,6 +229,15 @@ class ContactsRepository(
     }
 
     /** Make sure a profile is loaded (e.g. opening someone's profile from a moment). */
+    /** Fresh "last seen" of a contact from the server (epoch ms), or null. */
+    suspend fun fetchLastSeen(uid: String): Long? = withContext(Dispatchers.IO) {
+        runCatching {
+            val arr = backend.json.parseToJsonElement(backend.client.from("profiles").select(io.github.jan.supabase.postgrest.query.Columns.list("last_seen")) { filter { eq("id", uid) } }.data)
+            val v = ((arr as kotlinx.serialization.json.JsonArray).firstOrNull() as? kotlinx.serialization.json.JsonObject)?.get("last_seen") as? kotlinx.serialization.json.JsonPrimitive
+            v?.content?.takeIf { it != "null" }?.let { java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli() }
+        }.getOrNull()
+    }
+
     suspend fun loadProfile(uid: String): Profile? = withContext(Dispatchers.IO) {
         profiles[uid] ?: runCatching { fetchProfiles(listOf(uid)); profiles[uid] }.getOrNull()
     }

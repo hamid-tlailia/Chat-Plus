@@ -89,6 +89,11 @@ class ChatRepository(
         }
     }.distinctUntilChanged()
 
+    /** When each contact was last in the app (from their presence frames, seeded from the server). */
+    private val lastSeen = MutableStateFlow<Map<String, Long>>(emptyMap())
+    fun peerLastSeen(userId: String): Flow<Long?> = lastSeen.map { it[userId] }.distinctUntilChanged()
+    fun noteLastSeen(userId: String, at: Long) { lastSeen.update { m -> if ((m[userId] ?: 0) >= at) m else m + (userId to at) } }
+
     fun peerOnline(userId: String): Flow<Boolean> =
         presence.map { (it[userId] ?: 0) > System.currentTimeMillis() }.distinctUntilChanged()
 
@@ -193,7 +198,15 @@ class ChatRepository(
             store.upsert(msg)
             touchMeta(store, msg, unreadDelta = 0)
             if (kind != MsgKind.CALL && kind != MsgKind.EVENT) setTyping(chatId, false)
-            if (peers.isNotEmpty()) transmit(store, msg)
+            // A link: the bubble is already shown; build its card (≤ 6 s) and send it with the text.
+            var out = msg
+            if (kind == MsgKind.TEXT && text != null && app.zura.net.LinkPreviews.find(text).isNotEmpty()) {
+                app.zura.net.LinkPreviews.fetch(text)?.let { lp ->
+                    out = (store.get(msg.id) ?: msg).copy(link = lp)
+                    store.upsert(out)
+                }
+            }
+            if (peers.isNotEmpty()) transmit(store, out)
         }
 
     private fun transmit(store: ChatStore, msg: Message) = scope.launch(Dispatchers.IO) {
@@ -218,16 +231,22 @@ class ChatRepository(
                 store.upsert(wire)
             }
         }
-        val frame = Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text, wire.media, wire.replyTo)
+        val frame = Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text, wire.media, wire.replyTo, wire.link)
         val ok = peersOf(wire.chatId).all { transport.send(it, frame) }
         // Never leave a message on the clock forever: sent → ✓, otherwise → "failed, tap to retry"
         // (also retried automatically on the next reconnect).
         store.get(wire.id)?.takeIf { it.status == MsgStatus.PENDING || it.status == MsgStatus.FAILED }
             ?.let { store.upsert(it.copy(status = if (ok) MsgStatus.SENT else MsgStatus.FAILED)) }
-        // Always wake the peer's phone with a content-free push (they pull + decrypt). "Online"
-        // presence lags up to ~100 s after they leave the app, which delayed messages; a push to
-        // a phone that already has the message is a harmless no-op sync.
-        if (ok) peersOf(wire.chatId).forEach { scope.launch { backend.push(it, "msg") } }
+        // Always wake the peer's phone with a push. A short text travels INSIDE the push, sealed
+        // end-to-end for that peer (FCM/Google see only ciphertext): their phone decrypts and
+        // shows it at once, without first reconnecting and downloading the inbox. Bigger
+        // messages (media, link cards) stay content-free; the phone then pulls the inbox.
+        if (ok) peersOf(wire.chatId).forEach { peer ->
+            scope.launch {
+                val sealed = if (frame.kind == MsgKind.TEXT && frame.link == null) transport.sealFor(peer, frame)?.takeIf { it.length <= 2_600 } else null
+                backend.push(peer, "msg", if (sealed != null) mapOf("e" to sealed) else emptyMap())
+            }
+        }
     }
 
     private suspend fun resendPending() = withContext(Dispatchers.IO) {
@@ -312,7 +331,7 @@ class ChatRepository(
                     val blob = ref.remoteBlobId ?: return@let null
                     runCatching { backend.download("blobs", blob) { vault.adoptCiphertext(f.chatId, ref, it) } }.getOrNull()
                 }
-                val msg = Message(f.id, f.chatId, from, f.sentAt, f.kind, f.text, media, MsgStatus.DELIVERED, replyTo = f.replyTo)
+                val msg = Message(f.id, f.chatId, from, f.sentAt, f.kind, f.text, media, MsgStatus.DELIVERED, replyTo = f.replyTo, link = f.link)
                 store.upsert(msg)
                 touchMeta(store, msg, unreadDelta = 1)
                 store.meta.value?.let { onIncoming(it, msg) }
@@ -333,7 +352,10 @@ class ChatRepository(
                 val users = m[f.chatId].orEmpty()
                 m + (f.chatId to if (f.active) users + (from to now() + 6_000) else users - from)
             }
-            is Frame.Presence -> if (f.userId == from) presence.update { it + (from to if (f.online) now() + 100_000 else 0L) }
+            is Frame.Presence -> if (f.userId == from) {
+                presence.update { it + (from to if (f.online) now() + 100_000 else 0L) }
+                noteLastSeen(from, if (f.online) now() else f.lastSeen.coerceAtMost(now()))
+            }
             is Frame.Edit -> if (f.from == from && vault.exists(f.chatId)) vault.chat(f.chatId).let { s -> if (s.get(f.id)?.senderId == from) s.edit(f.id, f.text, f.at) }
             is Frame.Delete -> if (f.from == from && vault.exists(f.chatId)) {
                 val s = vault.chat(f.chatId)

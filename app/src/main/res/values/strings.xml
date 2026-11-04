@@ -228,4 +228,10 @@
     <string name="you_blocked">You blocked %1$s. They can\'t message or call you.</string>
     <string name="cant_message">You can\'t send messages to this person.</string>
     <string name="cant_call">You can\'t call this person</string>
+    <string name="audio">Audio</string>
+    <string name="last_seen_just_now">last seen just now</string>
+    <string name="last_seen_today">last seen today at %1$s</string>
+    <string name="last_seen_yesterday">last seen yesterday at %1$s</string>
+    <string name="last_seen_on">last seen %1$s at %2$s</string>
+    <string name="last_seen_date">last seen %1$s</string>
 </resources>

@@ -228,4 +228,10 @@
     <string name="you_blocked">لقد حظرت %1$s. لا يمكنه مراسلتك أو الاتصال بك.</string>
     <string name="cant_message">لا يمكنك إرسال رسائل إلى هذا الشخص.</string>
     <string name="cant_call">لا يمكنك الاتصال بهذا الشخص</string>
+    <string name="audio">ملف صوتي</string>
+    <string name="last_seen_just_now">آخر ظهور الآن</string>
+    <string name="last_seen_today">آخر ظهور اليوم %1$s</string>
+    <string name="last_seen_yesterday">آخر ظهور أمس %1$s</string>
+    <string name="last_seen_on">آخر ظهور %1$s %2$s</string>
+    <string name="last_seen_date">آخر ظهور %1$s</string>
 </resources>

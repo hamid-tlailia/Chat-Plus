@@ -52,6 +52,18 @@ data class Message(
     /** userId -> emoji. One reaction per user, last write wins. */
     val reactions: Map<String, String> = emptyMap(),
     val replyTo: String? = null,
+    /** Rich card for the first link in [text]; built on the sender's phone, travels E2EE. */
+    val link: LinkPreview? = null,
+)
+
+/** Title / site / small thumbnail of a shared link (image = base64 JPEG, a few KB). */
+@Serializable
+data class LinkPreview(
+    val url: String,
+    val title: String? = null,
+    val description: String? = null,
+    val site: String? = null,
+    val image: String? = null,
 )
 
 @Immutable

@@ -32,6 +32,7 @@ sealed interface Frame {
         val text: String? = null,
         val media: MediaRef? = null,
         val replyTo: String? = null,
+        val link: app.zura.core.model.LinkPreview? = null,
     ) : Frame
 
     /** Relay accepted & persisted the frame → sender shows a single tick. */

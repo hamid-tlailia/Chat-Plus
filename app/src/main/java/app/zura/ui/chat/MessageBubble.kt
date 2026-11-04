@@ -180,14 +180,18 @@ private fun Bubble(
             when (m.kind) {
                 MsgKind.TEXT -> Unit
                 MsgKind.IMAGE, MsgKind.VIDEO -> VisualContent(m, fmt, RoundedCornerShape(big - 4.dp))
-                MsgKind.VOICE -> VoiceContent(m, item.mine, fmt)
-                MsgKind.FILE -> FileContent(m, onFill, fmt)
+                // Shared music / audio files (they carry a file name) get a player, not the voice-note look.
+                MsgKind.VOICE -> if (m.media?.originalName != null) AudioContent(m, item.mine, fmt) else VoiceContent(m, item.mine, fmt)
+                MsgKind.FILE -> if (m.media?.mime?.startsWith("audio/") == true) AudioContent(m, item.mine, fmt) else FileContent(m, onFill, fmt)
                 MsgKind.CALL, MsgKind.EVENT -> Unit
             }
+            m.link?.let { LinkCard(it, onFill, item.mine) }
             val text = m.text
             if (!text.isNullOrEmpty()) {
+                val linkColor = if (item.mine) onFill else c.accent
+                val annotated = remember(text, linkColor) { linkify(text, linkColor) }
                 Text(
-                    text,
+                    annotated,
                     // Content-based direction: an Arabic line in an English UI (and vice versa) aligns correctly.
                     style = Zura.type.body.copy(textDirection = TextDirection.Content),
                     color = onFill,
@@ -248,12 +252,13 @@ private fun StatusTick(s: MsgStatus, muted: Color) {
 private fun VisualContent(m: Message, fmt: ZuraFormat, shape: RoundedCornerShape) {
     val ref = m.media ?: return
     val g = LocalContext.current.graph
-    val ratio = if (ref.width > 0 && ref.height > 0) (ref.width.toFloat() / ref.height).coerceIn(0.62f, 1.7f) else 1f
+    // Bounded like other messengers: ≤ 240 dp wide and ≤ ~300 dp tall (tall shots are cropped).
+    val ratio = if (ref.width > 0 && ref.height > 0) (ref.width.toFloat() / ref.height).coerceIn(0.8f, 1.78f) else 1f
     val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
     val pending = ref.isPlaceholder
     val full by if (m.kind == MsgKind.IMAGE && !pending) rememberVaultImage(g.images, m.chatId, ref, 720) else remember { androidx.compose.runtime.mutableStateOf(null) }
     val fade by animateFloatAsState(if (full != null) 1f else 0f, label = "img")
-    Box(Modifier.width(260.dp).aspectRatio(ratio).clip(shape).background(Zura.colors.surfaceHigh)) {
+    Box(Modifier.width(240.dp).aspectRatio(ratio).clip(shape).background(Zura.colors.surfaceHigh)) {
         // 1) micro-preview painted on frame 1 (from the record, zero I/O), softened
         preview?.let {
             Image(
@@ -308,6 +313,102 @@ private fun VoiceContent(m: Message, mine: Boolean, fmt: ZuraFormat) {
             )
             Row {
                 Text(fmt.duration(if (active) state.positionMs else ref.durationMs), style = Zura.type.caption, color = onFill.copy(alpha = 0.7f), modifier = Modifier.weight(1f))
+                if (active) Text(
+                    "${state.speed}×", style = Zura.type.caption, color = onFill,
+                    modifier = Modifier.clip(CircleShape).background(onFill.copy(alpha = 0.15f)).clickable { g.playback.cycleSpeed() }.padding(horizontal = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Makes every URL in [text] tappable (opens in the browser), underlined. */
+private fun linkify(text: String, color: Color): androidx.compose.ui.text.AnnotatedString {
+    val links = app.zura.net.LinkPreviews.find(text)
+    return androidx.compose.ui.text.buildAnnotatedString {
+        append(text)
+        val style = androidx.compose.ui.text.TextLinkStyles(
+            androidx.compose.ui.text.SpanStyle(color = color, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline),
+        )
+        links.forEach { (range, url) -> addLink(androidx.compose.ui.text.LinkAnnotation.Url(url, style), range.first, range.last + 1) }
+    }
+}
+
+/** WhatsApp-style card: big image, title, site — tap opens the link. */
+@Composable
+private fun LinkCard(lp: app.zura.core.model.LinkPreview, onFill: Color, mine: Boolean) {
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    val img = remember(lp.image) {
+        lp.image?.let { runCatching { android.util.Base64.decode(it, android.util.Base64.NO_WRAP) }.getOrNull() }
+            ?.let { BitmapFactoryCompat.decode(it) }
+    }
+    Column(
+        Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp).width(260.dp).clip(RoundedCornerShape(16.dp))
+            .background(if (mine) Color.Black.copy(alpha = 0.14f) else onFill.copy(alpha = 0.06f))
+            .clickable { runCatching { uri.openUri(lp.url) } },
+    ) {
+        img?.let {
+            val r = (it.width.toFloat() / it.height).coerceIn(0.8f, 1.91f)
+            Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().aspectRatio(r))
+        }
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            lp.title?.let {
+                Text(it, style = Zura.type.label.copy(textDirection = TextDirection.Content), color = onFill, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            lp.description?.takeIf { lp.title == null || img == null }?.let {
+                Text(it, style = Zura.type.caption.copy(textDirection = TextDirection.Content), color = onFill.copy(alpha = 0.7f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            lp.site?.let {
+                Text("🔗 $it", style = Zura.type.caption, color = onFill.copy(alpha = 0.6f), maxLines = 1, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+    }
+}
+
+private object BitmapFactoryCompat {
+    fun decode(b: ByteArray) = runCatching { android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size)?.asImageBitmap() }.getOrNull()
+}
+
+/** Shared music / audio file: ♪ play button, name, position / length, seek bar. */
+@Composable
+private fun AudioContent(m: Message, mine: Boolean, fmt: ZuraFormat) {
+    val ref = m.media ?: return
+    val g = LocalContext.current.graph
+    val c = Zura.colors
+    val state by g.playback.state.collectAsStateWithLifecycle()
+    val active = state.key == m.id
+    val total = if (active && state.durationMs > 0) state.durationMs else ref.durationMs
+    val progress = if (active && total > 0) (state.positionMs.toFloat() / total).coerceIn(0f, 1f) else 0f
+    val onFill = if (mine) c.onBubbleMine else c.onBubbleTheirs
+    val title = ref.originalName?.substringBeforeLast('.')?.ifBlank { null } ?: stringResource(R.string.audio)
+    Row(Modifier.padding(start = 8.dp, end = 12.dp, top = 8.dp).width(260.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(if (mine) onFill.copy(alpha = 0.18f) else c.accent)
+                .clickable { g.playback.toggle(m.chatId, m.id, ref) },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (active && state.playing) Icon(ZuraIcons.Pause, null, tint = if (mine) onFill else c.onAccent)
+            else Text("♪", style = Zura.type.headline, color = if (mine) onFill else c.onAccent)
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = Zura.type.label.copy(textDirection = TextDirection.Content), color = onFill, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            androidx.compose.material3.Slider(
+                value = progress,
+                onValueChange = { f -> if (active) g.playback.seek(f) },
+                enabled = active,
+                modifier = Modifier.fillMaxWidth().height(22.dp),
+                colors = androidx.compose.material3.SliderDefaults.colors(
+                    thumbColor = if (mine) onFill else c.accent, activeTrackColor = if (mine) onFill else c.accent,
+                    inactiveTrackColor = onFill.copy(alpha = 0.25f),
+                    disabledThumbColor = onFill.copy(alpha = 0.5f), disabledInactiveTrackColor = onFill.copy(alpha = 0.25f),
+                ),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (active) "${fmt.duration(state.positionMs)} / ${fmt.duration(total)}" else if (total > 0) fmt.duration(total) else fmt.size(ref.size),
+                    style = Zura.type.caption, color = onFill.copy(alpha = 0.7f), modifier = Modifier.weight(1f),
+                )
                 if (active) Text(
                     "${state.speed}×", style = Zura.type.caption, color = onFill,
                     modifier = Modifier.clip(CircleShape).background(onFill.copy(alpha = 0.15f)).clickable { g.playback.cycleSpeed() }.padding(horizontal = 6.dp),

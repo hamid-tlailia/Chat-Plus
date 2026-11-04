@@ -37,6 +37,14 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
 
     /** The other participant of a 1:1 chat (null for the notes chat). */
     val peerId: String? get() = meta.value?.peerIds?.singleOrNull()
+    /** Last time the contact was in the app — seeded from the server when the chat opens. */
+    val peerLastSeen = g.chats.meta(chatId).flatMapLatest { m ->
+        m?.peerIds?.singleOrNull()?.let { peer ->
+            viewModelScope.launch { g.s.contacts.fetchLastSeen(peer)?.let { g.chats.noteLastSeen(peer, it) } }
+            g.chats.peerLastSeen(peer)
+        } ?: kotlinx.coroutines.flow.flowOf(null)
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), null)
+
     val peerOnline = g.chats.meta(chatId).flatMapLatest { m ->
         m?.peerIds?.singleOrNull()?.let { g.chats.peerOnline(it) } ?: kotlinx.coroutines.flow.flowOf(false)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -82,7 +90,7 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
         val reply = replyTo
         draft = TextFieldValue("")
         editing = null; replyTo = null
-        viewModelScope.launch {
+        g.scope.launch { // app scope: leaving the chat must not cancel a send (link cards take a moment)
             if (edit != null) g.chats.edit(chatId, edit.id, text) else g.chats.sendText(chatId, text, reply?.id)
         }
     }
@@ -111,7 +119,8 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
 
     fun sendFile(uri: Uri, mime: String, name: String?) = g.scope.launch {
         runCatching {
-            val ref = g.vault.importMedia(chatId, g.app.contentResolver.openInputStream(uri)!!, mime, originalName = name)
+            val dur = if (mime.startsWith("audio/")) app.zura.media.AudioMeta.durationMs(g.app, uri) else 0L
+            val ref = g.vault.importMedia(chatId, g.app.contentResolver.openInputStream(uri)!!, mime, durationMs = dur, originalName = name)
             g.chats.sendMedia(chatId, MsgKind.FILE, ref)
         }
     }

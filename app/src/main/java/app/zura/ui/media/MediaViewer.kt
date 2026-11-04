@@ -37,6 +37,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.zura.core.model.MediaRef
@@ -72,6 +80,7 @@ fun MediaViewer(chatId: String, messageId: String, onClose: () -> Unit) {
         Box(Modifier.fillMaxSize().graphicsLayer { translationY = dismiss.value }, contentAlignment = Alignment.Center) {
             if (ref != null && m.kind == MsgKind.VIDEO) {
                 VaultVideo(chatId, m.id, ref, playing = true, Modifier.fillMaxWidth().aspectRatio(if (ref.height > 0) ref.width.toFloat() / ref.height else 16f / 9))
+                VideoControls(m.id, ref.durationMs)
             } else if (ref != null) {
                 val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
                 // Paint instantly with the copy already decoded for the chat bubble, then sharpen.
@@ -116,4 +125,62 @@ fun VaultVideo(chatId: String, key: String, ref: MediaRef, playing: Boolean, mod
         onRelease = { sv -> g.playback.player().clearVideoSurfaceView(sv) },
         modifier = modifier,
     )
+}
+
+
+/**
+ * Player controls over a full-screen video: tap to show / hide, big play-pause in the middle,
+ * seek bar with position / length and speed at the bottom. Auto-hides after 3 s while playing.
+ */
+@Composable
+private fun VideoControls(key: String, fallbackDuration: Long) {
+    val g = LocalContext.current.graph
+    val st by g.playback.state.collectAsStateWithLifecycle()
+    val fmt = remember { app.zura.i18n.ZuraFormat(java.util.Locale.getDefault()) }
+    var shown by remember { mutableStateOf(true) }
+    var touch by remember { mutableStateOf(0) }
+    val active = st.key == key
+    val total = if (active && st.durationMs > 0) st.durationMs else fallbackDuration
+    val playing = active && st.playing
+    LaunchedEffect(shown, playing, touch) { if (shown && playing) { kotlinx.coroutines.delay(3_000); shown = false } }
+    val alpha by androidx.compose.animation.core.animateFloatAsState(if (shown) 1f else 0f, label = "ctl")
+
+    Box(
+        Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { shown = !shown; touch++ }) },
+    ) {
+        if (alpha > 0.01f) {
+            Box(
+                Modifier.align(Alignment.Center).size(72.dp).graphicsLayer { this.alpha = alpha }
+                    .clip(androidx.compose.foundation.shape.CircleShape).background(Color.Black.copy(alpha = 0.45f))
+                    .pointerInput(playing) { detectTapGestures { if (playing) g.playback.pause() else g.playback.play(); touch++ } },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(if (playing) ZuraIcons.Pause else Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(40.dp))
+            }
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().graphicsLayer { this.alpha = alpha }
+                    .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
+                    .navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                androidx.compose.material3.Slider(
+                    value = if (total > 0 && active) (st.positionMs.toFloat() / total).coerceIn(0f, 1f) else 0f,
+                    onValueChange = { g.playback.seek(it); touch++ },
+                    colors = androidx.compose.material3.SliderDefaults.colors(
+                        thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.White.copy(alpha = 0.3f),
+                    ),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${fmt.duration(if (active) st.positionMs else 0)} / ${fmt.duration(total)}",
+                        color = Color.White, style = app.zura.ui.theme.Zura.type.caption, modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "${st.speed}×", color = Color.White, style = app.zura.ui.theme.Zura.type.caption,
+                        modifier = Modifier.clip(androidx.compose.foundation.shape.CircleShape).background(Color.White.copy(alpha = 0.18f))
+                            .pointerInput(Unit) { detectTapGestures { g.playback.cycleSpeed(); touch++ } }.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        }
+    }
 }
