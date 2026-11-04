@@ -128,6 +128,16 @@ class CallManager(
     fun startCall(peerId: String, video: Boolean) = scope.launch(rtc) {
         if (_ui.value.inCall) return@launch
         val p = contacts.profile(peerId)
+        // Blocked (either way): never ring. Re-check the server quickly — the block may be new.
+        kotlinx.coroutines.withTimeoutOrNull(1_500) { contacts.refreshBlockedMe() }
+        if (contacts.isBlocked(peerId)) {
+            _ui.value = CallUi(
+                phase = CallPhase.ENDED, peerId = peerId, peerName = p?.displayName ?: "", peerAvatar = p?.avatarPath,
+                peerHue = (peerId.hashCode() and 0xFFFF) % 360f, outgoing = true, video = video, endReason = "blocked",
+                net = network.type.value,
+            )
+            return@launch
+        }
         val callId = UUID.randomUUID().toString()
         _ui.value = CallUi(
             phase = CallPhase.OUTGOING, callId = callId, peerId = peerId, peerName = p?.displayName ?: "",
@@ -202,6 +212,7 @@ class CallManager(
         if (s.inCall) { transport.signal(inv.from, Frame.CallEnd(inv.callId, me, "busy")); return@withContext }
         if (contacts.contacts.value.none { it.profile.id == inv.from }) runCatching { contacts.refresh() }
         val p = contacts.profile(inv.from) ?: return@withContext
+        if (contacts.isBlocked(inv.from)) return@withContext // I blocked them: stay silent
         pendingOffer = null; acceptWhenOffer = false
         pendingIce.clear(); remoteSet = false
         _ui.value = CallUi(
@@ -267,6 +278,7 @@ class CallManager(
         when (f) {
             is Frame.CallOffer -> {
                 if (f.from != from || contacts.contacts.value.none { it.profile.id == from }) return@withContext
+                if (contacts.isBlocked(from)) return@withContext // blocked: never ring, even if a signal slips through
                 if (f.restart) {
                     if (s.callId == f.callId && pc != null) {
                         applyRemote(SessionDescription(SessionDescription.Type.OFFER, f.sdp))

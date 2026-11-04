@@ -200,7 +200,10 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                         )
                     }
                 }
-                if (vm.peerId != null) {
+                val hdrContacts by g.s.contacts.contacts.collectAsStateWithLifecycle()
+                val hdrBlockedMe by g.s.contacts.blockedMe.collectAsStateWithLifecycle()
+                val blockedEither = vm.peerId?.let { id -> id in hdrBlockedMe || hdrContacts.any { it.profile.id == id && it.blocked } } == true
+                if (vm.peerId != null && !blockedEither) {
                     IconButton(onClick = { haptics.tick(); callVideo(ctx) }) { Icon(app.zura.ui.ZuraIcons.VideoCam, stringResource(R.string.video_call), tint = Zura.colors.text) }
                     IconButton(onClick = { haptics.tick(); callVoice(ctx) }) { Icon(Icons.Default.Call, stringResource(R.string.voice_call), tint = Zura.colors.text) }
                 }

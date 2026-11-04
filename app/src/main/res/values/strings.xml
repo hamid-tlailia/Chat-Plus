@@ -227,4 +227,5 @@
     <string name="reacted_to">Reacted %1$s to: %2$s</string>
     <string name="you_blocked">You blocked %1$s. They can\'t message or call you.</string>
     <string name="cant_message">You can\'t send messages to this person.</string>
+    <string name="cant_call">You can\'t call this person</string>
 </resources>

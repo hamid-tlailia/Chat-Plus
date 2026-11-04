@@ -227,4 +227,5 @@
     <string name="reacted_to">تفاعل بـ %1$s على: %2$s</string>
     <string name="you_blocked">لقد حظرت %1$s. لا يمكنه مراسلتك أو الاتصال بك.</string>
     <string name="cant_message">لا يمكنك إرسال رسائل إلى هذا الشخص.</string>
+    <string name="cant_call">لا يمكنك الاتصال بهذا الشخص</string>
 </resources>
