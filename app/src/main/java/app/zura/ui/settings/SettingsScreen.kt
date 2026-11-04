@@ -58,7 +58,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}) {
+fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}, onVault: () -> Unit = {}, onStudio: () -> Unit = {}) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val c = Zura.colors
@@ -97,6 +97,26 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}) {
                     }
                 }
             }
+            // Theme Studio: my own theme (tap = apply if designed, otherwise open the editor).
+            val custom by g.settings.customTheme.collectAsStateWithLifecycle()
+            val useCustom by g.settings.useCustom.collectAsStateWithLifecycle()
+            Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                custom?.let { ct ->
+                    val cp = ct.palette()
+                    Box(
+                        Modifier.size(54.dp).clip(RoundedCornerShape(14.dp)).background(Brush.verticalGradient(listOf(cp.bgAccent, cp.bg)))
+                            .border(if (useCustom) 2.dp else 0.dp, c.accent, RoundedCornerShape(14.dp))
+                            .clickable { haptics.tick(); g.settings.setUseCustom(true) }.padding(6.dp),
+                    ) {
+                        Box(Modifier.align(Alignment.BottomEnd).width(26.dp).height(9.dp).clip(CircleShape).background(Brush.linearGradient(listOf(cp.bubbleMine, cp.bubbleMineAlt))))
+                        Box(Modifier.align(Alignment.TopStart).width(22.dp).height(9.dp).clip(CircleShape).background(cp.bubbleTheirs))
+                    }
+                }
+                Text(
+                    "✨ " + stringResource(R.string.edit_studio) + " →", style = Zura.type.label, color = c.accent,
+                    modifier = Modifier.weight(1f).clickable(onClick = onStudio).padding(vertical = 10.dp),
+                )
+            }
         }
 
         Section(R.string.chat_colors) { BubblePicker() }
@@ -118,6 +138,10 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}) {
 
         Section(R.string.storage) {
             Text(stringResource(R.string.storage_used, fmt.size(used)), style = Zura.type.label, color = c.text)
+            Text(
+                stringResource(R.string.manage_media) + " →", style = Zura.type.label, color = c.accent,
+                modifier = Modifier.padding(vertical = 8.dp).clickable(onClick = onVault),
+            )
             Spacer(Modifier.height(6.dp))
             Text(stringResource(R.string.about_privacy), style = Zura.type.caption, color = c.textMuted)
         }
@@ -130,6 +154,12 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}) {
             )
             Spacer(Modifier.height(12.dp))
             app.zura.push.CallReadinessList()
+        }
+
+        Section(R.string.sounds) {
+            SoundRows(chatId = null, peerId = null)
+            val hap by g.sounds.haptics.collectAsStateWithLifecycle()
+            app.zura.ui.components.SettingSwitch(stringResource(R.string.inapp_haptics), stringResource(R.string.inapp_haptics_hint), hap) { g.sounds.setHaptics(it) }
         }
 
         // Stealth mode: what contacts can see of my activity.

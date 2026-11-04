@@ -145,6 +145,22 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
         draft = TextFieldValue(m.text.orEmpty(), androidx.compose.ui.text.TextRange(m.text.orEmpty().length))
     }
 
+    /** Message id → translation state (shown under the original in the bubble). */
+    val translations = androidx.compose.runtime.mutableStateMapOf<String, Translation>()
+
+    fun translate(m: Message) {
+        val text = m.text?.takeIf { it.isNotBlank() } ?: return
+        translations[m.id] = Translation.Loading
+        viewModelScope.launch {
+            translations[m.id] = when (val r = app.zura.i18n.Translator.translate(g.app, text)) {
+                is app.zura.i18n.Translator.Result.Ok -> Translation.Done(r.text)
+                app.zura.i18n.Translator.Result.Same -> Translation.Error(app.zura.R.string.already_your_language)
+                app.zura.i18n.Translator.Result.Unsupported -> Translation.Error(app.zura.R.string.cant_translate)
+                is app.zura.i18n.Translator.Result.Failed -> Translation.Error(app.zura.R.string.translate_failed)
+            }
+        }
+    }
+
     fun react(m: Message, emoji: String) = viewModelScope.launch { g.chats.react(chatId, m.id, emoji) }
     fun deleteForMe(m: Message) = viewModelScope.launch { m.media?.let(g.images::evict); g.chats.deleteForMe(chatId, listOf(m.id)) }
     fun deleteForAll(m: Message) = viewModelScope.launch { m.media?.let(g.images::evict); g.chats.deleteForEveryone(chatId, listOf(m.id)) }
@@ -195,4 +211,11 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
         g.chats.setTyping(chatId, false)
         if (g.recorder.live.value.recording) g.recorder.cancel()
     }
+}
+
+/** Translation of one message, shown inside its bubble. */
+sealed interface Translation {
+    data object Loading : Translation
+    data class Done(val text: String) : Translation
+    data class Error(val res: Int) : Translation
 }

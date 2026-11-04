@@ -131,19 +131,23 @@ data class ZuraType(val title: TextStyle, val headline: TextStyle, val body: Tex
  * System fonts only (Roboto / Noto Naskh Arabic): zero font bytes in the APK, already in page
  * cache at launch. Arabic gets +25% line height — Naskh ascenders/descenders clip otherwise.
  */
-private fun typeFor(rtl: Boolean): ZuraType {
+private fun typeFor(rtl: Boolean, font: androidx.compose.ui.text.font.FontFamily? = null): ZuraType {
     val lh = if (rtl) 1.45f else 1.3f
     return ZuraType(
-        title = TextStyle(fontSize = 28.sp, fontWeight = FontWeight.SemiBold, letterSpacing = if (rtl) 0.sp else (-0.6).sp, lineHeight = (28 * lh).sp),
-        headline = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold, letterSpacing = if (rtl) 0.sp else (-0.2).sp, lineHeight = (17 * lh).sp),
-        body = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Normal, lineHeight = (16 * lh).sp),
-        label = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium, lineHeight = (14 * lh).sp),
-        caption = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.Normal, letterSpacing = if (rtl) 0.sp else 0.2.sp, lineHeight = (11.5 * lh).sp),
+        title = TextStyle(fontFamily = font, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, letterSpacing = if (rtl) 0.sp else (-0.6).sp, lineHeight = (28 * lh).sp),
+        headline = TextStyle(fontFamily = font, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, letterSpacing = if (rtl) 0.sp else (-0.2).sp, lineHeight = (17 * lh).sp),
+        body = TextStyle(fontFamily = font, fontSize = 16.sp, fontWeight = FontWeight.Normal, lineHeight = (16 * lh).sp),
+        label = TextStyle(fontFamily = font, fontSize = 14.sp, fontWeight = FontWeight.Medium, lineHeight = (14 * lh).sp),
+        caption = TextStyle(fontFamily = font, fontSize = 11.5.sp, fontWeight = FontWeight.Normal, letterSpacing = if (rtl) 0.sp else 0.2.sp, lineHeight = (11.5 * lh).sp),
     )
 }
 
 val LocalZura = staticCompositionLocalOf { ZuraPalettes.Midnight }
 val LocalZuraType = staticCompositionLocalOf { typeFor(false) }
+/** Bubble corner radius (Theme Studio). */
+val LocalBubbleRadius = staticCompositionLocalOf { 20 }
+/** Chat wallpaper (Theme Studio) and how much it is dimmed (0–60 %). */
+val LocalWallpaper = staticCompositionLocalOf<Pair<androidx.compose.ui.graphics.ImageBitmap, Int>?> { null }
 
 object Zura {
     val colors: ZuraPalette @Composable get() = LocalZura.current
@@ -152,8 +156,15 @@ object Zura {
 
 /** Theme switch cross-fades every token over 450 ms — no activity recreate, no flash. */
 @Composable
-fun ZuraTheme(id: ZuraThemeId, bubbles: BubbleStyle = BubbleStyle.THEME, content: @Composable () -> Unit) {
-    val t = bubbles.applyTo(ZuraPalettes.of(id))
+fun ZuraTheme(
+    id: ZuraThemeId,
+    bubbles: BubbleStyle = BubbleStyle.THEME,
+    custom: CustomTheme? = null,
+    font: androidx.compose.ui.text.font.FontFamily? = null,
+    wallpaper: androidx.compose.ui.graphics.ImageBitmap? = null,
+    content: @Composable () -> Unit,
+) {
+    val t = custom?.palette() ?: bubbles.applyTo(ZuraPalettes.of(id))
     @Composable fun a(c: Color) = animateColorAsState(c, tween(450), label = "theme").value
     val p = ZuraPalette(
         t.isDark, a(t.bg), a(t.bgAccent), a(t.surface), a(t.surfaceHigh), a(t.glass), a(t.glassStroke),
@@ -166,7 +177,11 @@ fun ZuraTheme(id: ZuraThemeId, bubbles: BubbleStyle = BubbleStyle.THEME, content
     } else {
         lightColorScheme(primary = p.accent, onPrimary = p.onAccent, background = p.bg, surface = p.surface, onSurface = p.text, onBackground = p.text, error = p.danger)
     }
-    CompositionLocalProvider(LocalZura provides p, LocalZuraType provides typeFor(rtl)) {
+    CompositionLocalProvider(
+        LocalZura provides p, LocalZuraType provides typeFor(rtl, if (custom != null) font else null),
+        LocalBubbleRadius provides (custom?.radius ?: 20),
+        LocalWallpaper provides if (custom != null && wallpaper != null) wallpaper to custom.wallDim else null,
+    ) {
         MaterialTheme(colorScheme = scheme, content = content)
     }
 }

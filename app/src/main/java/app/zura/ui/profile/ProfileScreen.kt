@@ -276,6 +276,18 @@ private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpe
                 if (!g.appLock.deviceSecure()) android.widget.Toast.makeText(ctx, R.string.needs_screen_lock, android.widget.Toast.LENGTH_LONG).show()
                 else lockAuth { ok -> if (ok) g.s.scope.launch { g.chats.setLocked(chatId, on); if (on) g.chats.lockedRevealed.value = false } }
             }
+            // Custom tone / ringtone / vibration for this chat and person.
+            var showSounds by remember { mutableStateOf(false) }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))
+            Row(Modifier.fillMaxWidth().clickable { showSounds = !showSounds }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("🔔", style = Zura.type.headline)
+                Spacer(Modifier.width(12.dp))
+                Text(stringResource(R.string.custom_sounds), style = Zura.type.label, color = c.text, modifier = Modifier.weight(1f))
+                Text(if (showSounds) "▲" else "▼", style = Zura.type.caption, color = c.textMuted)
+            }
+            androidx.compose.animation.AnimatedVisibility(showSounds) {
+                Column(Modifier.padding(horizontal = 16.dp)) { app.zura.ui.settings.SoundRows(chatId = chatId, peerId = p.id) }
+            }
             // Per-contact stealth: invisible to this one person.
             val ghost by g.s.privacy.ghost.collectAsStateWithLifecycle()
             Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))

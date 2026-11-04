@@ -190,6 +190,18 @@ class ChatRepository(
     /** Call history entry, written on the caller's side and mirrored to the callee. */
     suspend fun logCall(chatId: String, summary: String) = send(chatId, MsgKind.CALL, summary, null, null)
 
+    data class MediaItem(val chatId: String, val chatTitle: String, val m: Message)
+
+    /** Every finished photo / video / audio / file stored on this phone, across chats (not moments). */
+    suspend fun allMedia(): List<MediaItem> = withContext(Dispatchers.IO) {
+        chats.value.flatMap { meta ->
+            if (!vault.exists(meta.id)) return@flatMap emptyList()
+            vault.chat(meta.id).messages.value
+                .filter { it.media != null && it.media.isPlaceholder.not() && it.kind != MsgKind.CALL && it.kind != MsgKind.EVENT }
+                .map { MediaItem(meta.id, meta.title, it) }
+        }
+    }
+
     /** Locked chats stay hidden / closed until the user authenticates; re-locks when the app leaves the screen. */
     val lockedRevealed = MutableStateFlow(false)
 

@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -152,7 +153,7 @@ private fun Bubble(
 ) {
     val c = Zura.colors
     val m = item.m
-    val big = 20.dp
+    val big = app.zura.ui.theme.LocalBubbleRadius.current.dp
     val small = 6.dp
     // Corners tighten on the sender's side when consecutive bubbles stack (iMessage-like rhythm).
     val shape = if (item.mine) RoundedCornerShape(big, if (item.groupedWithPrev) small else big, if (item.groupedWithNext) small else big, big)
@@ -182,7 +183,11 @@ private fun Bubble(
                 MsgKind.IMAGE, MsgKind.VIDEO -> VisualContent(m, fmt, RoundedCornerShape(big - 4.dp))
                 // Shared music / audio files (they carry a file name) get a player, not the voice-note look.
                 MsgKind.VOICE -> if (m.media?.originalName != null) AudioContent(m, item.mine, fmt) else VoiceContent(m, item.mine, fmt)
-                MsgKind.FILE -> if (m.media?.mime?.startsWith("audio/") == true) AudioContent(m, item.mine, fmt) else FileContent(m, onFill, fmt)
+                MsgKind.FILE -> when {
+                    m.media?.mime?.startsWith("audio/") == true -> AudioContent(m, item.mine, fmt)
+                    m.media?.originalName?.endsWith(app.zura.ui.theme.CustomTheme.EXT, ignoreCase = true) == true || m.media?.mime == app.zura.ui.theme.CustomTheme.MIME -> ThemeFileCard(m, onFill)
+                    else -> FileContent(m, onFill, fmt)
+                }
                 MsgKind.CALL, MsgKind.EVENT -> Unit
             }
             m.link?.let { LinkCard(it, onFill, item.mine) }
@@ -198,6 +203,7 @@ private fun Bubble(
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (isVisual) 6.dp else 9.dp),
                 )
             }
+            LocalTranslations.current?.let { map -> map[m.id]?.let { t -> TranslationBlock(t, onFill) { map.remove(m.id) } } }
             Footer(m, item.mine, onFill, fmt, Modifier.align(Alignment.End).padding(start = 14.dp, end = 10.dp, bottom = 6.dp, top = 2.dp))
         }
         if (m.reactions.isNotEmpty()) Reactions(m, fmt)
@@ -235,6 +241,9 @@ private fun Footer(m: Message, mine: Boolean, onFill: Color, fmt: ZuraFormat, mo
 }
 
 /** Ticks morph through states with a cross-scale instead of popping. */
+/** Translations of this chat's messages (id → state); a tap on one hides it. */
+val LocalTranslations = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.snapshots.SnapshotStateMap<String, Translation>?> { null }
+
 /** False when I hide my read receipts from this chat's contact (then I don't see theirs). */
 val LocalShowReadTicks = androidx.compose.runtime.staticCompositionLocalOf { true }
 
@@ -323,6 +332,27 @@ private fun VoiceContent(m: Message, mine: Boolean, fmt: ZuraFormat) {
                     modifier = Modifier.clip(CircleShape).background(onFill.copy(alpha = 0.15f)).clickable { g.playback.cycleSpeed() }.padding(horizontal = 6.dp),
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun TranslationBlock(t: Translation, onFill: Color, onHide: () -> Unit) {
+    Column(
+        Modifier.padding(start = 14.dp, end = 14.dp, top = 6.dp).widthIn(max = 270.dp)
+            .clip(RoundedCornerShape(12.dp)).background(onFill.copy(alpha = 0.08f)).clickable(onClick = onHide).padding(10.dp),
+    ) {
+        when (t) {
+            Translation.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(14.dp), color = onFill, strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.translating), style = Zura.type.caption, color = onFill.copy(alpha = 0.75f))
+            }
+            is Translation.Done -> {
+                Text("🌐 " + stringResource(R.string.translated), style = Zura.type.caption, color = onFill.copy(alpha = 0.6f))
+                Text(t.text, style = Zura.type.body.copy(textDirection = TextDirection.Content), color = onFill)
+            }
+            is Translation.Error -> Text(stringResource(t.res), style = Zura.type.caption, color = onFill.copy(alpha = 0.75f))
         }
     }
 }
@@ -420,6 +450,43 @@ private fun AudioContent(m: Message, mine: Boolean, fmt: ZuraFormat) {
                 )
             }
         }
+    }
+}
+
+/** A shared .zuratheme file: preview strip + "Apply". */
+@Composable
+private fun ThemeFileCard(m: Message, onFill: Color) {
+    val ref = m.media ?: return
+    val ctx = LocalContext.current
+    val g = ctx.graph
+    val scope = rememberCoroutineScope()
+    var busy by remember { androidx.compose.runtime.mutableStateOf(false) }
+    Row(Modifier.padding(start = 10.dp, end = 12.dp, top = 10.dp).widthIn(min = 230.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(onFill.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) { Text("🎨", style = Zura.type.headline) }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(ref.originalName?.removeSuffix(app.zura.ui.theme.CustomTheme.EXT) ?: stringResource(R.string.theme_file), style = Zura.type.label, color = onFill, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(stringResource(R.string.theme_file), style = Zura.type.caption, color = onFill.copy(alpha = 0.65f))
+        }
+        Box(
+            Modifier.clip(CircleShape).background(onFill.copy(alpha = 0.18f)).clickable(enabled = !busy) {
+                busy = true
+                scope.launch {
+                    val t = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching {
+                            val bytes = java.io.ByteArrayOutputStream().also { g.vault.decryptTo(m.chatId, ref, it) }.toByteArray()
+                            require(bytes.size < 8_000_000)
+                            app.zura.ui.theme.CustomTheme.import(ctx, bytes)
+                        }.getOrNull()
+                    }
+                    busy = false
+                    if (t != null) {
+                        g.settings.saveCustom(t); g.settings.themeFiles.value++
+                        android.widget.Toast.makeText(ctx, R.string.theme_applied, android.widget.Toast.LENGTH_SHORT).show()
+                    } else android.widget.Toast.makeText(ctx, R.string.theme_bad_file, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }.padding(horizontal = 14.dp, vertical = 7.dp),
+        ) { Text(stringResource(R.string.theme_apply_short), style = Zura.type.label, color = onFill) }
     }
 }
 

@@ -59,6 +59,7 @@ fun ActionOverlay(
     me: String,
     haptics: Haptics,
     canReply: Boolean = true,
+    onTranslate: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     onReact: (String) -> Unit,
     onReply: () -> Unit,
@@ -104,6 +105,9 @@ fun ActionOverlay(
                 if (canReply) Action(ZuraIcons.Reply, R.string.action_reply, c.text, onReply)
                 if (mine && m.kind == MsgKind.TEXT) Action(Icons.Default.Edit, R.string.action_edit, c.text, onEdit)
                 if (!m.text.isNullOrEmpty()) Action(ZuraIcons.Copy, R.string.action_copy, c.text, onCopy)
+                if (!m.text.isNullOrEmpty() && m.kind != MsgKind.EVENT && m.kind != MsgKind.CALL && onTranslate != null) {
+                    Action(ZuraIcons.Translate, R.string.action_translate, c.text, onTranslate)
+                }
                 if (m.media != null) Action(ZuraIcons.Download, R.string.action_download, c.text, onDownload)
                 Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(c.divider))
                 // One entry; the confirmation sheet offers "for everyone" / "for me".

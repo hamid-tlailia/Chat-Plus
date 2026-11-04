@@ -142,8 +142,13 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
     // Real frosted glass: the message list is blurred live behind the header and the composer.
     val haze = remember { dev.chrisbanes.haze.HazeState() }
     val showRead by vm.showReadTicks.collectAsStateWithLifecycle()
-    androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze, LocalShowReadTicks provides showRead) {
+    androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze, LocalShowReadTicks provides showRead, LocalTranslations provides vm.translations) {
     Box(Modifier.fillMaxSize()) {
+        // Theme Studio wallpaper, dimmed toward the theme background so messages stay readable.
+        app.zura.ui.theme.LocalWallpaper.current?.let { (img, dim) ->
+            androidx.compose.foundation.Image(img, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Zura.colors.bg.copy(alpha = dim / 100f)))
+        }
         Column(Modifier.fillMaxSize()) {
             LazyColumn(
                 state = list,
@@ -277,6 +282,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                 onDismiss = { vm.focused = null },
                 onReact = { vm.react(m, it); vm.focused = null },
                 canReply = vm.pending.isEmpty(),
+                onTranslate = { vm.translate(m); vm.focused = null },
                 onReply = { if (vm.pending.isEmpty()) vm.replyTo = m; vm.focused = null },
                 onEdit = { vm.startEdit(m); vm.focused = null },
                 onCopy = { copy(ctx, m); vm.focused = null },

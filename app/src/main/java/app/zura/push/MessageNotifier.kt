@@ -30,7 +30,7 @@ class MessageNotifier(private val context: Context) {
         val me = Person.Builder().setName(context.getString(R.string.app_name)).build()
         // App lock on → never reveal who wrote what in the notification shade.
         if ((context.applicationContext as app.zura.ZuraApp).graph.appLock.enabled.value || meta.locked) {
-            val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_stat_zura)
+            val n = NotificationCompat.Builder(context, channelFor(meta.id)).setSmallIcon(R.drawable.ic_stat_zura)
                 .setContentTitle(context.getString(R.string.app_name)).setContentText(context.getString(R.string.new_message))
                 .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setContentIntent(openChat(meta.id))
@@ -58,9 +58,9 @@ class MessageNotifier(private val context: Context) {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val public = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_stat_zura)
+        val public = NotificationCompat.Builder(context, channelFor(meta.id)).setSmallIcon(R.drawable.ic_stat_zura)
             .setContentTitle(context.getString(R.string.app_name)).setContentText(context.getString(R.string.new_message)).build()
-        val n = NotificationCompat.Builder(context, CHANNEL)
+        val n = NotificationCompat.Builder(context, channelFor(meta.id))
             .setSmallIcon(R.drawable.ic_stat_zura)
             .setStyle(style)
             .setShortcutId(meta.id)
@@ -81,7 +81,7 @@ class MessageNotifier(private val context: Context) {
         ensureChannel()
         val locked = (context.applicationContext as app.zura.ZuraApp).graph.appLock.enabled.value || meta.locked
         val about = m.text?.takeIf { it.isNotBlank() && m.kind == MsgKind.TEXT } ?: context.getString(app.zura.ui.chat.kindLabel(m.kind))
-        val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_stat_zura)
+        val n = NotificationCompat.Builder(context, channelFor(meta.id)).setSmallIcon(R.drawable.ic_stat_zura)
             .setContentTitle(if (locked) context.getString(R.string.app_name) else meta.title)
             .setContentText(if (locked) context.getString(R.string.new_message) else context.getString(R.string.reacted_to, emoji, about))
             .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -102,7 +102,7 @@ class MessageNotifier(private val context: Context) {
 
     fun showPending(sender: String?, chatId: String? = null) {
         ensureChannel()
-        val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_stat_zura)
+        val n = NotificationCompat.Builder(context, channelFor(chatId)).setSmallIcon(R.drawable.ic_stat_zura)
             .setContentTitle(sender ?: context.getString(R.string.app_name))
             .setContentText(context.getString(R.string.new_message))
             .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -115,6 +115,10 @@ class MessageNotifier(private val context: Context) {
         synchronized(lines) { lines.remove(chatId) }
         nm.cancel(chatId.hashCode())
     }
+
+    /** Messages channel with this chat's tone / vibration (Settings → Sounds, or the contact's page). */
+    private fun channelFor(chatId: String?): String =
+        runCatching { (context.applicationContext as app.zura.ZuraApp).graph.sounds.messageChannel(context, chatId, CHANNEL) }.getOrDefault(CHANNEL)
 
     private fun ensureChannel() {
         if (Build.VERSION.SDK_INT < 26) return

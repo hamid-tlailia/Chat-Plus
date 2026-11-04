@@ -221,7 +221,7 @@ class CallManager(
             video = inv.video, cameraOn = inv.video, speaker = inv.video, remoteVideoOn = inv.video, net = network.type.value,
         )
         CallService.start(context, _ui.value)
-        if (app.zura.push.Push.appVisible) audio.startRingtone() // in background the notification itself rings
+        if (app.zura.push.Push.appVisible) audio.startRingtone(inv.from) // in background the notification itself rings
         transport.start()
         transport.signal(inv.from, Frame.CallRinging(inv.callId, me))
         val id = inv.callId
@@ -307,7 +307,7 @@ class CallManager(
                     video = f.video, cameraOn = f.video, speaker = f.video, remoteVideoOn = f.video, net = network.type.value,
                 )
                 CallService.start(context, _ui.value)
-                audio.startRingtone()
+                audio.startRingtone(from)
                 transport.signal(from, Frame.CallRinging(f.callId, me))
                 timers += scope.launch(rtc) { delay(45_000); if (_ui.value.phase == CallPhase.INCOMING) end("timeout", notify = false) }
             }

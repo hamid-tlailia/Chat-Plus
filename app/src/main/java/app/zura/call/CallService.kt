@@ -85,7 +85,8 @@ class CallService : Service() {
             else NotificationCompat.CallStyle.forOngoingCall(person, action(ACTION_HANGUP))
             // App in background (woken by push): the notification itself rings, looping until answered.
             val ringing = incoming && !app.zura.push.Push.appVisible
-            return NotificationCompat.Builder(c, if (ringing) CH_RING else if (incoming) CH_INCOMING else CH_ONGOING)
+            val ringCh = if (ringing) runCatching { (c.applicationContext as app.zura.ZuraApp).graph.sounds.ringChannel(c, ui.peerId, CH_RING) }.getOrDefault(CH_RING) else CH_RING
+            return NotificationCompat.Builder(c, if (ringing) ringCh else if (incoming) CH_INCOMING else CH_ONGOING)
                 .setSmallIcon(R.drawable.ic_stat_zura)
                 .setStyle(style)
                 .setContentTitle(ui.peerName)

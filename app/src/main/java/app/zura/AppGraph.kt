@@ -9,6 +9,7 @@ import app.zura.account.AvatarCache
 import app.zura.core.crypto.AndroidKeystoreWrapper
 import app.zura.core.crypto.KeyWrapper
 import app.zura.data.SettingsStore
+import app.zura.data.Sounds
 import app.zura.net.Backend
 import app.zura.security.AppLock
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +26,8 @@ class AppGraph(val app: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val settings by lazy { SettingsStore(app.getSharedPreferences("zura", Context.MODE_PRIVATE)) }
+    /** Notification tones, ringtones and vibration (global + per chat / person). */
+    val sounds by lazy { Sounds(app.getSharedPreferences("zura_sounds", Context.MODE_PRIVATE)) }
     val keys: KeyWrapper by lazy { keyOverride ?: AndroidKeystoreWrapper() }
     val backend by lazy { Backend() }
     val accountStore by lazy { AccountStore(File(app.filesDir, "zura"), keys) }

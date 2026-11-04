@@ -59,17 +59,20 @@ class CallAudio(private val context: Context) {
         proximity(false)
     }
 
-    fun startRingtone() {
+    fun startRingtone(peerId: String? = null) {
         if (ringtone?.isPlaying == true) return // never stack a second ringtone
         stopTones()
-        if (am.ringerMode == AudioManager.RINGER_MODE_NORMAL) {
-            ringtone = RingtoneManager.getRingtone(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.apply {
+        val sounds = runCatching { (context.applicationContext as app.zura.ZuraApp).graph.sounds }.getOrNull()
+        val uri = sounds?.soundUri(sounds.effectiveRingtone(peerId), RingtoneManager.TYPE_RINGTONE) ?: if (sounds == null) RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE) else null
+        val vibe = sounds?.effectiveRingVibe(peerId)
+        if (am.ringerMode == AudioManager.RINGER_MODE_NORMAL && uri != null) {
+            ringtone = RingtoneManager.getRingtone(context, uri)?.apply {
                 if (Build.VERSION.SDK_INT >= 28) isLooping = true
                 play()
             }
         }
         if (am.ringerMode != AudioManager.RINGER_MODE_SILENT && Build.VERSION.SDK_INT >= 26) {
-            vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 700, 900), 0))
+            if (vibe != app.zura.data.Vibe.NONE) vibrator?.vibrate(VibrationEffect.createWaveform(vibe?.pattern?.takeIf { it.size > 1 } ?: longArrayOf(0, 700, 900), 0))
         }
     }
 

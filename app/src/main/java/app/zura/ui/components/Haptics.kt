@@ -14,7 +14,11 @@ import androidx.compose.ui.platform.LocalView
  */
 @Stable
 class Haptics(private val view: View) {
-    private fun fire(constant: Int) { view.performHapticFeedback(constant) }
+    /** Respects Settings → Sounds → "In-app vibration". */
+    private fun fire(constant: Int) {
+        val on = runCatching { (view.context.applicationContext as app.zura.ZuraApp).graph.sounds.haptics.value }.getOrDefault(true)
+        if (on) view.performHapticFeedback(constant)
+    }
 
     /** Light tick: swipe-to-reply threshold, reaction hover, segmented control. */
     fun tick() = fire(if (Build.VERSION.SDK_INT >= 27) HapticFeedbackConstants.KEYBOARD_RELEASE else HapticFeedbackConstants.CLOCK_TICK)

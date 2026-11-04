@@ -38,8 +38,8 @@ android {
         applicationId = "app.zura"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.7.0"
+        versionCode = 16
+        versionName = "0.8.0"
         // Supabase project "zura". The publishable key is designed to ship in clients:
         // every table is protected by Row Level Security, the key alone grants nothing.
         buildConfigField("String", "SUPABASE_URL", "\"https://vsilugnplrtguvwlmzjc.supabase.co\"")
@@ -110,6 +110,9 @@ android {
             "DebugProbesKt.bin",
             "kotlin/**",
         )
+        // Compress native libs in the APK (WebRTC + on-device translation are ~28 MB raw):
+        // a much smaller download; Android unpacks them once at install.
+        jniLibs.useLegacyPackaging = true
     }
 }
 
@@ -149,6 +152,9 @@ dependencies {
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.transformer)
     implementation(libs.media3.effect)
+    // On-device translation (models downloaded per language on first use; text never leaves the phone)
+    implementation(libs.mlkit.translate)
+    implementation(libs.mlkit.langid)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
