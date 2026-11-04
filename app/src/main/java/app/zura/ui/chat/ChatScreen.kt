@@ -89,6 +89,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
     val haptics = rememberHaptics()
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    var confirmDel by remember { mutableStateOf<Message?>(null) }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     // This chat is on screen: no notifications for it, and clear any already shown.
@@ -135,7 +136,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                         is ChatItem.Day -> DayChip(fmt.daySeparator(ctx, item.epochMs))
                         is ChatItem.Bubble -> BubbleRow(
                             item, fmt, haptics, resolve = byId::get,
-                            onReply = { vm.replyTo = it; vm.editing = null },
+                            onReply = { if (vm.pending.isEmpty()) { vm.replyTo = it; vm.editing = null } }, // no replies while attachments wait
                             onLongPress = { vm.focused = it },
                             onDoubleTap = { vm.react(it, "❤️") },
                             onOpenMedia = { onOpenMedia(it.id) },
@@ -252,7 +253,8 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                 m, mine, vm.me, haptics,
                 onDismiss = { vm.focused = null },
                 onReact = { vm.react(m, it); vm.focused = null },
-                onReply = { vm.replyTo = m; vm.focused = null },
+                canReply = vm.pending.isEmpty(),
+                onReply = { if (vm.pending.isEmpty()) vm.replyTo = m; vm.focused = null },
                 onEdit = { vm.startEdit(m); vm.focused = null },
                 onCopy = { copy(ctx, m); vm.focused = null },
                 onDownload = {
@@ -262,8 +264,22 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                         if (ok) Toast.makeText(ctx, R.string.saved_to_gallery, Toast.LENGTH_SHORT).show()
                     }
                 },
-                onDeleteMe = { vm.deleteForMe(m); vm.focused = null },
-                onDeleteAll = { vm.deleteForAll(m); vm.focused = null },
+                onDeleteMe = { confirmDel = m; vm.focused = null },
+                onDeleteAll = { confirmDel = m; vm.focused = null },
+            )
+        }
+        // Deleting always asks first (one sheet: "for everyone" when it's mine, and "for me").
+        confirmDel?.let { m ->
+            val mine = m.senderId == vm.me
+            app.zura.ui.components.ConfirmSheet(
+                title = stringResource(R.string.delete_message_q),
+                message = stringResource(if (mine) R.string.delete_message_hint_mine else R.string.delete_message_hint),
+                actions = buildList {
+                    if (mine && vm.peerId != null) add(app.zura.ui.components.ConfirmAction(stringResource(R.string.action_delete_all), danger = true) { confirmDel = null; vm.deleteForAll(m) })
+                    add(app.zura.ui.components.ConfirmAction(stringResource(R.string.action_delete_me), danger = true) { confirmDel = null; vm.deleteForMe(m) })
+                },
+                cancelLabel = stringResource(R.string.cancel),
+                onDismiss = { confirmDel = null },
             )
         }
     }

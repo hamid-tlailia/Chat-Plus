@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Edit
@@ -285,21 +286,16 @@ private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpe
         )
     }
     if (confirmRemove) {
-        AlertDialog(
-            onDismissRequest = { confirmRemove = false },
-            containerColor = c.surfaceHigh,
-            title = { Text(stringResource(R.string.remove_contact), color = c.text) },
-            text = { Text(p.displayName, color = c.textMuted) },
-            confirmButton = {
-                TextButton(enabled = busy == null, onClick = {
-                    busy = "remove"
-                    scope.launch { g.s.contacts.remove(p.id); busy = null; confirmRemove = false; onBack() }
-                }) {
-                    if (busy == "remove") CircularProgressIndicator(Modifier.size(18.dp), color = c.danger, strokeWidth = 2.dp)
-                    else Text(stringResource(R.string.remove), color = c.danger)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text(stringResource(R.string.cancel), color = c.text) } },
+        app.zura.ui.components.ConfirmSheet(
+            title = stringResource(R.string.remove_contact),
+            message = p.displayName,
+            actions = listOf(app.zura.ui.components.ConfirmAction(stringResource(R.string.remove), danger = true) {
+                confirmRemove = false
+                scope.launch { g.s.contacts.remove(p.id); onBack() }
+            }),
+            cancelLabel = stringResource(R.string.cancel),
+            onDismiss = { confirmRemove = false },
+            icon = Icons.Default.Delete,
         )
     }
 }

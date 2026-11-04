@@ -233,17 +233,14 @@ private fun Picker(saved: List<SavedAccount>, onLogin: (SavedAccount) -> Unit, o
     }
 
     removing?.let { a ->
-        AlertDialog(
-            onDismissRequest = { removing = null },
-            containerColor = c.surfaceHigh,
-            title = { Text(stringResource(R.string.remove_account), color = c.text) },
-            text = { Text(stringResource(R.string.remove_account_confirm), color = c.textMuted) },
-            confirmButton = {
-                TextButton(onClick = { removing = null; scope.launch { g.accounts.forget(a.uid) } }) {
-                    Text(stringResource(R.string.remove), color = c.danger)
-                }
-            },
-            dismissButton = { TextButton(onClick = { removing = null }) { Text(stringResource(R.string.cancel), color = c.text) } },
+        app.zura.ui.components.ConfirmSheet(
+            title = stringResource(R.string.remove_account),
+            message = stringResource(R.string.remove_account_confirm),
+            actions = listOf(app.zura.ui.components.ConfirmAction(stringResource(R.string.remove), danger = true) {
+                removing = null; scope.launch { g.accounts.forget(a.uid) }
+            }),
+            cancelLabel = stringResource(R.string.cancel),
+            onDismiss = { removing = null },
         )
     }
 }

@@ -146,11 +146,10 @@ class ShareReceiverActivity : ComponentActivity() {
                     }.getOrNull()
                 }.orEmpty()
             }
-            g.scope.launch {
-                when (payload) {
-                    is Payload.Text -> g.chats.sendText(chatId, payload.text)
-                    is Payload.Files -> staged.forEachIndexed { idx, f -> importOne(chatId, f, payload.caption.takeIf { idx == 0 }) }
-                }
+            // Not sent yet: it waits in that chat's composer for an optional caption (or edit).
+            when (payload) {
+                is Payload.Text -> ShareInbox.put(chatId, emptyList(), payload.text)
+                is Payload.Files -> ShareInbox.put(chatId, staged.map { Attachment(Uri.fromFile(it.file), it.mime, it.name, it.file) }, payload.caption)
             }
             startActivity(
                 Intent(this@ShareReceiverActivity, MainActivity::class.java)
@@ -161,30 +160,6 @@ class ShareReceiverActivity : ComponentActivity() {
     }
 
     private class Staged(val file: File, val mime: String, val name: String?)
-
-    private suspend fun importOne(chatId: String, f: Staged, caption: String?) {
-        val g = graph
-        val uri = Uri.fromFile(f.file)
-        try {
-            when {
-                f.mime.startsWith("image/") && f.mime != "image/gif" ->
-                    g.chats.sendMedia(chatId, MsgKind.IMAGE, g.imageCompressor.import(chatId, uri), caption)
-                f.mime.startsWith("video/") ->
-                    g.chats.sendMedia(chatId, MsgKind.VIDEO, g.videoCompressor.import(chatId, uri), caption)
-                else -> {
-                    val ref = withContext(Dispatchers.IO) {
-                        // Music / audio: keep its length so the bubble shows it (it's a file, not a voice note).
-                        val dur = if (f.mime.startsWith("audio/")) app.zura.media.AudioMeta.durationMs(f.file) else 0L
-                        f.file.inputStream().buffered().use { g.vault.importMedia(chatId, it, f.mime, durationMs = dur, originalName = f.name ?: if (f.mime.startsWith("audio/")) "audio" else null) }
-                    }
-                    g.chats.sendMedia(chatId, MsgKind.FILE, ref, caption)
-                }
-            }
-        } catch (_: Exception) {
-        } finally {
-            SecureEraser.erase(f.file)
-        }
-    }
 
     private fun displayName(uri: Uri): String? = runCatching {
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->

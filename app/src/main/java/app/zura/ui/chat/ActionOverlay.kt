@@ -58,6 +58,7 @@ fun ActionOverlay(
     mine: Boolean,
     me: String,
     haptics: Haptics,
+    canReply: Boolean = true,
     onDismiss: () -> Unit,
     onReact: (String) -> Unit,
     onReply: () -> Unit,
@@ -100,13 +101,13 @@ fun ActionOverlay(
             }
             Spacer(Modifier.height(10.dp))
             Column(Modifier.width(250.dp).glass(RoundedCornerShape(22.dp), solid = 0.94f).padding(vertical = 6.dp)) {
-                Action(ZuraIcons.Reply, R.string.action_reply, c.text, onReply)
+                if (canReply) Action(ZuraIcons.Reply, R.string.action_reply, c.text, onReply)
                 if (mine && m.kind == MsgKind.TEXT) Action(Icons.Default.Edit, R.string.action_edit, c.text, onEdit)
                 if (!m.text.isNullOrEmpty()) Action(ZuraIcons.Copy, R.string.action_copy, c.text, onCopy)
                 if (m.media != null) Action(ZuraIcons.Download, R.string.action_download, c.text, onDownload)
                 Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(c.divider))
-                Action(Icons.Default.Delete, R.string.action_delete_me, c.danger) { haptics.reject(); onDeleteMe() }
-                if (mine) Action(Icons.Default.Delete, R.string.action_delete_all, c.danger) { haptics.reject(); onDeleteAll() }
+                // One entry; the confirmation sheet offers "for everyone" / "for me".
+                Action(Icons.Default.Delete, R.string.delete, c.danger) { haptics.tick(); onDeleteMe() }
             }
         }
     }

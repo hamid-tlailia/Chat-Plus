@@ -178,18 +178,15 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
     }
 
     confirmDelete?.let { c ->
-        AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            containerColor = Zura.colors.surfaceHigh,
-            title = { Text(stringResource(R.string.delete_chat), color = Zura.colors.text) },
-            text = { Text(stringResource(R.string.delete_chat_confirm), color = Zura.colors.textMuted) },
-            confirmButton = {
-                TextButton(onClick = {
-                    haptics.reject(); confirmDelete = null
-                    scope.launch { g.chats.deleteChat(c.id) }
-                }) { Text(stringResource(R.string.delete), color = Zura.colors.danger) }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text(stringResource(R.string.cancel), color = Zura.colors.text) } },
+        app.zura.ui.components.ConfirmSheet(
+            title = stringResource(R.string.delete_chat),
+            message = stringResource(R.string.delete_chat_confirm),
+            actions = listOf(app.zura.ui.components.ConfirmAction(stringResource(R.string.delete), danger = true) {
+                confirmDelete = null
+                scope.launch { g.chats.deleteChat(c.id) }
+            }),
+            cancelLabel = stringResource(R.string.cancel),
+            onDismiss = { confirmDelete = null },
         )
     }
 

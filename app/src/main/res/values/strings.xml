@@ -234,4 +234,8 @@
     <string name="last_seen_yesterday">last seen yesterday at %1$s</string>
     <string name="last_seen_on">last seen %1$s at %2$s</string>
     <string name="last_seen_date">last seen %1$s</string>
+    <string name="delete_message_q">Delete this message?</string>
+    <string name="delete_message_hint_mine">“For everyone” also removes it from the other phone.</string>
+    <string name="delete_message_hint">It will be removed from this phone only.</string>
+    <string name="add_caption">Add a caption…</string>
 </resources>

@@ -65,6 +65,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -102,20 +105,25 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
     // Recording ended elsewhere (sent, cancelled, screen left): drop the lock state.
     LaunchedEffect(live.recording) { if (!live.recording) locked = false }
 
+    // Picked items wait in the composer for an optional caption; Send sends them.
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
-        uris.forEach { vm.sendMedia(it, ctx.contentResolver.getType(it).orEmpty()) }
+        vm.stage(uris.map { app.zura.share.Attachment(it, ctx.contentResolver.getType(it).orEmpty().ifEmpty { "image/jpeg" }, null) })
     }
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         val name = ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null }
-        vm.sendFile(uri, ctx.contentResolver.getType(uri) ?: "application/octet-stream", name)
+        vm.stage(listOf(app.zura.share.Attachment(uri, ctx.contentResolver.getType(uri) ?: "application/octet-stream", name)))
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     // Gesture-nav phones report a tiny bottom inset; keep a comfortable thumb margin above the edge.
     Column(modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 14.dp)) {
+        // Attachments waiting for a caption — they take the reply slot (no replying meanwhile).
+        AnimatedVisibility(vm.pending.isNotEmpty(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            PendingStrip(vm)
+        }
         // Reply / edit context banner
-        AnimatedVisibility(vm.replyTo != null || vm.editing != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        AnimatedVisibility(vm.pending.isEmpty() && (vm.replyTo != null || vm.editing != null), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             val target = vm.editing ?: vm.replyTo
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 6.dp).glass(RoundedCornerShape(18.dp)).padding(start = 14.dp, top = 8.dp, bottom = 8.dp),
@@ -175,7 +183,7 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
                             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                             modifier = Modifier.weight(1f).padding(vertical = 14.dp).padding(end = 14.dp),
                             decorationBox = { inner ->
-                                if (vm.draft.text.isEmpty()) Text(stringResource(R.string.message_hint), style = Zura.type.body, color = c.textMuted)
+                                if (vm.draft.text.isEmpty()) Text(stringResource(if (vm.pending.isNotEmpty()) R.string.add_caption else R.string.message_hint), style = Zura.type.body, color = c.textMuted)
                                 inner()
                             },
                         )
@@ -191,7 +199,7 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
             val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
             val cancelAt = with(density) { 110.dp.toPx() }
             val lockAt = with(density) { 80.dp.toPx() }
-            val showSend = hasText || vm.editing != null || locked
+            val showSend = hasText || vm.editing != null || locked || vm.pending.isNotEmpty()
             val pulse by rememberInfiniteTransition(label = "rec").animateFloat(0.55f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "recPulse")
             Box(contentAlignment = Alignment.Center) {
                 // Lock hint: rises with the finger; reaching the top locks the recording.
@@ -291,3 +299,64 @@ private fun RecordingStrip(elapsed: Long, levels: List<Float>, cancelDrag: Float
         ) else Spacer(Modifier.width(8.dp))
     }
 }
+
+/** Thumbnails of the staged items, each removable, plus "cancel all". */
+@Composable
+private fun PendingStrip(vm: ChatViewModel) {
+    val c = Zura.colors
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 6.dp).glass(RoundedCornerShape(18.dp)).padding(start = 10.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.foundation.lazy.LazyRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(vm.pending.size, key = { vm.pending[it].uri.toString() }) { i ->
+                val a = vm.pending[i]
+                Box {
+                    AttachmentThumb(a)
+                    Box(
+                        Modifier.align(Alignment.TopEnd).padding(2.dp).size(20.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f))
+                            .clickable { vm.unstage(a) },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Default.Close, stringResource(R.string.cancel), tint = Color.White, modifier = Modifier.size(14.dp)) }
+                }
+            }
+        }
+        IconButton(onClick = { vm.clearPending() }) { Icon(Icons.Default.Close, stringResource(R.string.cancel), tint = c.textMuted) }
+    }
+}
+
+@Composable
+private fun AttachmentThumb(a: app.zura.share.Attachment) {
+    val c = Zura.colors
+    val ctx = LocalContext.current
+    val bmp by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, a.uri) {
+        if (a.visual) value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { thumbnailOf(ctx, a) }
+    }
+    Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(c.surfaceHigh), contentAlignment = Alignment.Center) {
+        val b = bmp
+        if (b != null) androidx.compose.foundation.Image(b, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        else if (a.mime.startsWith("audio/")) Text("♪", style = Zura.type.headline, color = c.accent)
+        else Icon(ZuraIcons.File, null, tint = c.textMuted)
+        if (a.video) Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(22.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)))
+        if (!a.visual) a.name?.let {
+            Text(it, style = Zura.type.caption, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(c.surface.copy(alpha = 0.85f)).padding(horizontal = 3.dp))
+        }
+    }
+}
+
+private fun thumbnailOf(ctx: android.content.Context, a: app.zura.share.Attachment): androidx.compose.ui.graphics.ImageBitmap? = runCatching {
+    val bmp: android.graphics.Bitmap? = if (a.video) {
+        val r = android.media.MediaMetadataRetriever()
+        try { r.setDataSource(ctx, a.uri); r.getFrameAtTime(0) } finally { runCatching { r.release() } }
+    } else if (android.os.Build.VERSION.SDK_INT >= 28) {
+        android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(ctx.contentResolver, a.uri)) { d, info, _ ->
+            d.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+            val edge = maxOf(info.size.width, info.size.height)
+            if (edge > 256) d.setTargetSampleSize(edge / 256)
+        }
+    } else ctx.contentResolver.openInputStream(a.uri)?.use {
+        android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = 8 })
+    }
+    bmp?.let { android.graphics.Bitmap.createScaledBitmap(it, 192, 192 * it.height / it.width.coerceAtLeast(1), true).asImageBitmap() }
+}.getOrNull()

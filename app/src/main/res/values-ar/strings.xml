@@ -234,4 +234,8 @@
     <string name="last_seen_yesterday">آخر ظهور أمس %1$s</string>
     <string name="last_seen_on">آخر ظهور %1$s %2$s</string>
     <string name="last_seen_date">آخر ظهور %1$s</string>
+    <string name="delete_message_q">حذف هذه الرسالة؟</string>
+    <string name="delete_message_hint_mine">"للجميع" تحذفها من هاتف الطرف الآخر أيضاً.</string>
+    <string name="delete_message_hint">ستُحذف من هذا الهاتف فقط.</string>
+    <string name="add_caption">أضف تعليقاً…</string>
 </resources>

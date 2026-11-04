@@ -78,6 +78,30 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
     var editing by mutableStateOf<Message?>(null)
     var focused by mutableStateOf<Message?>(null) // long-pressed → action overlay
 
+    /** Photos / videos / files waiting for an optional caption (replying is off meanwhile). */
+    val pending = androidx.compose.runtime.mutableStateListOf<app.zura.share.Attachment>()
+
+    init {
+        // Items shared from another app land here, ready for a caption.
+        viewModelScope.launch {
+            app.zura.share.ShareInbox.pending.collect { m ->
+                if (chatId in m) app.zura.share.ShareInbox.take(chatId)?.let { p ->
+                    stage(p.attachments)
+                    p.text?.takeIf { it.isNotBlank() }?.let { t -> draft = TextFieldValue(t, androidx.compose.ui.text.TextRange(t.length)) }
+                }
+            }
+        }
+    }
+
+    fun stage(items: List<app.zura.share.Attachment>) {
+        if (items.isEmpty()) return
+        replyTo = null; editing = null
+        pending.addAll(items)
+    }
+
+    fun unstage(a: app.zura.share.Attachment) { pending.remove(a); a.temp?.let { app.zura.core.storage.SecureEraser.erase(it) } }
+    fun clearPending() { pending.toList().forEach(::unstage) }
+
     fun onDraft(v: TextFieldValue) {
         draft = v
         g.chats.setTyping(chatId, v.text.isNotBlank())
@@ -85,6 +109,15 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
 
     fun send() {
         val text = draft.text.trim()
+        if (pending.isNotEmpty()) {
+            // Caption goes with the first item (like other messengers); none is fine too.
+            val items = pending.toList()
+            pending.clear()
+            draft = TextFieldValue("")
+            g.chats.setTyping(chatId, false)
+            items.forEachIndexed { i, a -> sendAttachment(a, text.takeIf { i == 0 && it.isNotEmpty() }) }
+            return
+        }
         if (text.isEmpty()) return
         val edit = editing
         val reply = replyTo
@@ -106,22 +139,29 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
     fun markRead() = viewModelScope.launch { g.chats.markRead(chatId) }
     fun retry(m: Message) = viewModelScope.launch { g.chats.retry(chatId, m.id) }
 
-    /** The bubble appears immediately; compression + encryption + upload continue behind it. */
-    fun sendMedia(uri: Uri, mime: String) = g.scope.launch {
-        val video = mime.startsWith("video")
-        val placeholder = if (video) g.videoCompressor.placeholder(uri) else g.imageCompressor.placeholder(uri, mime)
-        val msg = runCatching { g.chats.beginMedia(chatId, if (video) MsgKind.VIDEO else MsgKind.IMAGE, placeholder) }.getOrNull() ?: return@launch
-        runCatching {
-            val ref = if (video) g.videoCompressor.import(chatId, uri) else g.imageCompressor.import(chatId, uri)
-            g.chats.completeMedia(chatId, msg.id, ref)
-        }.onFailure { g.chats.failMedia(chatId, msg.id) }
-    }
-
-    fun sendFile(uri: Uri, mime: String, name: String?) = g.scope.launch {
-        runCatching {
-            val dur = if (mime.startsWith("audio/")) app.zura.media.AudioMeta.durationMs(g.app, uri) else 0L
-            val ref = g.vault.importMedia(chatId, g.app.contentResolver.openInputStream(uri)!!, mime, durationMs = dur, originalName = name)
-            g.chats.sendMedia(chatId, MsgKind.FILE, ref)
+    /**
+     * Photos / videos: the bubble appears immediately; compression + encryption + upload continue
+     * behind it. Other files (music, documents, GIFs) are encrypted and sent as files.
+     * A temporary copy from the share sheet is wiped afterwards.
+     */
+    private fun sendAttachment(a: app.zura.share.Attachment, caption: String?) = g.scope.launch {
+        try {
+            if (a.visual) {
+                val placeholder = if (a.video) g.videoCompressor.placeholder(a.uri) else g.imageCompressor.placeholder(a.uri, a.mime)
+                val msg = runCatching { g.chats.beginMedia(chatId, if (a.video) MsgKind.VIDEO else MsgKind.IMAGE, placeholder, caption) }.getOrNull() ?: return@launch
+                runCatching {
+                    val ref = if (a.video) g.videoCompressor.import(chatId, a.uri) else g.imageCompressor.import(chatId, a.uri)
+                    g.chats.completeMedia(chatId, msg.id, ref)
+                }.onFailure { g.chats.failMedia(chatId, msg.id) }
+            } else runCatching {
+                val dur = if (a.mime.startsWith("audio/")) app.zura.media.AudioMeta.durationMs(g.app, a.uri) else 0L
+                val ref = g.app.contentResolver.openInputStream(a.uri)!!.use {
+                    g.vault.importMedia(chatId, it, a.mime, durationMs = dur, originalName = a.name ?: if (a.mime.startsWith("audio/")) "audio" else null)
+                }
+                g.chats.sendMedia(chatId, MsgKind.FILE, ref, caption)
+            }
+        } finally {
+            a.temp?.let { app.zura.core.storage.SecureEraser.erase(it) }
         }
     }
 
