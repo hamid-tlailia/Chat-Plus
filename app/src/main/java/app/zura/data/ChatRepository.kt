@@ -5,6 +5,7 @@ import app.zura.core.model.MediaRef
 import app.zura.core.model.Message
 import app.zura.core.model.MsgKind
 import app.zura.core.model.MsgStatus
+import app.zura.core.model.TTL_AFTER_READ
 import app.zura.core.storage.ChatStore
 import app.zura.core.storage.VaultStore
 import app.zura.core.sync.Frame
@@ -45,6 +46,8 @@ class ChatRepository(
     private val backend: Backend,
     val me: String,
     private val scope: CoroutineScope,
+    /** Stealth settings; null = reveal everything (tests). */
+    val privacy: Privacy? = null,
 ) {
     // ------------------------------------------------------------------ chat list
 
@@ -103,7 +106,7 @@ class ChatRepository(
         val now = System.currentTimeMillis()
         if (active && now - lastTypingSent < 3_000) return
         lastTypingSent = if (active) now else 0L
-        val peers = peersOf(chatId).ifEmpty { return }
+        val peers = peersOf(chatId).filter { privacy?.typingTo(it) != false }.ifEmpty { return }
         scope.launch { peers.forEach { transport.signal(it, Frame.Typing(chatId, me, active)) } }
     }
 
@@ -114,7 +117,7 @@ class ChatRepository(
         heartbeat?.cancel()
         heartbeat = scope.launch {
             while (isActive) {
-                contacts().forEach { transport.signal(it, Frame.Presence(me, true, System.currentTimeMillis())) }
+                contacts().filter { privacy?.lastSeenTo(it) != false }.forEach { transport.signal(it, Frame.Presence(me, true, System.currentTimeMillis())) }
                 delay(45_000)
             }
         }
@@ -122,7 +125,10 @@ class ChatRepository(
 
     fun stopPresence(contacts: List<String>) {
         heartbeat?.cancel()
-        scope.launch { contacts.forEach { transport.signal(it, Frame.Presence(me, false, System.currentTimeMillis())) } }
+        // "Last seen" travels end-to-end encrypted and durably (inbox), only to contacts allowed
+        // to see it — the server no longer stores it in the clear.
+        val now = System.currentTimeMillis()
+        scope.launch { contacts.filter { privacy?.lastSeenTo(it) != false }.forEach { runCatching { transport.send(it, Frame.Presence(me, false, now)) } } }
     }
 
     // ------------------------------------------------------------------ lifecycle
@@ -159,6 +165,7 @@ class ChatRepository(
             val msg = Message(
                 id = UUID.randomUUID().toString(), chatId = chatId, senderId = me, sentAt = now(),
                 kind = kind, text = caption, media = placeholder, status = MsgStatus.PENDING,
+                ttlMs = store.meta.value?.disappearMs,
             )
             store.upsert(msg)
             touchMeta(store, msg, unreadDelta = 0)
@@ -183,6 +190,57 @@ class ChatRepository(
     /** Call history entry, written on the caller's side and mirrored to the callee. */
     suspend fun logCall(chatId: String, summary: String) = send(chatId, MsgKind.CALL, summary, null, null)
 
+    /** Locked chats stay hidden / closed until the user authenticates; re-locks when the app leaves the screen. */
+    val lockedRevealed = MutableStateFlow(false)
+
+    suspend fun setLocked(chatId: String, on: Boolean) = withContext(Dispatchers.IO) {
+        val store = vault.chat(chatId)
+        store.meta.value?.let { store.writeMeta(it.copy(locked = on)) }
+    }
+
+    /** Turn disappearing messages on/off for a chat; both sides switch (announced as a system line). */
+    suspend fun setDisappearing(chatId: String, ms: Long?) = withContext(Dispatchers.IO) {
+        val store = vault.chat(chatId)
+        store.meta.value?.let { store.writeMeta(it.copy(disappearMs = ms)) }
+        logEvent(chatId, "$EVENT_TIMER${ms ?: 0}")
+    }
+
+    /**
+     * Delete expired messages (crypto-shredded: the log is rewritten under a fresh key).
+     * [leaving] = the user is leaving [chatId]: "after read" messages that were read go now.
+     */
+    suspend fun expire(chatId: String? = null, leaving: Boolean = false) = withContext(Dispatchers.IO) {
+        val now = now()
+        val ids = if (chatId != null) listOf(chatId) else chats.value.map { it.id }
+        ids.forEach { id ->
+            if (!vault.exists(id)) return@forEach
+            val store = vault.chat(id)
+            val dead = store.messages.value.filter { m ->
+                val ttl = m.ttlMs ?: return@filter false
+                when {
+                    ttl > 0 -> m.sentAt + ttl <= now
+                    ttl == TTL_AFTER_READ -> (leaving && id == chatId && m.status == MsgStatus.READ && m.senderId != me) ||
+                        (m.senderId == me && m.status == MsgStatus.READ && leaving && id == chatId) ||
+                        now - m.sentAt > 7L * 24 * 3600_000 // safety net: never kept beyond a week
+                    else -> false
+                }
+            }
+            if (dead.isNotEmpty()) {
+                dead.mapNotNull { it.media }.forEach { runCatching { onEvict?.invoke(it) } }
+                deleteForMe(id, dead.map { it.id })
+            }
+        }
+    }
+
+    /** Let the UI drop cached thumbnails of expired media. */
+    var onEvict: ((MediaRef) -> Unit)? = null
+
+    private var expiryLoop: Job? = null
+    fun startExpiry() {
+        expiryLoop?.cancel()
+        expiryLoop = scope.launch { while (isActive) { runCatching { expire() }; delay(30_000) } }
+    }
+
     /** A system line both sides see, e.g. [EVENT_SCREENSHOT] when I capture this chat. */
     suspend fun logEvent(chatId: String, code: String) = send(chatId, MsgKind.EVENT, code, null, null)
 
@@ -194,6 +252,7 @@ class ChatRepository(
                 id = UUID.randomUUID().toString(), chatId = chatId, senderId = me, sentAt = now(),
                 kind = kind, text = text, media = media, replyTo = replyTo,
                 status = if (peers.isEmpty()) MsgStatus.READ else MsgStatus.PENDING,
+                ttlMs = if (kind == MsgKind.EVENT) null else store.meta.value?.disappearMs,
             )
             store.upsert(msg)
             touchMeta(store, msg, unreadDelta = 0)
@@ -231,7 +290,7 @@ class ChatRepository(
                 store.upsert(wire)
             }
         }
-        val frame = Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text, wire.media, wire.replyTo, wire.link)
+        val frame = Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text, wire.media, wire.replyTo, wire.link, wire.ttlMs)
         val ok = peersOf(wire.chatId).all { transport.send(it, frame) }
         // Never leave a message on the clock forever: sent → ✓, otherwise → "failed, tap to retry"
         // (also retried automatically on the next reconnect).
@@ -305,7 +364,7 @@ class ChatRepository(
         val unread = store.messages.value.filter { it.senderId != me && it.status != MsgStatus.READ }
         if (unread.isNotEmpty()) {
             store.upsertAll(unread.map { it.copy(status = MsgStatus.READ) })
-            unread.groupBy { it.senderId }.forEach { (sender, ms) ->
+            unread.groupBy { it.senderId }.filterKeys { privacy?.receiptsTo(it) != false }.forEach { (sender, ms) ->
                 scope.launch { transport.sendWithRetry(sender, Frame.Receipt(chatId, me, ms.map { it.id }, MsgStatus.READ)) }
             }
         }
@@ -331,7 +390,11 @@ class ChatRepository(
                     val blob = ref.remoteBlobId ?: return@let null
                     runCatching { backend.download("blobs", blob) { vault.adoptCiphertext(f.chatId, ref, it) } }.getOrNull()
                 }
-                val msg = Message(f.id, f.chatId, from, f.sentAt, f.kind, f.text, media, MsgStatus.DELIVERED, replyTo = f.replyTo, link = f.link)
+                val msg = Message(f.id, f.chatId, from, f.sentAt, f.kind, f.text, media, MsgStatus.DELIVERED, replyTo = f.replyTo, link = f.link, ttlMs = f.ttlMs)
+                // The other side changed this chat's timer: it's announced as a system line.
+                if (f.kind == MsgKind.EVENT) parseTimer(f.text)?.let { ms ->
+                    store.meta.value?.let { store.writeMeta(it.copy(disappearMs = ms.takeIf { v -> v != 0L })) }
+                }
                 store.upsert(msg)
                 touchMeta(store, msg, unreadDelta = 1)
                 store.meta.value?.let { onIncoming(it, msg) }
@@ -354,7 +417,13 @@ class ChatRepository(
             }
             is Frame.Presence -> if (f.userId == from) {
                 presence.update { it + (from to if (f.online) now() + 100_000 else 0L) }
-                noteLastSeen(from, if (f.online) now() else f.lastSeen.coerceAtMost(now()))
+                val at = if (f.online) now() else f.lastSeen.coerceAtMost(now())
+                noteLastSeen(from, at)
+                if (!f.online) {
+                    // Remember it across restarts (the server doesn't keep it any more).
+                    val dm = ContactsRepository.dmChatId(me, from)
+                    if (vault.exists(dm)) vault.chat(dm).let { s -> s.meta.value?.takeIf { (it.peerSeenAt ?: 0) < at }?.let { s.writeMeta(it.copy(peerSeenAt = at)) } }
+                }
             }
             is Frame.Edit -> if (f.from == from && vault.exists(f.chatId)) vault.chat(f.chatId).let { s -> if (s.get(f.id)?.senderId == from) s.edit(f.id, f.text, f.at) }
             is Frame.Delete -> if (f.from == from && vault.exists(f.chatId)) {
@@ -395,5 +464,8 @@ class ChatRepository(
     companion object {
         const val NOTES = "notes"
         const val EVENT_SCREENSHOT = "screenshot"
+        const val EVENT_TIMER = "timer:"
+        /** "timer:86400000" → 86400000 (0 = off), anything else → null. */
+        fun parseTimer(text: String?): Long? = text?.takeIf { it.startsWith(EVENT_TIMER) }?.removePrefix(EVENT_TIMER)?.toLongOrNull()
     }
 }

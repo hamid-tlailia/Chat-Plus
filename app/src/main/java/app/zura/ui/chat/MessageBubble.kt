@@ -227,6 +227,7 @@ private fun Quote(q: Message, onFill: Color) {
 private fun Footer(m: Message, mine: Boolean, onFill: Color, fmt: ZuraFormat, modifier: Modifier) {
     val muted = onFill.copy(alpha = 0.62f)
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (m.ttlMs != null) Text("⏱", style = Zura.type.caption, color = muted)
         if (m.editedAt != null) Text(stringResource(R.string.edited), style = Zura.type.caption, color = muted)
         Text(fmt.time(m.sentAt), style = Zura.type.caption, color = muted)
         if (mine) StatusTick(m.status, muted)
@@ -234,15 +235,19 @@ private fun Footer(m: Message, mine: Boolean, onFill: Color, fmt: ZuraFormat, mo
 }
 
 /** Ticks morph through states with a cross-scale instead of popping. */
+/** False when I hide my read receipts from this chat's contact (then I don't see theirs). */
+val LocalShowReadTicks = androidx.compose.runtime.staticCompositionLocalOf { true }
+
 @Composable
 private fun StatusTick(s: MsgStatus, muted: Color) {
+    val showRead = LocalShowReadTicks.current
     val c = Zura.colors
     val scale by animateFloatAsState(1f, ZuraMotion.Bouncy, label = "tick")
     val (icon, tint) = when (s) {
         MsgStatus.PENDING -> ZuraIcons.Clock to muted
         MsgStatus.SENT -> Icons.Default.Done to muted
         MsgStatus.DELIVERED -> ZuraIcons.DoneAll to muted
-        MsgStatus.READ -> ZuraIcons.DoneAll to c.read
+        MsgStatus.READ -> ZuraIcons.DoneAll to if (showRead) c.read else muted
         MsgStatus.FAILED -> Icons.Default.Warning to c.danger
     }
     Icon(icon, s.name, tint = tint, modifier = Modifier.size(15.dp).graphicsLayer { scaleX = scale; scaleY = scale })
@@ -452,16 +457,14 @@ private fun Reactions(m: Message, fmt: ZuraFormat) {
 @Composable
 private fun EventRow(m: Message, mine: Boolean, fmt: ZuraFormat, modifier: Modifier) {
     val c = Zura.colors
-    val label = when (m.text) {
-        app.zura.data.ChatRepository.EVENT_SCREENSHOT -> stringResource(if (mine) R.string.you_took_screenshot else R.string.they_took_screenshot)
-        else -> return
-    }
+    val ctx = LocalContext.current
+    val label = eventText(ctx, m.text, mine)
     Box(modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
         Row(
             Modifier.clip(CircleShape).background(c.surface.copy(alpha = 0.8f)).padding(horizontal = 14.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("📸  $label", style = Zura.type.label, color = c.textMuted)
+            Text("${eventIcon(m.text)}  $label", style = Zura.type.label, color = c.textMuted)
             Spacer(Modifier.width(8.dp))
             Text(fmt.time(m.sentAt), style = Zura.type.caption, color = c.textMuted)
         }

@@ -242,8 +242,15 @@ class ContactsRepository(
         profiles[uid] ?: runCatching { fetchProfiles(listOf(uid)); profiles[uid] }.getOrNull()
     }
 
-    suspend fun touchLastSeen() = withContext(Dispatchers.IO) {
-        runCatching { backend.client.from("profiles").update({ set("last_seen", java.time.Instant.now().toString()) }) { filter { eq("id", me) } } }
+    private var serverSeenCleared = false
+
+    /** Last seen is now shared end-to-end encrypted, per contact: wipe the old plaintext column once. */
+    suspend fun clearServerLastSeen() = withContext(Dispatchers.IO) {
+        if (serverSeenCleared) return@withContext
+        runCatching {
+            backend.client.from("profiles").update({ set<String?>("last_seen", null) }) { filter { eq("id", me) } }
+            serverSeenCleared = true
+        }
     }
 
     // ---------------------------------------------------------------- conversations

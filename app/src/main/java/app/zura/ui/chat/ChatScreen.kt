@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -99,6 +100,24 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
         onDispose { if (app.zura.push.Push.openChatId == chatId) app.zura.push.Push.openChatId = null }
     }
 
+    // Locked chat: nothing of it is composed until the user proves it's them.
+    val revealed by g.chats.lockedRevealed.collectAsStateWithLifecycle()
+    if (meta?.locked == true && !revealed) {
+        LockedChatGate(onBack) { g.chats.lockedRevealed.value = true }
+        return
+    }
+
+    // Disappearing messages: no screenshots in this chat; read "after reading" messages vanish on leave.
+    val timerOn = meta?.disappearMs != null
+    androidx.compose.runtime.DisposableEffect(timerOn) {
+        g.settings.chatSecure.value = timerOn
+        onDispose { g.settings.chatSecure.value = false }
+    }
+    androidx.compose.runtime.DisposableEffect(chatId) {
+        g.s.scope.launch { g.chats.expire(chatId) }
+        onDispose { g.s.scope.launch { g.chats.expire(chatId, leaving = true) } }
+    }
+
     // Android 14+: a screenshot of this chat is announced to the other side (a line in the chat
     // and a notification), like other messengers. With "Block screenshots" on, none can be taken.
     if (android.os.Build.VERSION.SDK_INT >= 34) {
@@ -122,7 +141,8 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
 
     // Real frosted glass: the message list is blurred live behind the header and the composer.
     val haze = remember { dev.chrisbanes.haze.HazeState() }
-    androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze) {
+    val showRead by vm.showReadTicks.collectAsStateWithLifecycle()
+    androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze, LocalShowReadTicks provides showRead) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             LazyColumn(
@@ -185,7 +205,10 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f).clickable(enabled = vm.peerId != null) { vm.peerId?.let(onOpenProfile) }) {
-                    Text(meta?.title ?: "", style = Zura.type.headline, color = Zura.colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(meta?.title ?: "", style = Zura.type.headline, color = Zura.colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (meta?.disappearMs != null) Text(" ⏱", style = Zura.type.label, color = Zura.colors.accent)
+                    }
                     AnimatedContent(
                         typing,
                         transitionSpec = { (slideInVertically { it } + fadeIn()) togetherWith (slideOutVertically { -it } + fadeOut()) },
@@ -353,3 +376,25 @@ private fun BlockedBar(text: String, action: String?, onAction: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun LockedChatGate(onBack: () -> Unit, onUnlocked: () -> Unit) {
+    val c = Zura.colors
+    val auth = app.zura.security.rememberDeviceAuth()
+    val ask = { auth { ok -> if (ok) onUnlocked() } }
+    LaunchedEffect(Unit) { ask() }
+    androidx.activity.compose.BackHandler(onBack = onBack)
+    Column(
+        Modifier.fillMaxSize().background(Zura.colors.bg).statusBarsPadding().navigationBarsPadding().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+    ) {
+        Text("🔒", style = Zura.type.title)
+        Spacer(Modifier.height(12.dp))
+        Text(stringResource(R.string.locked_chat_title), style = Zura.type.headline, color = c.text)
+        Spacer(Modifier.height(20.dp))
+        Box(
+            Modifier.clip(CircleShape).background(c.accent).clickable { ask() }.padding(horizontal = 26.dp, vertical = 12.dp),
+        ) { Text(stringResource(R.string.unlock_chat), style = Zura.type.label, color = c.onAccent) }
+    }
+}
+

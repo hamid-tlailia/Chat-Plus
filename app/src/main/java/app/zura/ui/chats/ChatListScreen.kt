@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -88,6 +89,8 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
     val incomingInvites = invites.count { it.incoming }
     val online by g.s.transport.online.collectAsStateWithLifecycle()
     val typing by g.chats.typingChats.collectAsStateWithLifecycle(emptySet())
+    val revealed by g.chats.lockedRevealed.collectAsStateWithLifecycle()
+    val deviceAuth = app.zura.security.rememberDeviceAuth()
 
     val pickMoment = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -126,7 +129,23 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
                 )
                 Spacer(Modifier.height(10.dp))
             }
-            items(chats, key = { it.id }, contentType = { "chat" }) { c ->
+            // Locked chats live behind one row; revealed after fingerprint / face / PIN.
+            val lockedCount = chats.count { it.locked }
+            if (lockedCount > 0) item(key = "locked") {
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        if (revealed) g.chats.lockedRevealed.value = false
+                        else deviceAuth { ok -> if (ok) g.chats.lockedRevealed.value = true }
+                    }.padding(horizontal = 18.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(52.dp).clip(CircleShape).background(Zura.colors.surfaceHigh), contentAlignment = Alignment.Center) { Text("🔒", style = Zura.type.headline) }
+                    Spacer(Modifier.width(14.dp))
+                    Text(stringResource(R.string.locked_chats), style = Zura.type.headline, color = Zura.colors.text, modifier = Modifier.weight(1f))
+                    Text(if (revealed) "▲" else fmt.count(lockedCount), style = Zura.type.label, color = Zura.colors.textMuted)
+                }
+            }
+            items(chats.filter { !it.locked || revealed }, key = { it.id }, contentType = { "chat" }) { c ->
                 ChatRow(
                     c, fmt, typing = c.id in typing,
                     onClick = { onOpen(c.id) },
@@ -209,7 +228,7 @@ private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, typing: Boolean = false, onCli
         }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(c.title, style = Zura.type.headline, color = col.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text((if (c.locked) "🔒 " else "") + c.title, style = Zura.type.headline, color = col.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Text(fmt.listStamp(c.updatedAt), style = Zura.type.caption, color = if (c.unread > 0) col.accent else col.textMuted)
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
@@ -219,7 +238,7 @@ private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, typing: Boolean = false, onCli
                     MsgKind.VOICE -> stringResource(R.string.voice_message)
                     MsgKind.FILE -> stringResource(R.string.file)
                     MsgKind.CALL -> app.zura.ui.chat.parseCall(c.preview).let { stringResource(if (it.missed) (if (it.video) R.string.missed_video_call else R.string.missed_voice_call) else if (it.video) R.string.video_call else R.string.voice_call) }
-                    MsgKind.EVENT -> stringResource(if (c.previewMine) R.string.you_took_screenshot else R.string.they_took_screenshot)
+                    MsgKind.EVENT -> app.zura.ui.chat.eventText(LocalContext.current, c.preview, c.previewMine)
                     MsgKind.TEXT -> if (c.peerIds.isEmpty()) stringResource(R.string.notes_hint) else ""
                 }
                 if (typing) {

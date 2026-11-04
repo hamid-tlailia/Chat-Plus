@@ -38,6 +38,9 @@ class SettingsStore(private val prefs: SharedPreferences) {
         prefs.edit().putBoolean(K_SECURE, on).apply()
     }
 
+    /** Set while a chat with disappearing messages is open: blocks screenshots there only. */
+    val chatSecure = MutableStateFlow(false)
+
     private companion object {
         const val K_THEME = "theme"
         const val K_SECURE = "secure_screen"

@@ -132,6 +132,18 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}) {
             app.zura.push.CallReadinessList()
         }
 
+        // Stealth mode: what contacts can see of my activity.
+        Section(R.string.stealth_mode) {
+            val pv = g.s.privacy
+            val rr by pv.readReceipts.collectAsStateWithLifecycle()
+            val ty by pv.typing.collectAsStateWithLifecycle()
+            val ls by pv.lastSeen.collectAsStateWithLifecycle()
+            app.zura.ui.components.SettingSwitch(stringResource(R.string.stealth_read), stringResource(R.string.stealth_read_hint), rr) { pv.setReadReceipts(it) }
+            app.zura.ui.components.SettingSwitch(stringResource(R.string.stealth_typing), null, ty) { pv.setTyping(it) }
+            app.zura.ui.components.SettingSwitch(stringResource(R.string.stealth_seen), stringResource(R.string.stealth_seen_hint), ls) { pv.setLastSeen(it) }
+            Text(stringResource(R.string.stealth_per_person), style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(top = 6.dp))
+        }
+
         Section(R.string.privacy) {
             val secure by g.settings.secureScreen.collectAsStateWithLifecycle()
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { haptics.tick(); g.settings.setSecureScreen(!secure) }, verticalAlignment = Alignment.CenterVertically) {

@@ -101,8 +101,8 @@ class MainActivity : ComponentActivity() {
         // Block screenshots / screen recording when asked. With app lock on, also keep chats out of
         // the recents thumbnail (API 33+ can do that without blocking screenshots altogether).
         lifecycleScope.launch {
-            kotlinx.coroutines.flow.combine(g.settings.secureScreen, g.appLock.enabled) { s, l -> s to l }.collect { (secure, lock) ->
-                val flag = secure || (lock && android.os.Build.VERSION.SDK_INT < 33)
+            kotlinx.coroutines.flow.combine(g.settings.secureScreen, g.appLock.enabled, g.settings.chatSecure) { s, l, chat -> Triple(s, l, chat) }.collect { (secure, lock, chat) ->
+                val flag = secure || chat || (lock && android.os.Build.VERSION.SDK_INT < 33)
                 if (flag) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 if (android.os.Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!lock && !secure)
             }

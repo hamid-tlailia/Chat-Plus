@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -38,16 +39,27 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
     /** The other participant of a 1:1 chat (null for the notes chat). */
     val peerId: String? get() = meta.value?.peerIds?.singleOrNull()
     /** Last time the contact was in the app — seeded from the server when the chat opens. */
+    // Fair play: if I hide my last seen from this person (globally or ghost), I don't see theirs.
+    private val seesPeerActivity = kotlinx.coroutines.flow.combine(g.chats.meta(chatId), g.s.privacy.lastSeen, g.s.privacy.ghost) { m, _, _ ->
+        m?.peerIds?.singleOrNull()?.let { g.s.privacy.lastSeenTo(it) } == true
+    }
+
     val peerLastSeen = g.chats.meta(chatId).flatMapLatest { m ->
         m?.peerIds?.singleOrNull()?.let { peer ->
-            viewModelScope.launch { g.s.contacts.fetchLastSeen(peer)?.let { g.chats.noteLastSeen(peer, it) } }
+            m.peerSeenAt?.let { g.chats.noteLastSeen(peer, it) }
             g.chats.peerLastSeen(peer)
         } ?: kotlinx.coroutines.flow.flowOf(null)
-    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), null)
+    }.combine(seesPeerActivity) { t, ok -> t.takeIf { ok } }
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), null)
 
     val peerOnline = g.chats.meta(chatId).flatMapLatest { m ->
         m?.peerIds?.singleOrNull()?.let { g.chats.peerOnline(it) } ?: kotlinx.coroutines.flow.flowOf(false)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    }.combine(seesPeerActivity) { on, ok -> on && ok }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Fair play for blue ticks: hiding my read receipts from this person hides theirs from me. */
+    val showReadTicks = kotlinx.coroutines.flow.combine(g.chats.meta(chatId), g.s.privacy.readReceipts, g.s.privacy.ghost) { m, _, _ ->
+        m?.peerIds?.singleOrNull()?.let { g.s.privacy.receiptsTo(it) } ?: true
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val online = g.s.transport.online
 
     fun call(video: Boolean) { peerId?.let { g.s.calls.startCall(it, video) } }

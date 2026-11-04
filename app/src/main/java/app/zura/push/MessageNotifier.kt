@@ -29,7 +29,7 @@ class MessageNotifier(private val context: Context) {
         val sender = Person.Builder().setName(meta.title).setKey(m.senderId).build()
         val me = Person.Builder().setName(context.getString(R.string.app_name)).build()
         // App lock on → never reveal who wrote what in the notification shade.
-        if ((context.applicationContext as app.zura.ZuraApp).graph.appLock.enabled.value) {
+        if ((context.applicationContext as app.zura.ZuraApp).graph.appLock.enabled.value || meta.locked) {
             val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_stat_zura)
                 .setContentTitle(context.getString(R.string.app_name)).setContentText(context.getString(R.string.new_message))
                 .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -39,7 +39,7 @@ class MessageNotifier(private val context: Context) {
             runCatching { NotificationManagerCompat.from(context).notify(LOCKED_ID, n) }
             return
         }
-        val text = m.text?.takeIf { it.isNotBlank() && m.kind != MsgKind.CALL && m.kind != MsgKind.EVENT } ?: context.getString(
+        val text = if (m.kind == MsgKind.EVENT) app.zura.ui.chat.eventText(context, m.text, false) else m.text?.takeIf { it.isNotBlank() && m.kind != MsgKind.CALL } ?: context.getString(
             when (m.kind) {
                 MsgKind.IMAGE -> R.string.photo
                 MsgKind.VIDEO -> R.string.video
@@ -79,7 +79,7 @@ class MessageNotifier(private val context: Context) {
     fun showReaction(meta: ChatMeta, m: Message, emoji: String) {
         if (Push.appVisible && Push.openChatId == meta.id) return
         ensureChannel()
-        val locked = (context.applicationContext as app.zura.ZuraApp).graph.appLock.enabled.value
+        val locked = (context.applicationContext as app.zura.ZuraApp).graph.appLock.enabled.value || meta.locked
         val about = m.text?.takeIf { it.isNotBlank() && m.kind == MsgKind.TEXT } ?: context.getString(app.zura.ui.chat.kindLabel(m.kind))
         val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_stat_zura)
             .setContentTitle(if (locked) context.getString(R.string.app_name) else meta.title)

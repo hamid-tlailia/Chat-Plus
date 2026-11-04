@@ -247,6 +247,42 @@ private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpe
             }
         }
         if (isContact) {
+            // Disappearing messages for this chat.
+            val chatMeta by remember(chatId) { g.chats.meta(chatId) }.collectAsStateWithLifecycle(null)
+            var pickTimer by remember { mutableStateOf(false) }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))
+            Row(Modifier.fillMaxWidth().clickable { pickTimer = true }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("⏱", style = Zura.type.headline)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.disappearing), style = Zura.type.label, color = c.text)
+                    Text(app.zura.ui.chat.ttlLabel(ctx, chatMeta?.disappearMs), style = Zura.type.caption, color = if (chatMeta?.disappearMs != null) c.accent else c.textMuted)
+                }
+            }
+            if (pickTimer) app.zura.ui.components.PickerSheet(
+                title = stringResource(R.string.disappearing), hint = stringResource(R.string.disappearing_hint),
+                options = app.zura.ui.chat.DISAPPEAR_OPTIONS.map { it to app.zura.ui.chat.ttlLabel(ctx, it) },
+                selected = chatMeta?.disappearMs,
+                onPick = { v -> pickTimer = false; if (v != chatMeta?.disappearMs) g.s.scope.launch { g.chats.setDisappearing(chatId, v) } },
+                onDismiss = { pickTimer = false },
+            )
+            // Chat lock (needs the phone's own screen lock; changing it asks for it too).
+            val lockAuth = app.zura.security.rememberDeviceAuth()
+            Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))
+            app.zura.ui.components.SettingSwitch(
+                stringResource(R.string.lock_chat), stringResource(R.string.lock_chat_hint), chatMeta?.locked == true,
+                Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            ) { on ->
+                if (!g.appLock.deviceSecure()) android.widget.Toast.makeText(ctx, R.string.needs_screen_lock, android.widget.Toast.LENGTH_LONG).show()
+                else lockAuth { ok -> if (ok) g.s.scope.launch { g.chats.setLocked(chatId, on); if (on) g.chats.lockedRevealed.value = false } }
+            }
+            // Per-contact stealth: invisible to this one person.
+            val ghost by g.s.privacy.ghost.collectAsStateWithLifecycle()
+            Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))
+            app.zura.ui.components.SettingSwitch(
+                stringResource(R.string.ghost_with), stringResource(R.string.ghost_with_hint), p.id in ghost,
+                Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            ) { g.s.privacy.setGhost(p.id, it) }
             Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))
             Row(
                 Modifier.fillMaxWidth().clickable(enabled = busy == null) {

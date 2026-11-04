@@ -14,6 +14,7 @@ import app.zura.core.storage.VaultStore
 import app.zura.core.storage.ZuraPaths
 import app.zura.core.sync.Frame
 import app.zura.data.ChatRepository
+import app.zura.data.Privacy
 import app.zura.data.ContactsRepository
 import app.zura.data.MomentsRepository
 import app.zura.media.ImageCompressor
@@ -57,7 +58,9 @@ class AccountSession(
     val identity = Identity(dir, keys)
     val contacts = ContactsRepository(backend, uid, vault, SecureFile(File(dir, "pins.zs"), keys, "zpins"), scope)
     val transport = SupabaseTransport(backend, uid, identity, contacts::peerKey, scope)
-    val chats = ChatRepository(vault, transport, backend, uid, scope)
+    /** Stealth mode for this account (read receipts, typing, last seen; per-contact ghost). */
+    val privacy = Privacy(app.getSharedPreferences("zura_priv_$short", android.content.Context.MODE_PRIVATE))
+    val chats = ChatRepository(vault, transport, backend, uid, scope, privacy)
     val moments = MomentsRepository(vault, chats, transport, backend, uid, { contactIds() }, scope, nameOf = { contacts.profile(it)?.displayName })
     val calls by lazy { CallManager(app, transport, contacts, chats, backend, uid, scope) }
 
@@ -183,6 +186,8 @@ class AccountSession(
             registerPush()
         }
         chats.onIncoming = { meta, m -> notifier.show(meta, m) }
+        chats.onEvict = { ref -> runCatching { images.evict(ref) } }
+        chats.startExpiry()
         chats.onReaction = { meta, m, emoji -> notifier.showReaction(meta, m, emoji) }
         contacts.start()
         scope.launch(Dispatchers.IO) {
@@ -197,14 +202,14 @@ class AccountSession(
         foreground = true
         transport.start()
         chats.startPresence { contactIds() }
-        scope.launch { contacts.touchLastSeen() }
+        scope.launch { contacts.clearServerLastSeen() }
     }
 
     fun onBackground() {
         if (!foreground || calls.ui.value.inCall) return
         foreground = false
         chats.stopPresence(contactIds())
-        scope.launch { contacts.touchLastSeen() }
+        chats.lockedRevealed.value = false // locked chats close again
         transport.stop()
         playback.release()
     }

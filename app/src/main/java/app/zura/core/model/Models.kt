@@ -54,7 +54,12 @@ data class Message(
     val replyTo: String? = null,
     /** Rich card for the first link in [text]; built on the sender's phone, travels E2EE. */
     val link: LinkPreview? = null,
+    /** Disappearing: ms to live after sending, [TTL_AFTER_READ] = gone once read and the chat is left. */
+    val ttlMs: Long? = null,
 )
+
+/** Message timer value meaning "disappears after it has been read". */
+const val TTL_AFTER_READ = -1L
 
 /** Title / site / small thumbnail of a shared link (image = base64 JPEG, a few KB). */
 @Serializable
@@ -85,4 +90,10 @@ data class ChatMeta(
     val avatarPath: String? = null,
     /** The contact's E2EE identity key changed since it was first seen — shown as a security notice. */
     val keyChanged: Boolean = false,
+    /** The contact's last-seen time, received end-to-end encrypted (null = unknown / hidden). */
+    val peerSeenAt: Long? = null,
+    /** Disappearing-messages timer for new messages in this chat (null = off). */
+    val disappearMs: Long? = null,
+    /** Opens only after biometric / device-credential check; hidden from the main list. */
+    val locked: Boolean = false,
 )
