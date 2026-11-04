@@ -82,7 +82,8 @@ sealed interface Frame {
     data class CallInvite(val callId: String, val from: String, val video: Boolean, val at: Long) : Frame
 
     @Serializable @SerialName("call_offer")
-    data class CallOffer(val callId: String, val from: String, val video: Boolean, val sdp: String, val restart: Boolean = false) : Frame
+    /** [at] = sender clock (0 from older versions): a non-restart offer older than ~45 s is stale. */
+    data class CallOffer(val callId: String, val from: String, val video: Boolean, val sdp: String, val restart: Boolean = false, val at: Long = 0) : Frame
 
     @Serializable @SerialName("call_answer")
     data class CallAnswer(val callId: String, val from: String, val sdp: String) : Frame

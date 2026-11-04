@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -61,7 +62,7 @@ class ChatRepository(
     /** False only during the one-time build of the index (first start after the update) → skeletons. */
     val chatsLoaded = MutableStateFlow(true)
 
-    init { scope.launch(Dispatchers.IO) { ensureIndex() } }
+    init { scope.launch(Dispatchers.IO) { onUnlocked() } } // also replays work persisted before a kill / reboot
 
     /**
      * Chats missing from the index (older install, or the phone was locked at start): open them
@@ -205,19 +206,29 @@ class ChatRepository(
     }
 
     /** Call history entry, written on the caller's side and mirrored to the callee. */
-    /** Call-log lines that ended while the phone was locked: written after unlock. */
-    private val deferredCallLogs = java.util.concurrent.ConcurrentLinkedQueue<Pair<String, String>>()
-
-    suspend fun logCall(chatId: String, summary: String) {
-        // Calls never wait for (or fail on) chat storage: locked → keep it for after unlock.
-        if (vault.isLocked()) { deferredCallLogs += chatId to summary; return }
-        send(chatId, MsgKind.CALL, summary, null, null)
+    /**
+     * Call-log line. Calls never wait for (or fail on) chat storage: on a locked phone the line
+     * is persisted and written after unlock. Its message id comes from the call id, so it is
+     * written exactly once even if the replay runs twice.
+     */
+    suspend fun logCall(chatId: String, summary: String, callId: String) {
+        val id = "call-$callId"
+        if (vault.isLocked()) { vault.defer(app.zura.core.storage.VaultStore.Deferred(id, chatId, "call", summary)); return }
+        send(chatId, MsgKind.CALL, summary, null, null, id = id)
     }
 
-    /** Phone unlocked: finish everything that needed the chat keys. */
-    suspend fun onUnlocked() {
+    private val unlockLock = kotlinx.coroutines.sync.Mutex()
+
+    /** Phone unlocked (or app started unlocked): finish everything that needed the chat keys — once. */
+    suspend fun onUnlocked() = unlockLock.withLock {
+        if (vault.isLocked()) return@withLock
         ensureIndex()
-        while (true) { val (id, s) = deferredCallLogs.poll() ?: break; runCatching { send(id, MsgKind.CALL, s, null, null) } }
+        vault.deferredWork().forEach { d ->
+            runCatching {
+                if (d.kind == "call") send(d.chatId, MsgKind.CALL, d.text, null, null, id = d.id)
+                vault.completeDeferred(d.id)
+            }.onFailure { app.zura.DiagLog.record("deferred ${d.kind}", it) }
+        }
     }
 
     data class MediaItem(val chatId: String, val chatTitle: String, val m: Message)
@@ -295,12 +306,13 @@ class ChatRepository(
         send(chatId, MsgKind.TEXT, text.trim(), null, null, MomentQuote(thumb ?: item.media?.preview, item.text?.take(80), item.kind == MsgKind.VIDEO))
     }
 
-    private suspend fun send(chatId: String, kind: MsgKind, text: String?, media: MediaRef?, replyTo: String?, moment: MomentQuote? = null) =
+    private suspend fun send(chatId: String, kind: MsgKind, text: String?, media: MediaRef?, replyTo: String?, moment: MomentQuote? = null, id: String? = null) =
         withContext(Dispatchers.IO) {
             val store = vault.chat(chatId)
+            if (id != null && store.get(id) != null) return@withContext // already written (exactly-once)
             val peers = peersOf(chatId)
             val msg = Message(
-                id = UUID.randomUUID().toString(), chatId = chatId, senderId = me, sentAt = now(),
+                id = id ?: UUID.randomUUID().toString(), chatId = chatId, senderId = me, sentAt = now(),
                 kind = kind, text = text, media = media, replyTo = replyTo,
                 status = if (peers.isEmpty()) MsgStatus.READ else MsgStatus.PENDING,
                 ttlMs = if (kind == MsgKind.EVENT) null else store.meta.value?.disappearMs,

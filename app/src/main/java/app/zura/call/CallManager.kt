@@ -179,8 +179,15 @@ class CallManager(
         createPeer(video, outgoing = true)
         val offer = pc!!.awaitCreate(offer = true, iceRestart = false)
         pc!!.awaitSetLocal(offer)
-        val frame = Frame.CallOffer(callId, me, video, offer.description)
+        val frame = Frame.CallOffer(callId, me, video, offer.description, at = System.currentTimeMillis())
         transport.signal(peerId, frame)
+        stage("offer sent (live)")
+        // Durable copy (E2EE inbox) once the routes are gathered: a phone woken by the push can
+        // fetch it over plain HTTPS — the call doesn't depend on its realtime socket coming up.
+        scope.launch(rtc) {
+            val full = frame.copy(sdp = withRoutes(frame.sdp))
+            runCatching { transport.send(peerId, full) }.onSuccess { stage("offer sent (durable)") }
+        }
         // Their phone may be asleep / app closed: wake it with an E2EE-sealed invite over FCM,
         // and keep re-offering every 2.5 s until it rings (the woken app needs ~1–3 s to connect).
         scope.launch {
@@ -202,6 +209,7 @@ class CallManager(
     }
 
     fun accept() = scope.launch(rtc) {
+        stage("accept tapped (offer ${if (pendingOffer != null) "ready" else "pending"})")
         if (_ui.value.phase != CallPhase.INCOMING) return@launch
         // Tell the caller right away (a tiny frame, sent in parallel): their screen flips from
         // "Ringing" to "Connecting" instantly instead of waiting for TURN + camera + SDP answer.
@@ -238,6 +246,7 @@ class CallManager(
         val answer = pc!!.awaitCreate(offer = false, iceRestart = false)
         pc!!.awaitSetLocal(answer)
         signalReliably(offer.from, Frame.CallAnswer(offer.callId, me, withRoutes(answer.description)))
+        stage("answer sent (live + durable)")
         pendingOffer = null
     }
 
@@ -246,7 +255,9 @@ class CallManager(
     /** An FCM call invite arrived: start ringing now, connect Realtime so the SDP offer can follow. */
     suspend fun onPushInvite(inv: Frame.CallInvite) = withContext(rtc) {
         val s = _ui.value
+        stage("push invite decrypted (${System.currentTimeMillis() - inv.at} ms after dialing)")
         if (s.callId == inv.callId) return@withContext
+        if (wasEnded(inv.callId)) { stage("invite for an ended call ignored"); return@withContext }
         if (s.inCall) { transport.signal(inv.from, Frame.CallEnd(inv.callId, me, "busy")); return@withContext }
         // Ring FIRST, no network: the server only delivers call pushes between mutual, unblocked
         // contacts, and the name comes from the on-device copy. (Waiting for a contacts refresh
@@ -261,14 +272,18 @@ class CallManager(
         }
         pendingOffer = null; acceptWhenOffer = false
         pendingIce.clear(); remoteSet = false
+        adoptEarlyIce(inv.callId)
         _ui.value = CallUi(
             phase = CallPhase.INCOMING, callId = inv.callId, peerId = inv.from, peerName = p?.displayName ?: "Zura",
             peerAvatar = p?.avatarPath, peerHue = (inv.from.hashCode() and 0xFFFF) % 360f, outgoing = false,
             video = inv.video, cameraOn = inv.video, speaker = inv.video, remoteVideoOn = inv.video, net = network.type.value,
         )
         CallService.start(context, _ui.value)
+        stage("incoming via push → ringing (${if (p == null) "name pending" else "known contact"})")
         if (app.zura.push.Push.appVisible) audio.startRingtone(inv.from) // in background the notification itself rings
         transport.start()
+        // Don't wait for the socket: pull the caller's durable offer over HTTPS now.
+        scope.launch { runCatching { transport.syncInbox() }.onSuccess { stage("inbox pulled for offer (offer ${if (pendingOffer != null) "ready" else "not yet"})") } }
         transport.signal(inv.from, Frame.CallRinging(inv.callId, me))
         val id = inv.callId
         timers += scope.launch(rtc) { delay(45_000); if (_ui.value.callId == id && _ui.value.phase == CallPhase.INCOMING) end("timeout", notify = false) }
@@ -346,10 +361,14 @@ class CallManager(
                     }
                     return@withContext
                 }
+                // An old offer (e.g. read late from the inbox after the call ended) must never ring.
+                if (f.at != 0L && System.currentTimeMillis() - f.at > 45_000) { stage("stale offer ignored"); return@withContext }
+                if (wasEnded(f.callId)) { stage("offer for an ended call ignored"); return@withContext }
                 if (s.inCall) { transport.signal(from, Frame.CallEnd(f.callId, me, "busy")); return@withContext }
                 val p = contacts.profile(from)
                 pendingOffer = f
                 pendingIce.clear(); remoteSet = false
+                adoptEarlyIce(f.callId)
                 _ui.value = CallUi(
                     phase = CallPhase.INCOMING, callId = f.callId, peerId = from, peerName = p?.displayName ?: "",
                     peerAvatar = p?.avatarPath, peerHue = (from.hashCode() and 0xFFFF) % 360f, outgoing = false,
@@ -362,6 +381,7 @@ class CallManager(
             }
             is Frame.CallRinging -> if (f.callId == s.callId && s.phase == CallPhase.OUTGOING) _ui.update { it.copy(phase = CallPhase.RINGING) }
             is Frame.CallAnswer -> if (f.callId == s.callId && from == s.peerId) {
+                stage("answer received")
                 audio.stopTones()
                 if (s.phase == CallPhase.OUTGOING || s.phase == CallPhase.RINGING) _ui.update { it.copy(phase = CallPhase.CONNECTING) }
                 // Only an answer we're waiting for: the same answer can also arrive via the inbox fallback.
@@ -370,9 +390,15 @@ class CallManager(
                         .onFailure { app.zura.DiagLog.record("apply answer", it) }
                 }
             }
-            is Frame.CallIce -> if (f.callId == s.callId && from == s.peerId) {
+            is Frame.CallIce -> {
                 val c = IceCandidate(f.mid, f.index, f.candidate)
-                if (remoteSet) pc?.addIceCandidate(c) else pendingIce += c
+                if (f.callId == s.callId && from == s.peerId) {
+                    if (remoteSet) pc?.addIceCandidate(c) else pendingIce += c
+                } else if (!s.inCall || s.callId == null) {
+                    // A route for a call not known yet (it can overtake the offer / the push): keep it.
+                    earlyIce.getOrPut(f.callId) { mutableListOf() }.add(c)
+                    earlyIceAt[f.callId] = System.currentTimeMillis()
+                }
             }
             is Frame.CallRestartRequest -> if (f.callId == s.callId && s.outgoing) restartIce()
             is Frame.CallMedia -> if (f.callId == s.callId && from == s.peerId) {
@@ -458,6 +484,7 @@ class CallManager(
         }
 
         override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
+            stage("webrtc: ${newState.name.lowercase()}")
             scope.launch(rtc) {
                 when (newState) {
                     PeerConnection.PeerConnectionState.CONNECTED -> {
@@ -544,6 +571,27 @@ class CallManager(
             }
         }
     }
+
+    /** Candidates that arrived before their call was known, by call id (kept ≤ 60 s). */
+    private val earlyIce = HashMap<String, MutableList<IceCandidate>>()
+    private val earlyIceAt = HashMap<String, Long>()
+    private fun adoptEarlyIce(callId: String) {
+        val now = System.currentTimeMillis()
+        earlyIceAt.filterValues { now - it > 60_000 }.keys.toList().forEach { earlyIce.remove(it); earlyIceAt.remove(it) }
+        earlyIce.remove(callId)?.let { pendingIce += it; stage("adopted ${it.size} early route(s)") }
+        earlyIceAt.remove(callId)
+    }
+
+    /** Calls that ended (any reason) in the last 2 minutes: late offers / invites for them never ring. */
+    private val ended = HashMap<String, Long>()
+    private fun wasEnded(callId: String): Boolean {
+        val now = System.currentTimeMillis()
+        ended.entries.removeAll { now - it.value > 120_000 }
+        return callId in ended
+    }
+
+    /** One line per call-pipeline stage in the diagnostics log (Connection check). */
+    private fun stage(what: String) = app.zura.DiagLog.record("call", detail = what)
 
     private fun requestRestart() = scope.launch(rtc) {
         val s = _ui.value
@@ -651,6 +699,8 @@ class CallManager(
     private suspend fun end(reason: String, notify: Boolean) {
         val s = _ui.value
         if (!s.inCall) return
+        s.callId?.let { ended[it] = System.currentTimeMillis() }
+        stage("end: $reason (notify peer=$notify)")
         if (notify) s.peerId?.let { peer ->
             s.callId?.let { id ->
                 transport.signal(peer, Frame.CallEnd(id, me, reason))
@@ -670,7 +720,7 @@ class CallManager(
             val dur = s.connectedAt?.let { (System.currentTimeMillis() - it) / 1000 } ?: 0
             val missed = s.connectedAt == null
             val summary = "${if (s.video) "video" else "voice"};dur=$dur;missed=${if (missed) 1 else 0};reason=$reason"
-            scope.launch { runCatching { chats.logCall(ContactsRepository.dmChatId(me, s.peerId), summary) } }
+            scope.launch { runCatching { chats.logCall(ContactsRepository.dmChatId(me, s.peerId), summary, s.callId ?: "x${System.currentTimeMillis()}") } }
         }
         _ui.value = s.copy(phase = CallPhase.ENDED, endReason = reason)
         scope.launch(rtc) { delay(1_600); if (_ui.value.phase == CallPhase.ENDED && _ui.value.callId == s.callId) _ui.value = CallUi(net = network.type.value) }

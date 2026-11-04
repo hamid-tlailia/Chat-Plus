@@ -184,7 +184,7 @@ class AccountSession(
         }
         step("Live connection (realtime)") { if (transport.online.value) null else "offline — messages arrive on sync/push only" }
         step("Push (wake when closed)") { if (Push.token() != null) null else "no Firebase token" }
-        val log = DiagLog.read().lines().takeLast(20).joinToString("\n")
+        val log = DiagLog.read().lines().takeLast(70).joinToString("\n")
         if (log.isNotBlank()) out.append("\nRecent issues:\n").append(log)
         out.toString()
     }

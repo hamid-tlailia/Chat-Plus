@@ -87,7 +87,9 @@ class ChatStore internal constructor(
         appendLines(messages.map { seal(Record(put = it)) })
         synchronized(byId) { messages.forEach { byId[it.id] = it } }
         publish()
-        if (lineCount > 64 && lineCount > byId.size * 2) rewriteLocked(rotateKey = false)
+        // Compaction re-wraps the log key (a Keystore operation): optional, so on a locked phone it
+        // simply waits for a later write instead of failing the message that was just stored.
+        if (lineCount > 64 && lineCount > byId.size * 2) runCatching { rewriteLocked(rotateKey = false) }
     }
 
     suspend fun writeMeta(meta: ChatMeta) = mutex.withLock {
@@ -130,8 +132,8 @@ class ChatStore internal constructor(
 
     private fun alias(gen: Int) = "zc_${chatId}_$gen"
 
-    private fun seal(r: Record): String =
-        B64E.encodeToString(Crypto.seal(key, json.encodeToString(Record.serializer(), r).encodeToByteArray(), aad))
+    private fun seal(r: Record, k: ByteArray = key): String =
+        B64E.encodeToString(Crypto.seal(k, json.encodeToString(Record.serializer(), r).encodeToByteArray(), aad))
 
     private fun appendLines(lines: List<String>) {
         FileOutputStream(logFile, true).bufferedWriter().use { w -> lines.forEach { w.append(it).append('\n') } }
@@ -166,19 +168,22 @@ class ChatStore internal constructor(
     private fun rewriteLocked(rotateKey: Boolean) {
         val oldGen = generation
         val oldKey = if (::key.isInitialized) key else null
-        if (rotateKey) {
-            generation = if (oldKey == null) 0 else oldGen + 1
-            key = Crypto.randomKey()
-        }
+        // Transactional: the new generation / key take effect only once the new log is durably
+        // written. (Switching first meant a Keystore refusal mid-rewrite — e.g. phone locked —
+        // left memory on a key the file doesn't record: later messages unreadable after restart.)
+        val newGen = if (rotateKey) (if (oldKey == null) 0 else oldGen + 1) else oldGen
+        val newKey = if (rotateKey || oldKey == null) Crypto.randomKey() else oldKey
         val snapshot = synchronized(byId) { byId.values.toList() }
         val meta = _meta.value
         logFile.writeAtomically { out ->
             val w = out.bufferedWriter()
-            w.append("K1:$generation:").append(B64E.encodeToString(wrapper.wrap(alias(generation), key))).append('\n')
-            meta?.let { w.append(seal(Record(meta = it))).append('\n') }
-            snapshot.forEach { w.append(seal(Record(put = it))).append('\n') }
+            w.append("K1:$newGen:").append(B64E.encodeToString(wrapper.wrap(alias(newGen), newKey))).append('\n')
+            meta?.let { w.append(seal(Record(meta = it), newKey)).append('\n') }
+            snapshot.forEach { w.append(seal(Record(put = it), newKey)).append('\n') }
             w.flush()
         }
+        generation = newGen
+        key = newKey
         lineCount = snapshot.size + (if (meta != null) 1 else 0)
         // Only after the new log is durably in place do we destroy the old KEK.
         if (rotateKey && oldKey != null) {

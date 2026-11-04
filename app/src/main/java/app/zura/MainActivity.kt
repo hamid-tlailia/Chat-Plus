@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         deepLink.value = intent.getStringExtra(EXTRA_CHAT)
         deepLink.value?.let(::prewarm)
+        handleAnswer(intent)
         handleAuthLink(intent)
 
         // Block screenshots / screen recording when asked. With app lock on, also keep chats out of
@@ -190,6 +191,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * "Answer" from the call notification: we're in the foreground now, so the microphone may
+     * start. Waits briefly for that exact call (a just-woken app may still be setting it up).
+     */
+    private fun handleAnswer(i: Intent?) {
+        if (i?.action != app.zura.call.CallService.ACTION_ANSWER) return
+        val forCall = i.getStringExtra(app.zura.call.CallService.EXTRA_CALL_ID)
+        i.action = null // a recreated activity must not answer twice
+        DiagLog.record("call", detail = "answer from notification → app opened (call ${forCall?.take(8) ?: "pre-ring"})")
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) return // the call screen asks
+        graph.scope.launch {
+            val calls = kotlinx.coroutines.withTimeoutOrNull(8_000) {
+                while (true) {
+                    val c = (graph.accounts.state.value as? AuthState.SignedIn)?.session?.calls
+                    val ui = c?.ui?.value
+                    if (c != null && ui != null && ui.phase == app.zura.call.CallPhase.INCOMING && (forCall == null || ui.callId == forCall)) return@withTimeoutOrNull c
+                    kotlinx.coroutines.delay(100)
+                }
+                @Suppress("UNREACHABLE_CODE") null
+            }
+            calls?.accept() ?: DiagLog.record("call", detail = "answer: that call is no longer ringing")
+        }
+    }
+
     /** Opened from a message notification: decrypt that chat now, while the lock / splash is showing. */
     private fun prewarm(chatId: String) {
         val s = (graph.accounts.state.value as? AuthState.SignedIn)?.session ?: return
@@ -215,6 +240,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_CHAT)?.let { deepLink.value = it; prewarm(it) }
+        handleAnswer(intent)
         handleAuthLink(intent)
     }
 

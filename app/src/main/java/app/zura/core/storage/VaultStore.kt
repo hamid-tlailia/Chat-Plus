@@ -59,6 +59,30 @@ class VaultStore(
     private val _index = kotlinx.coroutines.flow.MutableStateFlow(readIndex().orEmpty())
     val metaIndex: kotlinx.coroutines.flow.StateFlow<Map<String, ChatMeta>> = _index
 
+    /**
+     * Work that needs the chat keys but came in while the phone was locked (e.g. a call-log
+     * line). Persisted under a key that works while locked (it holds no message content —
+     * chat id + call summary), so it survives the app being killed or the phone restarting.
+     */
+    @kotlinx.serialization.Serializable
+    data class Deferred(val id: String, val chatId: String, val kind: String, val text: String)
+
+    private val deferredFile = app.zura.core.crypto.SecureFile(java.io.File(paths.root, "deferred.zs"), wrapper, "zdefer")
+    private val deferredSer = kotlinx.serialization.builtins.ListSerializer(Deferred.serializer())
+
+    @Synchronized fun deferredWork(): List<Deferred> =
+        runCatching { deferredFile.readText()?.let { indexJson.decodeFromString(deferredSer, it) } }.getOrNull().orEmpty()
+
+    @Synchronized fun defer(d: Deferred) {
+        val list = deferredWork().filterNot { it.id == d.id } + d
+        runCatching { deferredFile.writeText(indexJson.encodeToString(deferredSer, list)) }
+    }
+
+    @Synchronized fun completeDeferred(id: String) {
+        val list = deferredWork().filterNot { it.id == id }
+        runCatching { if (list.isEmpty()) deferredFile.shredFileOnly() else deferredFile.writeText(indexJson.encodeToString(deferredSer, list)) }
+    }
+
     /** Phone unlocked: read the index if it couldn't be read while locked. */
     fun retryIndex() {
         if (indexRead) return

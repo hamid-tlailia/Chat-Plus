@@ -96,6 +96,7 @@ fun CallScreen(calls: CallManager) {
     val showRemoteVideo = remote != null && live && ((s.video && s.remoteVideoOn) || s.remoteScreen)
 
     LaunchedEffect(s.phase) { if (s.phase == CallPhase.ENDED) { haptics.reject(); delay(1_600); calls.dismiss() } }
+    LaunchedEffect(s.callId) { app.zura.DiagLog.record("call", detail = "call screen shown (${s.phase.name.lowercase()})") }
 
     // Foreground follows the theme (dark text on the light theme); over live video it is always white.
     val fg = if (showRemoteVideo) Color.White else Zura.colors.text

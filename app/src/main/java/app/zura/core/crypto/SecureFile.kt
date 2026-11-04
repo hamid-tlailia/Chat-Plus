@@ -39,6 +39,9 @@ class SecureFile(private val file: File, private val keys: KeyWrapper, private v
     fun readText(): String? = read()?.decodeToString()
     fun writeText(s: String) = write(s.encodeToByteArray())
 
+    /** Zero + unlink the file but keep the key (the file may be written again later). */
+    fun shredFileOnly() { SecureEraser.erase(file) }
+
     /** Zero, unlink, and destroy the Keystore key — unrecoverable. */
     fun shred() {
         SecureEraser.erase(file)

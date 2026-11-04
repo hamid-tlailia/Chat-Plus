@@ -48,22 +48,31 @@ class CallService : Service() {
             }
             ACTION_HANGUP, ACTION_DECLINE, ACTION_ANSWER -> {
                 val action = intent.action
-                app.zura.DiagLog.record("call", detail = "notification button ${action?.substringAfterLast('.')} (call known=${session?.calls?.ui?.value?.inCall == true})")
-                if (action == ACTION_ANSWER) startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                val forCall = intent.getStringExtra(EXTRA_CALL_ID)
+                app.zura.DiagLog.record("call", detail = "notification ${action?.substringAfterLast('.')} for ${forCall?.take(8) ?: "pre-ring"} (current=${session?.calls?.ui?.value?.callId?.take(8)})")
                 // A freshly woken app may still be opening the account / decrypting the invite:
-                // wait a moment for the call instead of ignoring the tap.
+                // wait a moment for THAT call (by id) instead of ignoring the tap.
                 graph.scope.launch {
                     val calls = kotlinx.coroutines.withTimeoutOrNull(8_000) {
-                        var c = activeSession()?.calls
-                        while (c == null || !c.ui.value.inCall) { kotlinx.coroutines.delay(100); c = activeSession()?.calls }
-                        c
+                        while (true) {
+                            val c = activeSession()?.calls
+                            val ui = c?.ui?.value
+                            if (c != null && ui != null && ui.inCall && (forCall == null || ui.callId == forCall)) return@withTimeoutOrNull c
+                            kotlinx.coroutines.delay(100)
+                        }
+                        @Suppress("UNREACHABLE_CODE") null
+                    }
+                    if (calls == null) {
+                        // Stale button (that call is over, or never arrived): just clean up.
+                        app.zura.DiagLog.record("call", detail = "notification button for a call that is gone → cleared")
+                        clearStale(this@CallService, activeSession()?.calls?.ui?.value?.inCall == true)
+                        return@launch
                     }
                     when (action) {
-                        ACTION_HANGUP -> calls?.hangup()
-                        ACTION_DECLINE -> calls?.decline()
-                        else -> calls?.accept()
+                        ACTION_HANGUP -> calls.hangup()
+                        ACTION_DECLINE -> calls.decline()
+                        else -> calls.accept() // (Answer normally goes through the activity, see build())
                     }
-                    if (calls == null) clearStale(this@CallService, false)
                 }
                 return START_NOT_STICKY
             }
@@ -140,6 +149,7 @@ class CallService : Service() {
     companion object {
         private const val ID = 7001
         const val ACTION_PRE_RING = "zura.call.PRE_RING"
+        const val EXTRA_CALL_ID = "zura.call_id"
         const val ACTION_CANCEL_PRE = "zura.call.CANCEL_PRE"
 
         /** The pushed call turned out invalid (blocked, expired, undecryptable): stop the provisional ring. */
@@ -185,9 +195,23 @@ class CallService : Service() {
             ensureChannels(c)
             val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
             val person = Person.Builder().setName(ui.peerName.ifBlank { "Zura" }).setImportant(true).build()
-            fun action(a: String) = PendingIntent.getService(c, a.hashCode(), Intent(c, CallService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE)
+            // Every button carries ITS call id: a stale notification can't act on another call.
+            fun action(a: String) = PendingIntent.getService(
+                c, (a + ui.callId).hashCode(),
+                Intent(c, CallService::class.java).setAction(a).putExtra(EXTRA_CALL_ID, ui.callId),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            // Answer opens the app DIRECTLY (allowed from a notification). A service starting the
+            // activity is blocked on Android 12+ ("trampoline"), and the microphone can't start
+            // from the background — answering that way used to do nothing / have no audio.
+            val answer = PendingIntent.getActivity(
+                c, ("answer" + ui.callId).hashCode(),
+                Intent(c, MainActivity::class.java).setAction(ACTION_ANSWER).putExtra(EXTRA_CALL_ID, ui.callId)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
             val incoming = ui.phase == CallPhase.INCOMING
-            val style = if (incoming) NotificationCompat.CallStyle.forIncomingCall(person, action(ACTION_DECLINE), action(ACTION_ANSWER))
+            val style = if (incoming) NotificationCompat.CallStyle.forIncomingCall(person, action(ACTION_DECLINE), answer)
             else NotificationCompat.CallStyle.forOngoingCall(person, action(ACTION_HANGUP))
             // App in background (woken by push): the notification itself rings, looping until answered.
             val ringing = incoming && !app.zura.push.Push.appVisible

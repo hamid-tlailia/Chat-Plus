@@ -122,6 +122,39 @@ class StorageEngineTest {
         assertEquals("Omar", v2.chat("c2").meta.value?.title) // after unlock: normal
     }
 
+    /** Keystore that refuses (like a locked phone) when [refuse] is set. */
+    private class FlakyWrapper(val base: SoftwareKeyWrapper = SoftwareKeyWrapper()) : app.zura.core.crypto.KeyWrapper by base {
+        var refuse = false
+        override fun wrap(alias: String, plain: ByteArray): ByteArray { if (refuse) error("device locked"); return base.wrap(alias, plain) }
+    }
+
+    @Test fun failedKeyRotationLosesNothingWrittenAfterIt() = runBlocking {
+        val w = FlakyWrapper()
+        val root = tmp.root
+        fun open() = VaultStore(ZuraPaths(File(root, "files"), File(root, "nb"), File(root, "cache")), w)
+        val v = open()
+        v.createChat(ChatMeta("c1", "Sara", listOf("u2"), 1L))
+        val s = v.chat("c1")
+        s.upsert(msg("m1", "one"))
+        w.refuse = true
+        assertTrue(runCatching { s.purge(listOf("m1")) }.isFailure) // rotation refused mid-way
+        s.upsert(msg("m2", "two")) // must still be written under the key the file records
+        w.refuse = false
+        val again = open().chat("c1")
+        assertTrue(again.messages.value.any { it.id == "m2" && it.text == "two" })
+    }
+
+    @Test fun deferredWorkSurvivesRestartAndCompletesOnce() = runBlocking {
+        val (v, w) = vault()
+        v.defer(VaultStore.Deferred("call-x1", "c1", "call", "voice;dur=0;missed=1"))
+        v.defer(VaultStore.Deferred("call-x1", "c1", "call", "voice;dur=0;missed=1")) // same id: kept once
+        val (v2, _) = vault(w) // process killed / phone restarted
+        assertEquals(1, v2.deferredWork().size)
+        v2.completeDeferred("call-x1")
+        val (v3, _) = vault(w)
+        assertTrue(v3.deferredWork().isEmpty())
+    }
+
     @Test fun janitorNeverDestroysTheChatListIndexKey() = runBlocking {
         val (v, w) = vault()
         v.createChat(ChatMeta("c1", "Sara", listOf("u2"), 1L))
