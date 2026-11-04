@@ -98,11 +98,15 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
     fun markRead() = viewModelScope.launch { g.chats.markRead(chatId) }
     fun retry(m: Message) = viewModelScope.launch { g.chats.retry(chatId, m.id) }
 
+    /** The bubble appears immediately; compression + encryption + upload continue behind it. */
     fun sendMedia(uri: Uri, mime: String) = g.scope.launch {
+        val video = mime.startsWith("video")
+        val placeholder = if (video) g.videoCompressor.placeholder(uri) else g.imageCompressor.placeholder(uri, mime)
+        val msg = runCatching { g.chats.beginMedia(chatId, if (video) MsgKind.VIDEO else MsgKind.IMAGE, placeholder) }.getOrNull() ?: return@launch
         runCatching {
-            if (mime.startsWith("video")) g.chats.sendMedia(chatId, MsgKind.VIDEO, g.videoCompressor.import(chatId, uri))
-            else g.chats.sendMedia(chatId, MsgKind.IMAGE, g.imageCompressor.import(chatId, uri))
-        }
+            val ref = if (video) g.videoCompressor.import(chatId, uri) else g.imageCompressor.import(chatId, uri)
+            g.chats.completeMedia(chatId, msg.id, ref)
+        }.onFailure { g.chats.failMedia(chatId, msg.id) }
     }
 
     fun sendFile(uri: Uri, mime: String, name: String?) = g.scope.launch {

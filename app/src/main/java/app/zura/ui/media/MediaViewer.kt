@@ -74,8 +74,10 @@ fun MediaViewer(chatId: String, messageId: String, onClose: () -> Unit) {
                 VaultVideo(chatId, m.id, ref, playing = true, Modifier.fillMaxWidth().aspectRatio(if (ref.height > 0) ref.width.toFloat() / ref.height else 16f / 9))
             } else if (ref != null) {
                 val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
-                val full by rememberVaultImage(g.images, chatId, ref, 2560)
-                (full ?: preview)?.let {
+                // Paint instantly with the copy already decoded for the chat bubble, then sharpen.
+                val mid = remember(ref.fileName) { g.images.cached(ref, 720) }
+                val full by rememberVaultImage(g.images, chatId, ref, 1920)
+                (full ?: mid ?: preview)?.let {
                     Image(
                         it, null, contentScale = ContentScale.Fit,
                         modifier = Modifier.fillMaxSize()
@@ -107,7 +109,7 @@ fun MediaViewer(chatId: String, messageId: String, onClose: () -> Unit) {
 fun VaultVideo(chatId: String, key: String, ref: MediaRef, playing: Boolean, modifier: Modifier = Modifier) {
     val g = LocalContext.current.graph
     LaunchedEffect(key) { if (g.playback.state.value.key != key) g.playback.toggle(chatId, key, ref) }
-    LaunchedEffect(playing) { g.playback.player().let { if (playing) it.play() else it.pause() } }
+    LaunchedEffect(playing) { if (playing) g.playback.play() else g.playback.pause() }
     DisposableEffect(key) { onDispose { g.playback.stop() } }
     AndroidView(
         factory = { SurfaceView(it).also { sv -> g.playback.player().setVideoSurfaceView(sv) } },

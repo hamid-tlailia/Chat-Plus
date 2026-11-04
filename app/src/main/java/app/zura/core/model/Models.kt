@@ -31,7 +31,10 @@ data class MediaRef(
     val preview: String? = null,
     val originalName: String? = null,
     val remoteBlobId: String? = null,
-)
+) {
+    /** Bubble shown instantly while the real file is still being compressed/encrypted. */
+    val isPlaceholder: Boolean get() = key.isEmpty()
+}
 
 @Immutable
 @Serializable

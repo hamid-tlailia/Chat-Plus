@@ -170,7 +170,7 @@ private fun Bubble(
                     detectTapGestures(
                         onLongPress = { onLongPress() },
                         onDoubleTap = { onDoubleTap() },
-                        onTap = { if (m.status == MsgStatus.FAILED) onRetry() else if (isVisual) onOpenMedia() },
+                        onTap = { if (m.status == MsgStatus.FAILED) onRetry() else if (isVisual && m.media?.isPlaceholder != true) onOpenMedia() },
                     )
                 }
                 .padding(if (isVisual) 4.dp else 0.dp),
@@ -249,7 +249,8 @@ private fun VisualContent(m: Message, fmt: ZuraFormat, shape: RoundedCornerShape
     val g = LocalContext.current.graph
     val ratio = if (ref.width > 0 && ref.height > 0) (ref.width.toFloat() / ref.height).coerceIn(0.62f, 1.7f) else 1f
     val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
-    val full by if (m.kind == MsgKind.IMAGE) rememberVaultImage(g.images, m.chatId, ref, 720) else remember { androidx.compose.runtime.mutableStateOf(null) }
+    val pending = ref.isPlaceholder
+    val full by if (m.kind == MsgKind.IMAGE && !pending) rememberVaultImage(g.images, m.chatId, ref, 720) else remember { androidx.compose.runtime.mutableStateOf(null) }
     val fade by animateFloatAsState(if (full != null) 1f else 0f, label = "img")
     Box(Modifier.width(260.dp).aspectRatio(ratio).clip(shape).background(Zura.colors.surfaceHigh)) {
         // 1) micro-preview painted on frame 1 (from the record, zero I/O), softened
@@ -261,7 +262,13 @@ private fun VisualContent(m: Message, fmt: ZuraFormat, shape: RoundedCornerShape
         }
         // 2) full image cross-fades over it once decrypted + decoded off-thread
         full?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fade }) }
-        if (m.kind == MsgKind.VIDEO) {
+        if (pending && m.status != MsgStatus.FAILED) {
+            // Compressing + encrypting: the photo is already in the chat, just not sent yet.
+            androidx.compose.material3.CircularProgressIndicator(
+                Modifier.align(Alignment.Center).size(44.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.35f)).padding(8.dp),
+                color = Color.White, strokeWidth = 2.5.dp,
+            )
+        } else if (m.kind == MsgKind.VIDEO) {
             Box(Modifier.align(Alignment.Center).size(52.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(30.dp))
             }

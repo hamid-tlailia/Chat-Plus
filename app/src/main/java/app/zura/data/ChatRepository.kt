@@ -131,6 +131,36 @@ class ChatRepository(
     suspend fun sendMedia(chatId: String, kind: MsgKind, media: MediaRef, caption: String? = null) =
         send(chatId, kind, caption, media, null)
 
+    // ---- instant media: the bubble appears at once, the heavy work happens behind it
+
+    /** Shows a photo/video bubble immediately (blurred preview + progress) before compression. */
+    suspend fun beginMedia(chatId: String, kind: MsgKind, placeholder: MediaRef, caption: String? = null): Message =
+        withContext(Dispatchers.IO) {
+            val store = vault.chat(chatId)
+            val msg = Message(
+                id = UUID.randomUUID().toString(), chatId = chatId, senderId = me, sentAt = now(),
+                kind = kind, text = caption, media = placeholder, status = MsgStatus.PENDING,
+            )
+            store.upsert(msg)
+            touchMeta(store, msg, unreadDelta = 0)
+            msg
+        }
+
+    /** The encrypted vault file is ready: swap it into the bubble and send. */
+    suspend fun completeMedia(chatId: String, id: String, media: MediaRef) = withContext(Dispatchers.IO) {
+        val store = vault.chat(chatId)
+        val m = store.get(id) ?: return@withContext
+        val peers = peersOf(chatId)
+        val ready = m.copy(media = media, status = if (peers.isEmpty()) MsgStatus.READ else MsgStatus.PENDING)
+        store.upsert(ready)
+        if (peers.isNotEmpty()) transmit(store, ready)
+    }
+
+    suspend fun failMedia(chatId: String, id: String) = withContext(Dispatchers.IO) {
+        val store = vault.chat(chatId)
+        store.get(id)?.let { store.upsert(it.copy(status = MsgStatus.FAILED)) }
+    }
+
     /** Call history entry, written on the caller's side and mirrored to the callee. */
     suspend fun logCall(chatId: String, summary: String) = send(chatId, MsgKind.CALL, summary, null, null)
 
@@ -171,12 +201,15 @@ class ChatRepository(
     private suspend fun resendPending() = withContext(Dispatchers.IO) {
         vault.chatIds.value.filter { it != MomentsRepository.STORE }.forEach { id ->
             val store = vault.chat(id)
-            store.messages.value.filter { it.senderId == me && it.status == MsgStatus.PENDING }.forEach { transmit(store, it) }
+            store.messages.value.filter { it.senderId == me && it.status == MsgStatus.PENDING && it.media?.isPlaceholder != true }
+                .forEach { transmit(store, it) }
         }
     }
 
     suspend fun retry(chatId: String, id: String) = withContext(Dispatchers.IO) {
         val store = vault.chat(chatId)
+        // A photo that failed before it was even prepared can't be resent: remove the empty bubble.
+        if (store.get(id)?.media?.isPlaceholder == true) { store.purge(listOf(id)); return@withContext }
         store.get(id)?.let { store.upsert(it.copy(status = MsgStatus.PENDING)); transmit(store, it) }
     }
 

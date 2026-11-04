@@ -86,6 +86,16 @@ class SupabaseTransport(
             runCatching { inbox.subscribe(blockUntilSubscribed = true) }
             runCatching { user.subscribe(blockUntilSubscribed = true) }
 
+            // Safety net: the server's change stream can take a few seconds to warm up after idle,
+            // and a message inserted in that window would otherwise wait for the next reconnect.
+            // A cheap backlog pull shortly after connecting and every 15 s closes that gap.
+            launch {
+                delay(3_000)
+                while (true) {
+                    if (_online.value) runCatching { drainBacklog() }
+                    delay(15_000)
+                }
+            }
             // Track socket health; every (re)connect drains anything that arrived while we were away.
             rt.status.collect { st ->
                 val up = st == Realtime.Status.CONNECTED

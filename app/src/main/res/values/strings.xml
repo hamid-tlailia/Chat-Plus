@@ -6,7 +6,7 @@
     <string name="your_moment">Your moment</string>
     <string name="message_hint">Message</string>
     <string name="send">Send</string>
-    <string name="record_hint">Hold to record · slide to cancel</string>
+    <string name="record_hint">Hold to record · slide up to lock · slide back to delete</string>
     <string name="typing">typing…</string>
     <string name="online">online</string>
     <string name="edited">edited</string>
@@ -202,4 +202,5 @@
     <string name="search_people">Username, name or email</string>
     <string name="no_results_hint">No one found. Try their username, their name, or their exact email.</string>
     <string name="search_failed">Couldn\'t search right now. Check your connection and try again.</string>
+    <string name="people_on_zura">People on Zura</string>
 </resources>

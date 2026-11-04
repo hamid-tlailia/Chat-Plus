@@ -155,6 +155,11 @@ class ContactsRepository(
         decodeList(SearchHit.serializer(), r.data).filter { it.relation != "self" }
     }
 
+    /** Registered people you can invite (newest first). */
+    suspend fun discover(): List<SearchHit> = withContext(Dispatchers.IO) {
+        decodeList(SearchHit.serializer(), backend.client.postgrest.rpc("discover_profiles").data)
+    }
+
     suspend fun sendInvite(uid: String, message: String?) = rpc("send_invite") { put("p_to", uid); put("p_message", message?.take(280)) }
     suspend fun respond(inviteId: String, accept: Boolean) = rpc("respond_invite") { put("p_id", inviteId); put("p_accept", accept) }
     suspend fun cancel(inviteId: String) = rpc("cancel_invite") { put("p_id", inviteId) }

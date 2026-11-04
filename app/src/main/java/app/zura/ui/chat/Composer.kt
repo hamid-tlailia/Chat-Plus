@@ -45,6 +45,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -93,6 +97,10 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
     val hasText = vm.draft.text.isNotBlank()
     var attachMenu by remember { mutableStateOf(false) }
     var cancelDrag by remember { mutableFloatStateOf(0f) }
+    var lockDrag by remember { mutableFloatStateOf(0f) }
+    var locked by remember { mutableStateOf(false) }
+    // Recording ended elsewhere (sent, cancelled, screen left): drop the lock state.
+    LaunchedEffect(live.recording) { if (!live.recording) locked = false }
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(10)) { uris ->
         uris.forEach { vm.sendMedia(it, ctx.contentResolver.getType(it).orEmpty()) }
@@ -141,7 +149,7 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
         Row(verticalAlignment = Alignment.Bottom) {
             Box(Modifier.weight(1f).glass(RoundedCornerShape(26.dp), solid = 0.6f).heightIn(min = 52.dp), contentAlignment = Alignment.CenterStart) {
                 AnimatedContent(live.recording, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "rec") { recording ->
-                    if (recording) RecordingStrip(live.elapsedMs, live.levels, cancelDrag, fmt)
+                    if (recording) RecordingStrip(live.elapsedMs, live.levels, cancelDrag, locked, onDelete = { haptics.reject(); locked = false; vm.cancelRecording() }, fmt)
                     else Row(verticalAlignment = Alignment.CenterVertically) {
                         Box {
                             IconButton(onClick = { haptics.tick(); attachMenu = true }) { Icon(ZuraIcons.Attach, null, tint = c.textMuted) }
@@ -176,52 +184,88 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
             }
             Spacer(Modifier.width(8.dp))
 
-            // Send ⇄ Mic morph. Mic: press-and-hold records, slide toward start cancels.
+            // Send ⇄ Mic. Voice notes, WhatsApp-style:
+            //   hold → record · release → send · slide toward start → delete · slide UP → lock (hands-free)
+            // The button never grows beyond its slot (a scaled button used to overflow the screen edge).
             val density = LocalDensity.current
             val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
             val cancelAt = with(density) { 110.dp.toPx() }
-            val recScale by animateFloatAsState(if (live.recording) 1.35f else 1f, label = "mic")
-            Box(
-                Modifier.size(52.dp).graphicsLayer { scaleX = recScale; scaleY = recScale }.clip(CircleShape)
-                    .background(if (live.recording) c.danger else c.accent)
-                    .then(
-                        if (hasText || vm.editing != null) Modifier.clickable { haptics.confirm(); vm.send() }
-                        else Modifier.pointerInput(rtl) {
-                            awaitEachGesture {
-                                awaitFirstDown()
-                                if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                                    micPermission.launch(Manifest.permission.RECORD_AUDIO); return@awaitEachGesture
-                                }
-                                if (!vm.startRecording()) {
-                                    haptics.reject()
-                                    android.widget.Toast.makeText(ctx, R.string.mic_unavailable, android.widget.Toast.LENGTH_SHORT).show()
-                                    return@awaitEachGesture
-                                }
-                                haptics.start(); cancelDrag = 0f
-                                var cancelled = false
-                                try {
-                                    while (true) {
-                                        val ev = awaitPointerEvent()
-                                        val ch = ev.changes.firstOrNull() ?: break
-                                        val dx = ch.positionChange().x
-                                        cancelDrag = (cancelDrag + if (rtl) dx else -dx).coerceAtLeast(0f)
-                                        ch.consume()
-                                        if (cancelDrag > cancelAt) { cancelled = true; haptics.reject(); vm.cancelRecording(); break }
-                                        if (!ch.pressed) break
-                                    }
-                                } catch (e: kotlinx.coroutines.CancellationException) {
-                                    // Gesture interrupted (screen left, system dialog…): discard, don't crash.
-                                    vm.cancelRecording(); throw e
-                                }
-                                if (!cancelled) { haptics.confirm(); vm.finishRecording() }
-                                cancelDrag = 0f
+            val lockAt = with(density) { 80.dp.toPx() }
+            val showSend = hasText || vm.editing != null || locked
+            val pulse by rememberInfiniteTransition(label = "rec").animateFloat(0.55f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "recPulse")
+            Box(contentAlignment = Alignment.Center) {
+                // Lock hint: rises with the finger; reaching the top locks the recording.
+                if (live.recording && !locked) {
+                    val progress = (lockDrag / lockAt).coerceIn(0f, 1f)
+                    Column(
+                        Modifier.align(Alignment.TopCenter)
+                            .offset { IntOffset(0, (-with(density) { 104.dp.toPx() } - lockDrag * 0.6f).roundToInt()) }
+                            .size(width = 44.dp, height = 92.dp)
+                            .glass(CircleShape, solid = 0.85f)
+                            .padding(vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Icon(Icons.Default.Lock, null, tint = if (progress > 0.95f) c.accent else c.text, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.KeyboardArrowUp, null, tint = c.textMuted, modifier = Modifier.size(22.dp).graphicsLayer { translationY = -progress * 10f })
+                    }
+                }
+                Box(
+                    Modifier.size(52.dp).clip(CircleShape)
+                        .background(if (live.recording && !locked) c.danger.copy(alpha = pulse) else c.accent)
+                        .then(
+                            if (showSend) Modifier.clickable {
+                                haptics.confirm()
+                                if (locked) { locked = false; vm.finishRecording() } else vm.send()
                             }
-                        },
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                AnimatedContent(hasText || vm.editing != null, transitionSpec = { scaleIn() + fadeIn() togetherWith scaleOut() + fadeOut() }, label = "send") { send ->
-                    Icon(if (send) Icons.AutoMirrored.Filled.Send else ZuraIcons.Mic, null, tint = c.onAccent)
+                            else Modifier.pointerInput(rtl) {
+                                awaitEachGesture {
+                                    awaitFirstDown()
+                                    if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                                        micPermission.launch(Manifest.permission.RECORD_AUDIO); return@awaitEachGesture
+                                    }
+                                    if (!vm.startRecording()) {
+                                        haptics.reject()
+                                        android.widget.Toast.makeText(ctx, R.string.mic_unavailable, android.widget.Toast.LENGTH_SHORT).show()
+                                        return@awaitEachGesture
+                                    }
+                                    haptics.start(); cancelDrag = 0f; lockDrag = 0f
+                                    val startedAt = System.currentTimeMillis()
+                                    var outcome = 0 // 0 = send on release, 1 = cancelled, 2 = locked
+                                    try {
+                                        while (true) {
+                                            val ev = awaitPointerEvent()
+                                            val ch = ev.changes.firstOrNull() ?: break
+                                            val d = ch.positionChange()
+                                            cancelDrag = (cancelDrag + if (rtl) d.x else -d.x).coerceAtLeast(0f)
+                                            lockDrag = (lockDrag - d.y).coerceAtLeast(0f)
+                                            ch.consume()
+                                            if (lockDrag > lockAt && lockDrag > cancelDrag) { outcome = 2; break }
+                                            if (cancelDrag > cancelAt) { outcome = 1; break }
+                                            if (!ch.pressed) break
+                                        }
+                                    } catch (e: kotlinx.coroutines.CancellationException) {
+                                        vm.cancelRecording(); cancelDrag = 0f; lockDrag = 0f; throw e
+                                    }
+                                    when {
+                                        outcome == 2 -> { haptics.confirm(); locked = true }
+                                        outcome == 1 -> { haptics.reject(); vm.cancelRecording() }
+                                        System.currentTimeMillis() - startedAt < 400 -> {
+                                            // A quick tap: explain instead of sending an empty note.
+                                            vm.cancelRecording()
+                                            android.widget.Toast.makeText(ctx, R.string.record_hint, android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                        else -> { haptics.confirm(); vm.finishRecording() }
+                                    }
+                                    cancelDrag = 0f; lockDrag = 0f
+                                }
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AnimatedContent(showSend, transitionSpec = { scaleIn() + fadeIn() togetherWith scaleOut() + fadeOut() }, label = "send") { send ->
+                        Icon(if (send) Icons.AutoMirrored.Filled.Send else ZuraIcons.Mic, null, tint = c.onAccent)
+                    }
                 }
             }
         }
@@ -229,18 +273,21 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
 }
 
 @Composable
-private fun RecordingStrip(elapsed: Long, levels: List<Float>, cancelDrag: Float, fmt: ZuraFormat) {
+private fun RecordingStrip(elapsed: Long, levels: List<Float>, cancelDrag: Float, locked: Boolean, onDelete: () -> Unit, fmt: ZuraFormat) {
     val c = Zura.colors
     val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(0.35f, 1f, infiniteRepeatable(tween(650), RepeatMode.Reverse), label = "dot")
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = if (locked) 4.dp else 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (locked) {
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, stringResource(R.string.delete), tint = c.danger) }
+        }
         Box(Modifier.size(10.dp).graphicsLayer { alpha = pulse }.clip(CircleShape).background(c.danger))
         Text(fmt.duration(elapsed), style = Zura.type.label, color = c.text)
         LiveWaveform(levels, c.accent, Modifier.weight(1f).height(28.dp))
-        Text(
-            "‹ " + stringResource(R.string.cancel_recording), style = Zura.type.caption, color = c.textMuted,
+        if (!locked) Text(
+            "‹ " + stringResource(R.string.cancel_recording), style = Zura.type.caption, color = c.textMuted, maxLines = 1,
             modifier = Modifier.offset { IntOffset(((if (rtl) 1 else -1) * cancelDrag * 0.5f).roundToInt(), 0) }
                 .graphicsLayer { alpha = (1f - cancelDrag / 300f).coerceIn(0.2f, 1f) },
-        )
+        ) else Spacer(Modifier.width(8.dp))
     }
 }

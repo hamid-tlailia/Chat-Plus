@@ -6,7 +6,7 @@
     <string name="your_moment">لحظتك</string>
     <string name="message_hint">رسالة</string>
     <string name="send">إرسال</string>
-    <string name="record_hint">اضغط مطولاً للتسجيل · اسحب للإلغاء</string>
+    <string name="record_hint">اضغط مطولاً للتسجيل · اسحب لأعلى للتثبيت · اسحب للخلف للحذف</string>
     <string name="typing">يكتب…</string>
     <string name="online">متصل</string>
     <string name="edited">معدّلة</string>
@@ -202,4 +202,5 @@
     <string name="search_people">اسم المستخدم أو الاسم أو البريد</string>
     <string name="no_results_hint">لم يُعثر على أحد. جرّب اسم المستخدم أو الاسم أو البريد الإلكتروني كاملاً.</string>
     <string name="search_failed">تعذّر البحث الآن. تحقق من الاتصال وأعد المحاولة.</string>
+    <string name="people_on_zura">أشخاص على زورا</string>
 </resources>

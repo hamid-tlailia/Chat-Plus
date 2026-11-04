@@ -38,8 +38,8 @@ android {
         applicationId = "app.zura"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.3.2"
+        versionCode = 6
+        versionName = "0.4.0"
         // Supabase project "zura". The publishable key is designed to ship in clients:
         // every table is protected by Row Level Security, the key alone grants nothing.
         buildConfigField("String", "SUPABASE_URL", "\"https://vsilugnplrtguvwlmzjc.supabase.co\"")
@@ -97,6 +97,10 @@ android {
             it.systemProperty("roborazzi.test.record", "true")
             it.systemProperty("roborazzi.record.filePathStrategy", "relativePathFromCurrentDirectory")
             it.maxHeapSize = "3g"
+            // Live backend test (opt-in): ZURA_LIVE=1 ZURA_QA_PASSWORD=… ./gradlew testDebugUnitTest --tests '*LiveBackendTest*'
+            System.getenv("ZURA_LIVE")?.let { v -> it.environment("ZURA_LIVE", v) }
+            System.getenv("ZURA_QA_PASSWORD")?.let { v -> it.environment("ZURA_QA_PASSWORD", v) }
+            it.testLogging { showStandardStreams = System.getenv("ZURA_LIVE") == "1" }
         }
     }
     packaging {

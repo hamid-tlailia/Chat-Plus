@@ -49,7 +49,10 @@ class MediaExporter(private val context: Context, private val vault: VaultStore)
     }
 
     suspend fun shareOut(chatId: String, ref: MediaRef): Intent = withContext(Dispatchers.IO) {
-        val f = File(vault.paths.export, ref.originalName ?: "zura.${ext(ref.mime)}")
+        // Must live under <cache>/export — the only folder the FileProvider is configured to expose
+        // (per-account cache folders crashed sharing with "Failed to find configured root").
+        val dir = File(context.cacheDir, "export").apply { mkdirs() }
+        val f = File(dir, (ref.originalName ?: "zura.${ext(ref.mime)}").replace('/', '_'))
         f.outputStream().use { vault.decryptTo(chatId, ref, it) }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", f)
         Intent.createChooser(

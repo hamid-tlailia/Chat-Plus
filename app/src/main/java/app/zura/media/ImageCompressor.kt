@@ -38,6 +38,24 @@ class ImageCompressor(private val context: Context, private val vault: VaultStor
         ref
     }
 
+    /** ~30 ms: tiny preview + dimensions so the bubble can appear before compression finishes. */
+    suspend fun placeholder(uri: Uri, mime: String): MediaRef = withContext(Dispatchers.Default) {
+        runCatching {
+            val bmp = decode(uri, 96)
+            val bounds = runCatching {
+                if (Build.VERSION.SDK_INT >= 28) {
+                    var w = 0; var h = 0
+                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { d, info, _ ->
+                        w = info.size.width; h = info.size.height; d.setTargetSize(1, 1)
+                    }.recycle()
+                    w to h
+                } else bmp.width to bmp.height
+            }.getOrDefault(bmp.width to bmp.height)
+            MediaRef("pending-" + java.util.UUID.randomUUID().toString().replace("-", ""), "", mime, 0, bounds.first, bounds.second, preview = Previews.encode(bmp))
+                .also { bmp.recycle() }
+        }.getOrElse { MediaRef("pending-" + java.util.UUID.randomUUID().toString().replace("-", ""), "", mime, 0) }
+    }
+
     private fun decode(uri: Uri, maxEdge: Int): Bitmap {
         if (Build.VERSION.SDK_INT >= 28) {
             // ImageDecoder applies EXIF orientation and subsamples during decode.

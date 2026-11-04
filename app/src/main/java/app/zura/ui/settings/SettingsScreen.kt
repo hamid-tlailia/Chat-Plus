@@ -330,7 +330,10 @@ private fun AppLockSection() {
             { on ->
                 haptics.tick()
                 // Turning it ON first proves the fingerprint/PIN works, so the user can't lock themselves out.
-                if (on) g.appLock.authenticate(activity, { legacy.launch(it) }) { ok -> if (ok) g.appLock.setEnabled(true) }
+                if (on) g.appLock.authenticate(activity, { legacy.launch(it) }) { ok ->
+                    if (ok) g.appLock.setEnabled(true)
+                    else g.appLock.error.value?.let { android.widget.Toast.makeText(ctx, it, android.widget.Toast.LENGTH_LONG).show() }
+                }
                 else g.appLock.setEnabled(false)
             },
             enabled = secure,

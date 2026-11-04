@@ -180,7 +180,9 @@ fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvite
             }
         }
 
-        if (tab == 0) ContactsList(contacts, onOpenChat)
+        if (tab == 0) ContactsList(contacts, onOpenChat, onInvite = { inviteTarget = it }, onAccept = { hit ->
+            invites.firstOrNull { it.incoming && it.profile.id == hit.id }?.let { inv -> scope.launch { haptics.confirm(); repo.respond(inv.id, true) } }
+        }, refreshKey = invites.size + contacts.size)
         else InvitesList(invites)
     }
 
@@ -210,14 +212,23 @@ fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvite
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ContactsList(contacts: List<Contact>, onOpenChat: (String) -> Unit) {
+private fun ContactsList(
+    contacts: List<Contact>,
+    onOpenChat: (String) -> Unit,
+    onInvite: (SearchHit) -> Unit,
+    onAccept: (SearchHit) -> Unit,
+    refreshKey: Int,
+) {
     val g = LocalContext.current.graph
     val repo = g.s.contacts
     val c = Zura.colors
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf<Contact?>(null) }
+    // Everyone on Zura you could invite — so a new user never faces an empty screen.
+    var people by remember { mutableStateOf<List<SearchHit>?>(null) }
+    LaunchedEffect(refreshKey) { people = runCatching { repo.discover() }.getOrNull() ?: people }
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-        if (contacts.isEmpty()) item { Empty(stringResource(R.string.start_chat_hint)) }
+        if (contacts.isEmpty() && people.isNullOrEmpty()) item { Empty(stringResource(R.string.start_chat_hint)) }
         items(contacts, key = { it.profile.id }) { ct ->
             Box {
                 PersonRow(
@@ -233,6 +244,17 @@ private fun ContactsList(contacts: List<Contact>, onOpenChat: (String) -> Unit) 
                         text = { Text(stringResource(R.string.remove_contact), color = c.danger) },
                         onClick = { menu = null; scope.launch { repo.remove(ct.profile.id) } },
                     )
+                }
+            }
+        }
+        val others = people.orEmpty()
+        if (others.isNotEmpty()) item { Header(stringResource(R.string.people_on_zura)) }
+        items(others, key = { "p-" + it.id }) { hit ->
+            PersonRow(hit.displayName, app.zura.i18n.handle(hit.username), hit.avatarPath, hit.id) {
+                when (hit.relation) {
+                    "pending_out" -> Pill(stringResource(R.string.invited), filled = false) {}
+                    "pending_in" -> Pill(stringResource(R.string.accept), filled = true) { onAccept(hit) }
+                    else -> Pill(stringResource(R.string.invite), filled = true) { onInvite(hit) }
                 }
             }
         }

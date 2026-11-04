@@ -74,6 +74,12 @@ class VideoCompressor(private val context: Context, private val vault: VaultStor
         }
     }
 
+    /** Fast frame + size so the video bubble appears before transcoding finishes. */
+    suspend fun placeholder(uri: Uri): MediaRef = runCatching {
+        val p = probe(uri)
+        MediaRef("pending-" + java.util.UUID.randomUUID().toString().replace("-", ""), "", "video/mp4", 0, p.width, p.height, p.durationMs, preview = p.preview)
+    }.getOrElse { MediaRef("pending-" + java.util.UUID.randomUUID().toString().replace("-", ""), "", "video/mp4", 0) }
+
     private data class Probe(val width: Int, val height: Int, val durationMs: Long, val preview: String?)
 
     private suspend fun probe(uri: Uri): Probe = withContext(Dispatchers.IO) {
