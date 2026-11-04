@@ -72,9 +72,12 @@ class Navigator(start: Route) {
     /** Direction of the last navigation; read by the transition (idempotent, unlike counting). */
     var forward = true
         private set
-    fun push(r: Route) { if (top != r) { forward = true; stack.add(r) } }
-    fun pop(): Boolean = if (stack.size > 1) { forward = false; stack.removeAt(stack.lastIndex); true } else false
-    fun reset(vararg r: Route) { forward = true; stack.clear(); stack.addAll(r) }
+    /** Jump without the slide (opening a chat from a notification should feel instant). */
+    var instant = false
+        private set
+    fun push(r: Route) { if (top != r) { forward = true; instant = false; stack.add(r) } }
+    fun pop(): Boolean = if (stack.size > 1) { forward = false; instant = false; stack.removeAt(stack.lastIndex); true } else false
+    fun reset(vararg r: Route, instant: Boolean = false) { forward = true; this.instant = instant; stack.clear(); stack.addAll(r) }
 }
 
 class MainActivity : ComponentActivity() {
@@ -131,9 +134,12 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun SignedIn(session: AccountSession) {
-        val nav = remember { Navigator(Route.Chats) }
+        // Opened from a message notification: start directly on that chat (no list frame, no slide).
+        val nav = remember {
+            Navigator(Route.Chats).also { n -> deepLink.value?.let { n.reset(Route.Chats, Route.Chat(it), instant = true); deepLink.value = null } }
+        }
         val link by deepLink.collectAsStateWithLifecycle()
-        LaunchedEffect(link) { link?.let { nav.reset(Route.Chats, Route.Chat(it)); deepLink.value = null } }
+        LaunchedEffect(link) { link?.let { nav.reset(Route.Chats, Route.Chat(it), instant = true); deepLink.value = null } }
         LaunchedEffect(session) {
             session.chats.chats.debounce(2_000).collect { DirectShare.publish(this@MainActivity, it) }
         }
@@ -185,7 +191,10 @@ internal fun NavHost(nav: Navigator) {
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     AnimatedContent(
         targetState = nav.top,
-        transitionSpec = { app.zura.ui.components.pageTransition(nav.forward, rtl) },
+        transitionSpec = {
+            if (nav.instant) androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+            else app.zura.ui.components.pageTransition(nav.forward, rtl)
+        },
         label = "nav",
     ) { route ->
       // Each page is opaque, so the sliding page cleanly covers the one beneath it.

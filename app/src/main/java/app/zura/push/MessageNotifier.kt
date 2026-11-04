@@ -33,19 +33,20 @@ class MessageNotifier(private val context: Context) {
             val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_launcher)
                 .setContentTitle(context.getString(R.string.app_name)).setContentText(context.getString(R.string.new_message))
                 .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setContentIntent(PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+                .setContentIntent(openChat(meta.id))
                 .build()
             ensureChannel()
             runCatching { NotificationManagerCompat.from(context).notify(LOCKED_ID, n) }
             return
         }
-        val text = m.text?.takeIf { it.isNotBlank() && m.kind != MsgKind.CALL } ?: context.getString(
+        val text = m.text?.takeIf { it.isNotBlank() && m.kind != MsgKind.CALL && m.kind != MsgKind.EVENT } ?: context.getString(
             when (m.kind) {
                 MsgKind.IMAGE -> R.string.photo
                 MsgKind.VIDEO -> R.string.video
                 MsgKind.VOICE -> R.string.voice_message
                 MsgKind.FILE -> R.string.file
                 MsgKind.CALL -> R.string.missed_voice_call
+                MsgKind.EVENT -> R.string.screenshot_event
                 MsgKind.TEXT -> R.string.message_hint
             },
         )
@@ -74,13 +75,38 @@ class MessageNotifier(private val context: Context) {
     }
 
     /** A message arrived but stays encrypted until the phone is unlocked. */
-    fun showPending(sender: String?) {
+    /** "Hamid reacted 😢 to: Hi" — reactions reach you like messages do. */
+    fun showReaction(meta: ChatMeta, m: Message, emoji: String) {
+        if (Push.appVisible && Push.openChatId == meta.id) return
+        ensureChannel()
+        val locked = (context.applicationContext as app.zura.ZuraApp).graph.appLock.enabled.value
+        val about = m.text?.takeIf { it.isNotBlank() && m.kind == MsgKind.TEXT } ?: context.getString(app.zura.ui.chat.kindLabel(m.kind))
+        val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_launcher)
+            .setContentTitle(if (locked) context.getString(R.string.app_name) else meta.title)
+            .setContentText(if (locked) context.getString(R.string.new_message) else context.getString(R.string.reacted_to, emoji, about))
+            .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setContentIntent(openChat(meta.id))
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify(("react" + meta.id).hashCode(), n) }
+    }
+
+    /** Tap → straight into that chat (the app lock, if on, still asks first). */
+    private fun openChat(chatId: String?): PendingIntent = PendingIntent.getActivity(
+        context, chatId?.hashCode() ?: 0,
+        Intent(context, MainActivity::class.java).setAction(Intent.ACTION_VIEW)
+            .apply { chatId?.let { putExtra(MainActivity.EXTRA_CHAT, it) } }
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    fun showPending(sender: String?, chatId: String? = null) {
         ensureChannel()
         val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_launcher)
             .setContentTitle(sender ?: context.getString(R.string.app_name))
             .setContentText(context.getString(R.string.new_message))
             .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setContentIntent(PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+            .setContentIntent(openChat(chatId))
             .build()
         runCatching { NotificationManagerCompat.from(context).notify(LOCKED_ID, n) }
     }

@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Required by the platform BiometricPrompt (app lock). Without it the prompt is refused. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Android 14+: know when this chat is screenshotted, to tell the other person. -->
+    <uses-permission android:name="android.permission.DETECT_SCREEN_CAPTURE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />

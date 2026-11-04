@@ -87,6 +87,7 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
     val invites by g.s.contacts.invites.collectAsStateWithLifecycle()
     val incomingInvites = invites.count { it.incoming }
     val online by g.s.transport.online.collectAsStateWithLifecycle()
+    val typing by g.chats.typingChats.collectAsStateWithLifecycle(emptySet())
 
     val pickMoment = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -127,7 +128,7 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
             }
             items(chats, key = { it.id }, contentType = { "chat" }) { c ->
                 ChatRow(
-                    c, fmt,
+                    c, fmt, typing = c.id in typing,
                     onClick = { onOpen(c.id) },
                     onLongClick = { haptics.heavy(); confirmDelete = c },
                     onAvatar = c.peerIds.singleOrNull()?.let { peer -> { onProfile(peer) } },
@@ -196,7 +197,7 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier, onAvatar: (() -> Unit)? = null) {
+private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, typing: Boolean = false, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier, onAvatar: (() -> Unit)? = null) {
     val src = remember { MutableInteractionSource() }
     val col = Zura.colors
     Row(
@@ -215,15 +216,22 @@ private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, onClick: () -> Unit, onLongCli
                 Text(fmt.listStamp(c.updatedAt), style = Zura.type.caption, color = if (c.unread > 0) col.accent else col.textMuted)
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
-                val preview = c.preview?.takeIf { it.isNotBlank() && c.previewKind != MsgKind.CALL } ?: when (c.previewKind) {
+                val preview = c.preview?.takeIf { it.isNotBlank() && c.previewKind != MsgKind.CALL && c.previewKind != MsgKind.EVENT } ?: when (c.previewKind) {
                     MsgKind.IMAGE -> stringResource(R.string.photo)
                     MsgKind.VIDEO -> stringResource(R.string.video)
                     MsgKind.VOICE -> stringResource(R.string.voice_message)
                     MsgKind.FILE -> stringResource(R.string.file)
                     MsgKind.CALL -> app.zura.ui.chat.parseCall(c.preview).let { stringResource(if (it.missed) (if (it.video) R.string.missed_video_call else R.string.missed_voice_call) else if (it.video) R.string.video_call else R.string.voice_call) }
+                    MsgKind.EVENT -> stringResource(if (c.previewMine) R.string.you_took_screenshot else R.string.they_took_screenshot)
                     MsgKind.TEXT -> if (c.peerIds.isEmpty()) stringResource(R.string.notes_hint) else ""
                 }
-                Text(preview, style = Zura.type.label.copy(fontWeight = null), color = col.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (typing) {
+                    Text(stringResource(R.string.typing), style = Zura.type.label.copy(fontWeight = null), color = col.accent, maxLines = 1, modifier = Modifier.weight(1f))
+                } else {
+                    // My own last message reads "You: …" (not for call logs, which already say who).
+                    val shown = if (c.previewMine && c.previewKind != MsgKind.CALL && c.previewKind != MsgKind.EVENT && preview.isNotEmpty()) stringResource(R.string.you_prefix, preview) else preview
+                    Text(shown, style = Zura.type.label.copy(fontWeight = null), color = col.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                }
                 if (c.unread > 0) {
                     Box(
                         Modifier.padding(start = 8.dp).widthIn(min = 22.dp).height(22.dp).clip(CircleShape).background(col.accent).padding(horizontal = 6.dp),

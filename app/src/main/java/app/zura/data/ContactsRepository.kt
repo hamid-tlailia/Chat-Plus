@@ -61,6 +61,11 @@ class ContactsRepository(
     private val _contacts = MutableStateFlow<List<Contact>>(emptyList())
     val contacts: StateFlow<List<Contact>> = _contacts.asStateFlow()
 
+    /** People who blocked ME (server truth via blocked_me(), plus their live Block frame). */
+    private val _blockedMe = MutableStateFlow<Set<String>>(emptySet())
+    val blockedMe: StateFlow<Set<String>> = _blockedMe.asStateFlow()
+    fun markBlockedMe(uid: String, on: Boolean) { _blockedMe.value = if (on) _blockedMe.value + uid else _blockedMe.value - uid }
+
     private val _invites = MutableStateFlow<List<Invite>>(emptyList())
     val invites: StateFlow<List<Invite>> = _invites.asStateFlow()
 
@@ -113,6 +118,10 @@ class ContactsRepository(
             val other = if (r.fromId == me) r.toId else r.fromId
             profiles[other]?.let { Invite(r.id, incoming = r.toId == me, profile = it, message = r.message, createdAt = r.createdAt) }
         }.sortedByDescending { it.createdAt }
+        runCatching {
+            val arr = backend.json.parseToJsonElement(backend.client.postgrest.rpc("blocked_me").data)
+            (arr as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }?.toSet()
+        }.getOrNull()?.let { _blockedMe.value = it }
         // One failing conversation must never block the others.
         _contacts.value.forEach { c -> runCatching { ensureChat(c.profile) }.onFailure { app.zura.DiagLog.record("ensureChat ${c.profile.id.take(8)}", it) } }
     }

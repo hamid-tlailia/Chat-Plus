@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -97,6 +98,17 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
         onDispose { if (app.zura.push.Push.openChatId == chatId) app.zura.push.Push.openChatId = null }
     }
 
+    // Android 14+: a screenshot of this chat is announced to the other side (a line in the chat
+    // and a notification), like other messengers. With "Block screenshots" on, none can be taken.
+    if (android.os.Build.VERSION.SDK_INT >= 34) {
+        androidx.compose.runtime.DisposableEffect(chatId) {
+            val unregister = ctx.findActivity()?.let { a ->
+                watchScreenshots(a) { if (g.chats.peersOf(chatId).isNotEmpty()) g.s.scope.launch { g.chats.logEvent(chatId, app.zura.data.ChatRepository.EVENT_SCREENSHOT) } }
+            }
+            onDispose { unregister?.invoke() }
+        }
+    }
+
     // Read receipts fire while the chat is on screen and resumed.
     LifecycleResumeEffect(items.size) {
         vm.markRead()
@@ -137,7 +149,18 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                     }
                 }
             }
-            Composer(vm, fmt, haptics)
+            // Blocked either way → no composer: say so (and offer Unblock to the one who blocked).
+            val peer = meta?.peerIds?.singleOrNull()
+            val contactsList by g.s.contacts.contacts.collectAsStateWithLifecycle()
+            val blockedMe by g.s.contacts.blockedMe.collectAsStateWithLifecycle()
+            val iBlocked = peer != null && contactsList.any { it.profile.id == peer && it.blocked }
+            when {
+                peer != null && iBlocked -> BlockedBar(stringResource(R.string.you_blocked, meta?.title.orEmpty()), stringResource(R.string.unblock)) {
+                    scope.launch { g.s.setBlocked(peer, false) }
+                }
+                peer != null && peer in blockedMe -> BlockedBar(stringResource(R.string.cant_message), null) {}
+                else -> Composer(vm, fmt, haptics)
+            }
         }
 
         // Glass header
@@ -271,3 +294,41 @@ private fun copy(ctx: Context, m: Message) {
 }
 
 private fun Modifier.hazeSourceCompat(state: dev.chrisbanes.haze.HazeState): Modifier = this.then(Modifier.hazeSource(state))
+
+
+private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+@androidx.annotation.RequiresApi(34)
+private fun watchScreenshots(a: android.app.Activity, onShot: () -> Unit): () -> Unit {
+    val cb = android.app.Activity.ScreenCaptureCallback { onShot() }
+    runCatching { a.registerScreenCaptureCallback(a.mainExecutor, cb) }
+    return { runCatching { a.unregisterScreenCaptureCallback(cb) } }
+}
+
+@Composable
+private fun BlockedBar(text: String, action: String?, onAction: () -> Unit) {
+    val c = Zura.colors
+    var busy by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp)
+            .glass(RoundedCornerShape(22.dp)).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(text, style = Zura.type.label, color = c.textMuted, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        if (action != null) {
+            Spacer(Modifier.height(10.dp))
+            Box(
+                Modifier.clip(CircleShape).background(c.accent).clickable(enabled = !busy) { busy = true; onAction() }
+                    .padding(horizontal = 18.dp, vertical = 9.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = c.onAccent, strokeWidth = 2.dp)
+                else Text(action, style = Zura.type.label, color = c.onAccent)
+            }
+        }
+    }
+}

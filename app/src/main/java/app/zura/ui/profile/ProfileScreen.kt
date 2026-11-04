@@ -123,13 +123,7 @@ private fun MyPhoto(p: Profile?, hue: Float) {
         busy = true
         scope.launch {
             val bytes = withContext(Dispatchers.Default) {
-                runCatching {
-                    val src = ctx.contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it) }
-                    val side = minOf(src.width, src.height)
-                    val sq = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
-                    val out = Bitmap.createScaledBitmap(sq, 512, 512, true)
-                    ByteArrayOutputStream().also { out.compress(Bitmap.CompressFormat.JPEG, 86, it) }.toByteArray()
-                }.getOrNull()
+                runCatching { app.zura.media.AvatarEncoder.encode(ctx, uri) }.getOrNull()
             }
             if (bytes != null) runCatching { g.s.contacts.setAvatar(bytes); g.accountStore.avatar(g.s.uid).write(bytes) }
                 .onFailure { android.widget.Toast.makeText(ctx, it.message ?: ctx.getString(R.string.err_generic), android.widget.Toast.LENGTH_SHORT).show() }
@@ -256,7 +250,7 @@ private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpe
             Row(
                 Modifier.fillMaxWidth().clickable(enabled = busy == null) {
                     busy = "block"
-                    scope.launch { g.s.contacts.setBlocked(p.id, !blocked); busy = null }
+                    scope.launch { g.s.setBlocked(p.id, !blocked); busy = null }
                 }.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

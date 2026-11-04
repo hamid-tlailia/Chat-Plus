@@ -78,17 +78,29 @@ class AccountSession(
         transport.onFrame = { from, f ->
             when (f) {
                 is Frame.MomentPost -> moments.handle(from, f)
+                is Frame.Block -> if (f.from == from) contacts.markBlockedMe(from, f.blocked)
                 is Frame.CallOffer, is Frame.CallAnswer, is Frame.CallIce, is Frame.CallEnd,
                 is Frame.CallRinging, is Frame.CallRestartRequest, is Frame.CallMedia -> calls.handle(from, f)
                 else -> try {
                     chats.handle(from, f)
                 } catch (e: Exception) {
                     // Couldn't store it (phone locked → chat keys unusable). Still tell the user.
-                    if (f is Frame.Msg) notifier.showPending(contacts.profile(from)?.displayName)
+                    if (f is Frame.Msg) notifier.showPending(contacts.profile(from)?.displayName, f.chatId)
                     throw e
                 }
             }
         }
+    }
+
+    /**
+     * Block / unblock, and tell the other person. The "blocked" notice goes out BEFORE blocking
+     * (afterwards the server no longer lets anything through); "unblocked" goes out after.
+     */
+    suspend fun setBlocked(peer: String, on: Boolean): Result<Unit> {
+        if (on) runCatching { transport.send(peer, Frame.Block(uid, true)) }
+        val r = contacts.setBlocked(peer, on)
+        if (!on && r.isSuccess) runCatching { transport.send(peer, Frame.Block(uid, false)) }
+        return r
     }
 
     /** Register this device for wake-up pushes for this account (replaces any previous owner of the token). */
@@ -171,6 +183,7 @@ class AccountSession(
             registerPush()
         }
         chats.onIncoming = { meta, m -> notifier.show(meta, m) }
+        chats.onReaction = { meta, m, emoji -> notifier.showReaction(meta, m, emoji) }
         contacts.start()
         scope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(4_000)

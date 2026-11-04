@@ -220,4 +220,11 @@
     <string name="ready_battery_hint">Let Zura run in the background so calls are never delayed</string>
     <string name="ready_on">On</string>
     <string name="ready_more">More (autostart, lock screen) in app settings</string>
+    <string name="you_prefix">You: %1$s</string>
+    <string name="screenshot_event">Screenshot</string>
+    <string name="you_took_screenshot">You took a screenshot</string>
+    <string name="they_took_screenshot">Took a screenshot of the chat</string>
+    <string name="reacted_to">Reacted %1$s to: %2$s</string>
+    <string name="you_blocked">You blocked %1$s. They can\'t message or call you.</string>
+    <string name="cant_message">You can\'t send messages to this person.</string>
 </resources>

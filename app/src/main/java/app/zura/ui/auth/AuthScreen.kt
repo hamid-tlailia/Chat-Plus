@@ -1,6 +1,7 @@
 package app.zura.ui.auth
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.os.Build
 import android.provider.MediaStore
@@ -330,15 +331,8 @@ private fun Register(onBack: () -> Unit, onConfirm: (String) -> Unit) {
         scope.launch {
             photo = withContext(Dispatchers.Default) {
                 runCatching {
-                    val src = if (Build.VERSION.SDK_INT >= 28) ImageDecoder.decodeBitmap(ImageDecoder.createSource(ctx.contentResolver, uri)) { d, _, _ ->
-                        d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                    } else @Suppress("DEPRECATION") MediaStore.Images.Media.getBitmap(ctx.contentResolver, uri)
-                    // Center-crop to a 512 px square: small upload, sharp on every screen.
-                    val side = min(src.width, src.height)
-                    val sq = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
-                    val out = Bitmap.createScaledBitmap(sq, 512, 512, true)
-                    val bytes = ByteArrayOutputStream().also { out.compress(Bitmap.CompressFormat.JPEG, 86, it) }.toByteArray()
-                    out.asImageBitmap() to bytes
+                    val bytes = app.zura.media.AvatarEncoder.encode(ctx, uri)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size).asImageBitmap() to bytes
                 }.getOrNull()
             }
         }

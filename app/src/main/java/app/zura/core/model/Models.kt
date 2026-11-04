@@ -7,7 +7,8 @@ import kotlinx.serialization.Serializable
 enum class MsgStatus { PENDING, SENT, DELIVERED, READ, FAILED }
 
 @Serializable
-enum class MsgKind { TEXT, IMAGE, VIDEO, VOICE, FILE, CALL }
+/** EVENT = a small system line in the chat ("took a screenshot"); its text is the event code. */
+enum class MsgKind { TEXT, IMAGE, VIDEO, VOICE, FILE, CALL, EVENT }
 
 /**
  * Pointer to an encrypted file inside a chat's media vault.
@@ -63,6 +64,8 @@ data class ChatMeta(
     val updatedAt: Long = createdAt,
     val preview: String? = null,
     val previewKind: MsgKind = MsgKind.TEXT,
+    /** The last message is mine → shown as "You: …" in the chat list. */
+    val previewMine: Boolean = false,
     val unread: Int = 0,
     val pinned: Boolean = false,
     val avatarHue: Float = 0f,

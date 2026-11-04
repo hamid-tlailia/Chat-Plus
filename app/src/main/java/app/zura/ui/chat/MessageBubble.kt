@@ -86,6 +86,7 @@ fun BubbleRow(
 ) {
     val m = item.m
     if (m.kind == MsgKind.CALL) { CallLogRow(m, item.mine, fmt, onLongPress, modifier); return }
+    if (m.kind == MsgKind.EVENT) { EventRow(m, item.mine, fmt, modifier); return }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val density = LocalDensity.current
     val threshold = with(density) { 64.dp.toPx() }
@@ -181,7 +182,7 @@ private fun Bubble(
                 MsgKind.IMAGE, MsgKind.VIDEO -> VisualContent(m, fmt, RoundedCornerShape(big - 4.dp))
                 MsgKind.VOICE -> VoiceContent(m, item.mine, fmt)
                 MsgKind.FILE -> FileContent(m, onFill, fmt)
-                MsgKind.CALL -> Unit
+                MsgKind.CALL, MsgKind.EVENT -> Unit
             }
             val text = m.text
             if (!text.isNullOrEmpty()) {
@@ -348,6 +349,25 @@ private fun Reactions(m: Message, fmt: ZuraFormat) {
 
 /** Centered call-history entry: "📞 Voice call · 2:31" / "Missed video call". */
 @Composable
+private fun EventRow(m: Message, mine: Boolean, fmt: ZuraFormat, modifier: Modifier) {
+    val c = Zura.colors
+    val label = when (m.text) {
+        app.zura.data.ChatRepository.EVENT_SCREENSHOT -> stringResource(if (mine) R.string.you_took_screenshot else R.string.they_took_screenshot)
+        else -> return
+    }
+    Box(modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+        Row(
+            Modifier.clip(CircleShape).background(c.surface.copy(alpha = 0.8f)).padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("📸  $label", style = Zura.type.label, color = c.textMuted)
+            Spacer(Modifier.width(8.dp))
+            Text(fmt.time(m.sentAt), style = Zura.type.caption, color = c.textMuted)
+        }
+    }
+}
+
+@Composable
 private fun CallLogRow(m: Message, mine: Boolean, fmt: ZuraFormat, onLongPress: (Message) -> Unit, modifier: Modifier) {
     val c = Zura.colors
     val info = parseCall(m.text)
@@ -383,6 +403,7 @@ fun parseCall(text: String?): CallInfo {
 
 fun kindLabel(k: MsgKind) = when (k) {
     MsgKind.CALL -> R.string.voice_call
+    MsgKind.EVENT -> R.string.screenshot_event
     MsgKind.IMAGE -> R.string.photo
     MsgKind.VIDEO -> R.string.video
     MsgKind.VOICE -> R.string.voice_message

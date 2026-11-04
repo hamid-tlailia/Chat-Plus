@@ -55,6 +55,10 @@ sealed interface Frame {
     @Serializable @SerialName("react")
     data class React(val chatId: String, val from: String, val id: String, val emoji: String?) : Frame
 
+    /** "I blocked / unblocked you" — so the other side can show it instead of failing silently. */
+    @Serializable @SerialName("block")
+    data class Block(val from: String, val blocked: Boolean) : Frame
+
     @Serializable @SerialName("presence")
     data class Presence(val userId: String, val online: Boolean, val lastSeen: Long) : Frame
 

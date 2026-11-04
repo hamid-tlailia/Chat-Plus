@@ -3,6 +3,7 @@ package app.zura.account
 import android.app.Application
 import android.content.Context
 import app.zura.R
+import app.zura.DiagLog
 import app.zura.net.Backend
 import io.github.jan.supabase.auth.SignOutScope
 import io.github.jan.supabase.auth.auth
@@ -68,20 +69,46 @@ class AccountManager(
         .stateIn(scope, SharingStarted.Eagerly, null)
 
     init {
-        // Persist every token refresh for the active, remembered account.
         scope.launch {
             backend.client.auth.sessionStatus.collect { st ->
                 val active = (state.value as? AuthState.SignedIn)?.session ?: return@collect
-                if (st is SessionStatus.Authenticated && store.get(active.uid)?.remember == true && st.session.user?.id == active.uid) {
-                    runCatching { store.session(active.uid).writeText(json.encodeToString(UserSession.serializer(), st.session)) }
+                when (st) {
+                    // Persist every token refresh for the active, remembered account (refresh tokens
+                    // rotate: a stale one on disk would break the next cold start).
+                    is SessionStatus.Authenticated -> if (store.get(active.uid)?.remember == true && (st.session.user == null || st.session.user?.id == active.uid)) {
+                        runCatching { store.session(active.uid).writeText(json.encodeToString(UserSession.serializer(), st.session)) }
+                    }
+                    // The server definitively rejected the refresh token (revoked / signed out
+                    // elsewhere). Network failures are RefreshFailure and simply retry.
+                    is SessionStatus.NotAuthenticated -> if (!st.isSignOut && !lock.isLocked) {
+                        DiagLog.record("auth", detail = "session rejected by server → password needed")
+                        logout(remember = false)
+                    }
+                    else -> Unit
                 }
             }
         }
         scope.launch {
             val last = prefs.getString(K_ACTIVE, null)
             val acct = last?.let(store::get)
+            // Remembered account: restore it straight away, offline-first (no "Loading → sign-in"
+            // flash, and a cold start from a push with no network must NOT log the user out).
+            if (acct != null && acct.remember && restore(acct.uid)) return@launch
             _state.value = AuthState.SignedOut
-            if (acct != null && acct.remember) quickLogin(acct.uid)
+        }
+    }
+
+    /** Cold start: import the saved session and open the account without waiting for the network. */
+    private suspend fun restore(uid: String): Boolean = lock.withLock {
+        withContext(Dispatchers.IO) {
+            val acct = store.get(uid) ?: return@withContext false
+            val saved = store.session(uid).readText()?.let { runCatching { json.decodeFromString(UserSession.serializer(), it) }.getOrNull() }
+                ?: return@withContext false
+            runCatching {
+                backend.client.auth.importSession(saved, autoRefresh = true) // refreshes in the background, retrying on network errors
+                activate(uid, acct.email, true, backend.client.auth.currentSessionOrNull() ?: saved)
+                true
+            }.getOrElse { DiagLog.record("auth restore", it); false }
         }
     }
 
@@ -132,17 +159,22 @@ class AccountManager(
             val acct = store.get(uid) ?: return@withContext AuthResult.NeedPassword
             val saved = store.session(uid).readText()?.let { runCatching { json.decodeFromString(UserSession.serializer(), it) }.getOrNull() }
                 ?: return@withContext AuthResult.NeedPassword
+            runCatching { backend.client.auth.importSession(saved, autoRefresh = true) }
+                .onFailure { return@withContext AuthResult.NeedPassword }
+            val refreshed = runCatching { backend.client.auth.refreshCurrentSession() }
+            val err = refreshed.exceptionOrNull()
+            if (err is io.github.jan.supabase.exceptions.RestException) {
+                // Only a real "invalid / revoked refresh token" answer from the server asks for the password.
+                store.session(uid).shred()
+                return@withContext AuthResult.NeedPassword
+            }
+            if (err != null) DiagLog.record("auth refresh deferred", err)
             runCatching {
-                backend.client.auth.importSession(saved)
-                backend.client.auth.refreshCurrentSession()
-                val s = backend.client.auth.currentSessionOrNull() ?: error("expired")
+                val s = backend.client.auth.currentSessionOrNull() ?: saved
                 check(s.user?.id == uid || s.user == null)
                 activate(uid, acct.email, acct.remember, s)
                 AuthResult.Ok
-            }.getOrElse {
-                store.session(uid).shred()
-                AuthResult.NeedPassword
-            }
+            }.getOrElse { AuthResult.Error(friendly(it)) }
         }
     }
 
@@ -196,14 +228,10 @@ class AccountManager(
 
     private suspend fun activate(uid: String, email: String, remember: Boolean, s: UserSession) {
         (state.value as? AuthState.SignedIn)?.session?.close()
-        val profile = runCatching {
-            backend.json.decodeFromString(Profile.serializer(),
-                backend.client.from("profiles").select { filter { eq("id", uid) }; single() }.data)
-        }.getOrNull()
-        store.upsert(
-            SavedAccount(uid, email, profile?.username ?: store.get(uid)?.username.orEmpty(),
-                profile?.displayName ?: store.get(uid)?.displayName.orEmpty(), System.currentTimeMillis(), remember),
-        )
+        // No network round-trip here (cold start may be offline); the profile collector below
+        // refreshes name / username / avatar as soon as the server answers.
+        val prev = store.get(uid)
+        store.upsert(SavedAccount(uid, email, prev?.username.orEmpty(), prev?.displayName.orEmpty(), System.currentTimeMillis(), remember))
         if (remember) store.session(uid).writeText(json.encodeToString(UserSession.serializer(), s)) else store.session(uid).shred()
         prefs.edit().putString(K_ACTIVE, uid).apply()
 

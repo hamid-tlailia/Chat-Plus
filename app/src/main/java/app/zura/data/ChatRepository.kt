@@ -66,6 +66,7 @@ class ChatRepository(
 
     /** Called for every new incoming message (used for local notifications). */
     var onIncoming: (ChatMeta, Message) -> Unit = { _, _ -> }
+    var onReaction: ((ChatMeta, Message, String) -> Unit)? = null
 
     // ------------------------------------------------------------------ typing & presence (ephemeral)
 
@@ -74,6 +75,19 @@ class ChatRepository(
 
     fun peerTyping(chatId: String): Flow<Boolean> =
         typingMap.map { m -> m[chatId].orEmpty().values.any { it > System.currentTimeMillis() } }.distinctUntilChanged()
+
+    /** Chats where someone is typing right now — for the chat list (expires on its own). */
+    val typingChats: Flow<Set<String>> = typingMap.flatMapLatest { m ->
+        kotlinx.coroutines.flow.flow {
+            while (true) {
+                val now = System.currentTimeMillis()
+                val set = m.filterValues { u -> u.values.any { it > now } }.keys
+                emit(set)
+                if (set.isEmpty()) break
+                delay(1_000)
+            }
+        }
+    }.distinctUntilChanged()
 
     fun peerOnline(userId: String): Flow<Boolean> =
         presence.map { (it[userId] ?: 0) > System.currentTimeMillis() }.distinctUntilChanged()
@@ -164,6 +178,9 @@ class ChatRepository(
     /** Call history entry, written on the caller's side and mirrored to the callee. */
     suspend fun logCall(chatId: String, summary: String) = send(chatId, MsgKind.CALL, summary, null, null)
 
+    /** A system line both sides see, e.g. [EVENT_SCREENSHOT] when I capture this chat. */
+    suspend fun logEvent(chatId: String, code: String) = send(chatId, MsgKind.EVENT, code, null, null)
+
     private suspend fun send(chatId: String, kind: MsgKind, text: String?, media: MediaRef?, replyTo: String?) =
         withContext(Dispatchers.IO) {
             val store = vault.chat(chatId)
@@ -175,7 +192,7 @@ class ChatRepository(
             )
             store.upsert(msg)
             touchMeta(store, msg, unreadDelta = 0)
-            if (kind != MsgKind.CALL) setTyping(chatId, false)
+            if (kind != MsgKind.CALL && kind != MsgKind.EVENT) setTyping(chatId, false)
             if (peers.isNotEmpty()) transmit(store, msg)
         }
 
@@ -207,8 +224,10 @@ class ChatRepository(
         // (also retried automatically on the next reconnect).
         store.get(wire.id)?.takeIf { it.status == MsgStatus.PENDING || it.status == MsgStatus.FAILED }
             ?.let { store.upsert(it.copy(status = if (ok) MsgStatus.SENT else MsgStatus.FAILED)) }
-        // Peer not connected right now → wake their phone (content-free push; they pull + decrypt).
-        if (ok) peersOf(wire.chatId).filterNot { isOnline(it) }.forEach { backend.push(it, "msg") }
+        // Always wake the peer's phone with a content-free push (they pull + decrypt). "Online"
+        // presence lags up to ~100 s after they leave the app, which delayed messages; a push to
+        // a phone that already has the message is a harmless no-op sync.
+        if (ok) peersOf(wire.chatId).forEach { scope.launch { backend.push(it, "msg") } }
     }
 
     private suspend fun resendPending() = withContext(Dispatchers.IO) {
@@ -322,7 +341,11 @@ class ChatRepository(
                 refreshPreview(f.chatId)
             }
             is Frame.React -> if (f.from == from && vault.exists(f.chatId)) vault.chat(f.chatId).let { s ->
-                s.get(f.id)?.let { m -> s.upsert(m.copy(reactions = if (f.emoji == null) m.reactions - from else m.reactions + (from to f.emoji))) }
+                s.get(f.id)?.let { m ->
+                    s.upsert(m.copy(reactions = if (f.emoji == null) m.reactions - from else m.reactions + (from to f.emoji)))
+                    // Someone reacted to MY message → tell me, like a message would.
+                    if (f.emoji != null && m.senderId == me) s.meta.value?.let { meta -> onReaction?.invoke(meta, m, f.emoji) }
+                }
             }
             else -> Unit
         }
@@ -336,16 +359,19 @@ class ChatRepository(
 
     private suspend fun touchMeta(store: ChatStore, m: Message, unreadDelta: Int) {
         val meta = store.meta.value ?: return
-        store.writeMeta(meta.copy(updatedAt = m.sentAt, preview = m.text, previewKind = m.kind, unread = meta.unread + unreadDelta))
+        store.writeMeta(meta.copy(updatedAt = m.sentAt, preview = m.text, previewKind = m.kind, previewMine = m.senderId == me, unread = meta.unread + unreadDelta))
     }
 
     private suspend fun refreshPreview(chatId: String) {
         val store = vault.chat(chatId)
         val last = store.messages.value.lastOrNull()
-        store.meta.value?.let { store.writeMeta(it.copy(preview = last?.text, previewKind = last?.kind ?: MsgKind.TEXT)) }
+        store.meta.value?.let { store.writeMeta(it.copy(preview = last?.text, previewKind = last?.kind ?: MsgKind.TEXT, previewMine = last?.senderId == me)) }
     }
 
     private fun now() = System.currentTimeMillis()
 
-    companion object { const val NOTES = "notes" }
+    companion object {
+        const val NOTES = "notes"
+        const val EVENT_SCREENSHOT = "screenshot"
+    }
 }

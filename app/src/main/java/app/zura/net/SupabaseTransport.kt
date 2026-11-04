@@ -148,6 +148,7 @@ class SupabaseTransport(
     // ---------------------------------------------------------------- receiving
 
     private suspend fun drainBacklog() = drainLock.withLock {
+        backend.ensureFresh()
         while (true) {
             val rows = runCatching {
                 backend.client.from("inbox").select {

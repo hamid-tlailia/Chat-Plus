@@ -10,6 +10,7 @@ import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -57,6 +58,23 @@ class Backend {
 
     val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
+    private val refreshLock = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Make sure the access token is valid before a request. After a cold start (woken by a push,
+     * hours later) the restored token is often expired and the background refresher may not have
+     * run yet — the request would 401 and the message would wait for the next sync.
+     */
+    suspend fun ensureFresh() {
+        val s = client.auth.currentSessionOrNull() ?: return
+        if (s.expiresAt.toEpochMilliseconds() - System.currentTimeMillis() > 60_000) return
+        refreshLock.withLock {
+            val again = client.auth.currentSessionOrNull() ?: return
+            if (again.expiresAt.toEpochMilliseconds() - System.currentTimeMillis() > 60_000) return
+            runCatching { client.auth.refreshCurrentSession() }
+        }
+    }
+
     private fun token(): String = client.auth.currentAccessTokenOrNull() ?: error("not signed in")
 
     private fun authed(path: String) = Request.Builder().url("$url$path")
@@ -72,6 +90,7 @@ class Backend {
      * message silently failed to send on real phones while debug tests passed.
      */
     suspend fun insertRow(table: String, row: JsonObject) = withContext(Dispatchers.IO) {
+        ensureFresh()
         val req = authed("/rest/v1/$table")
             .header("Prefer", "return=minimal")
             .post(row.toString().toRequestBody("application/json".toMediaType()))
@@ -84,18 +103,21 @@ class Backend {
     // ---------------------------------------------------------------- storage (streaming, no buffering)
 
     suspend fun upload(bucket: String, path: String, file: File, mime: String = "application/octet-stream") = withContext(Dispatchers.IO) {
+        ensureFresh()
         val req = authed("/storage/v1/object/$bucket/$path").header("x-upsert", "true")
             .post(file.asRequestBody(mime.toMediaType())).build()
         http.newCall(req).execute().use { check(it.isSuccessful) { "upload ${it.code}: ${it.body?.string()}" } }
     }
 
     suspend fun upload(bucket: String, path: String, bytes: ByteArray, mime: String) = withContext(Dispatchers.IO) {
+        ensureFresh()
         val req = authed("/storage/v1/object/$bucket/$path").header("x-upsert", "true")
             .post(bytes.toRequestBody(mime.toMediaType())).build()
         http.newCall(req).execute().use { check(it.isSuccessful) { "upload ${it.code}: ${it.body?.string()}" } }
     }
 
     suspend fun <T> download(bucket: String, path: String, sink: (InputStream) -> T): T = withContext(Dispatchers.IO) {
+        ensureFresh()
         http.newCall(authed("/storage/v1/object/authenticated/$bucket/$path").get().build()).execute().use { r ->
             check(r.isSuccessful) { "download ${r.code}" }
             sink(r.body!!.byteStream())
@@ -103,6 +125,7 @@ class Backend {
     }
 
     suspend fun delete(bucket: String, path: String) = withContext(Dispatchers.IO) {
+        ensureFresh()
         runCatching { http.newCall(authed("/storage/v1/object/$bucket/$path").delete().build()).execute().close() }
     }
 
@@ -114,6 +137,7 @@ class Backend {
      * REST keeps us from having to *join* the peer's channel (which RLS forbids, by design).
      */
     suspend fun broadcast(toUser: String, event: String, payload: JsonObject) = withContext(Dispatchers.IO) {
+        ensureFresh()
         val body = buildJsonObject {
             put("messages", buildJsonArray {
                 add(buildJsonObject {
@@ -144,6 +168,7 @@ class Backend {
     // ---------------------------------------------------------------- edge functions
 
     suspend fun function(name: String, body: JsonObject = JsonObject(emptyMap())): JsonElement = withContext(Dispatchers.IO) {
+        ensureFresh()
         val req = authed("/functions/v1/$name").post(body.toString().toRequestBody("application/json".toMediaType())).build()
         http.newCall(req).execute().use { r ->
             check(r.isSuccessful) { "function $name ${r.code}" }

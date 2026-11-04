@@ -215,13 +215,7 @@ private fun AccountCard() {
         busy = true
         scope.launch {
             withContext(Dispatchers.Default) {
-                runCatching {
-                    val src = ctx.contentResolver.openInputStream(uri)!!.use { android.graphics.BitmapFactory.decodeStream(it) }
-                    val side = minOf(src.width, src.height)
-                    val sq = android.graphics.Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
-                    val out = android.graphics.Bitmap.createScaledBitmap(sq, 512, 512, true)
-                    java.io.ByteArrayOutputStream().also { out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 86, it) }.toByteArray()
-                }.getOrNull()
+                runCatching { app.zura.media.AvatarEncoder.encode(ctx, uri) }.getOrNull()
             }?.let { bytes -> runCatching { g.s.contacts.setAvatar(bytes); g.accountStore.avatar(g.s.uid).write(bytes) } }
             busy = false
         }
