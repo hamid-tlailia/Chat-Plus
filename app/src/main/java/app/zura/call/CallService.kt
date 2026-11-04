@@ -86,7 +86,7 @@ class CallService : Service() {
             // App in background (woken by push): the notification itself rings, looping until answered.
             val ringing = incoming && !app.zura.push.Push.appVisible
             return NotificationCompat.Builder(c, if (ringing) CH_RING else if (incoming) CH_INCOMING else CH_ONGOING)
-                .setSmallIcon(R.drawable.ic_launcher)
+                .setSmallIcon(R.drawable.ic_stat_zura)
                 .setStyle(style)
                 .setContentTitle(ui.peerName)
                 .setContentText(c.getString(if (ui.video) R.string.video_call else R.string.voice_call))
