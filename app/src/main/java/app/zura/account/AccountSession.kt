@@ -5,6 +5,7 @@ import app.zura.BuildConfig
 import app.zura.DiagLog
 import app.zura.call.CallManager
 import app.zura.call.Walkie
+import app.zura.call.Telecom
 import app.zura.core.crypto.E2EE
 import app.zura.core.model.ChatMeta
 import app.zura.push.MessageNotifier
@@ -144,6 +145,7 @@ class AccountSession(
         }
         out.append("Zura ").append(BuildConfig.VERSION_NAME).append(" · Android ").append(android.os.Build.VERSION.SDK_INT)
             .append(" · ").append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append("\n\n")
+        step("Phone call system (Telecom)") { if (Telecom.isRegistered) null else "not registered — calls use Zura's own ringing" }
         step("Signed in") { if (backend.client.auth.currentSessionOrNull()?.user?.id == uid) null else "session missing or for another user" }
         step("Profile & identity key published") {
             contacts.refresh()

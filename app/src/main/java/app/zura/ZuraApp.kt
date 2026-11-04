@@ -17,6 +17,8 @@ open class ZuraApp : Application() {
         super.onCreate()
         CrashLog.install(this)
         DiagLog.init(this)
+        // Zura as a self-managed calling app (Android Telecom): registered once, cheap, idempotent.
+        app.zura.call.Telecom.register(this)
         // Decrypted copies handed to other apps are short-lived: wipe any left from last time.
         Thread { runCatching { app.zura.core.storage.SecureEraser.eraseTree(java.io.File(cacheDir, "export")) } }.start()
         graph = AppGraph(this)

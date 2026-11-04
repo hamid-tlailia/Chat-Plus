@@ -109,6 +109,17 @@
             android:exported="false"
             android:foregroundServiceType="phoneCall|microphone|camera|mediaProjection" />
 
+        <!-- Self-managed calling app in Android's Telecom framework (call state only; audio stays
+             end-to-end encrypted WebRTC). Bound by the system while a Zura call exists. -->
+        <service
+            android:name=".call.ZuraConnectionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+
         <!-- Exposes decrypted media to other apps only through short-lived, explicit grants. -->
         <provider
             android:name="androidx.core.content.FileProvider"

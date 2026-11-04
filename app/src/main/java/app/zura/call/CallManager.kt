@@ -115,6 +115,9 @@ class CallManager(
     private var degraded = false
 
     init {
+        // Android's call system (self-managed ConnectionService) mirrors every Zura call.
+        Telecom.register(context)
+        scope.launch { _ui.collect { if (!previewing) runCatching { Telecom.sync(context, it) } } }
         scope.launch { network.type.collect { t -> if (!previewing) _ui.update { it.copy(net = t) } } }
         scope.launch {
             network.handover.collect {
