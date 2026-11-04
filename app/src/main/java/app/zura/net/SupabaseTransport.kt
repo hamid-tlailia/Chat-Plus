@@ -124,7 +124,7 @@ class SupabaseTransport(
         val key = peerKey(to) ?: run { app.zura.DiagLog.record("send ${frame.javaClass.simpleName}", detail = "no key for ${to.take(8)}"); return false }
         val payload = runCatching { seal(key, frame) }.getOrElse { app.zura.DiagLog.record("seal", it); return false }
         return runCatching {
-            backend.client.from("inbox").insert(buildJsonObject { put("recipient_id", to); put("payload", payload) })
+            backend.insertRow("inbox", buildJsonObject { put("recipient_id", to); put("payload", payload) })
         }.onFailure { app.zura.DiagLog.record("inbox insert → ${to.take(8)}", it) }.isSuccess
     }
 

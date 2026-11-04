@@ -63,6 +63,24 @@ class Backend {
         .header("apikey", key)
         .header("Authorization", "Bearer ${token()}")
 
+    // ---------------------------------------------------------------- PostgREST insert (no reflection)
+
+    /**
+     * INSERT one row via PostgREST over plain HTTPS. Deliberately NOT supabase-kt's reified
+     * `insert(value)`: that wraps the value in a List and resolves its serializer with typeOf(),
+     * which R8 breaks in release builds ("Unresolved class: interface java.util.List") — every
+     * message silently failed to send on real phones while debug tests passed.
+     */
+    suspend fun insertRow(table: String, row: JsonObject) = withContext(Dispatchers.IO) {
+        val req = authed("/rest/v1/$table")
+            .header("Prefer", "return=minimal")
+            .post(row.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        http.newCall(req).execute().use { r ->
+            check(r.isSuccessful) { "insert $table ${r.code}: ${r.body?.string()?.take(200)}" }
+        }
+    }
+
     // ---------------------------------------------------------------- storage (streaming, no buffering)
 
     suspend fun upload(bucket: String, path: String, file: File, mime: String = "application/octet-stream") = withContext(Dispatchers.IO) {
