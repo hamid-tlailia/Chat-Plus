@@ -186,6 +186,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Signed in and no call → any call notification still showing is a leftover: clear it.
+        val st = graph.accounts.state.value
+        if (st is AuthState.SignedIn) app.zura.call.CallService.clearStale(this, st.session.calls.ui.value.inCall)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_CHAT)?.let { deepLink.value = it }

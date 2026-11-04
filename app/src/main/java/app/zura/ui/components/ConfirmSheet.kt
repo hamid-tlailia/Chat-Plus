@@ -37,8 +37,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import app.zura.ui.theme.Zura
 
 /** One button of a [ConfirmSheet]. */
@@ -69,7 +67,7 @@ fun ConfirmSheet(
     }
     BackHandler { close(onDismiss) }
 
-    Popup(onDismissRequest = { close(onDismiss) }, properties = PopupProperties(focusable = true)) {
+    app.zura.ui.components.SheetHost(onDismiss = { close(onDismiss) }) {
         Box(Modifier.fillMaxSize()) {
             AnimatedVisibility(shown, enter = fadeIn(), exit = fadeOut()) {
                 Box(

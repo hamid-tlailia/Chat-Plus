@@ -86,6 +86,30 @@ fun BubbleRow(
     modifier: Modifier = Modifier,
 ) {
     val m = item.m
+    val sel = LocalSelection.current
+    if (sel.ids.isNotEmpty() && m.kind != MsgKind.EVENT) {
+        // Selection mode: the whole row toggles; no swipe / menu / media while selecting.
+        val on = m.id in sel.ids
+        Box(modifier.fillMaxWidth().background(if (on) Zura.colors.accent.copy(alpha = 0.14f) else Color.Transparent)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.padding(start = 12.dp).size(22.dp).clip(CircleShape)
+                        .background(if (on) Zura.colors.accent else Zura.colors.text.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center,
+                ) { if (on) Icon(Icons.Default.Done, null, tint = Zura.colors.onAccent, modifier = Modifier.size(15.dp)) }
+                Box(Modifier.weight(1f)) {
+                    if (m.kind == MsgKind.CALL) CallLogRow(m, item.mine, fmt, {}, Modifier)
+                    else Row(
+                        Modifier.fillMaxWidth().padding(top = if (item.groupedWithPrev) 2.dp else 8.dp).padding(horizontal = 10.dp),
+                        horizontalArrangement = if (item.mine) Arrangement.End else Arrangement.Start,
+                    ) { Bubble(item, fmt, resolve, onLongPress = {}, onDoubleTap = {}, onOpenMedia = {}, onRetry = {}) }
+                }
+            }
+            // On top of the bubble (which has its own tap handling): the whole row toggles.
+            Box(Modifier.matchParentSize().pointerInput(m.id) { detectTapGestures { haptics.tick(); sel.toggle(m.id) } })
+        }
+        return
+    }
     if (m.kind == MsgKind.CALL) { CallLogRow(m, item.mine, fmt, onLongPress, modifier); return }
     if (m.kind == MsgKind.EVENT) { EventRow(m, item.mine, fmt, modifier); return }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -165,14 +189,24 @@ private fun Bubble(
     Column(horizontalAlignment = if (item.mine) Alignment.End else Alignment.Start) {
         Column(
             Modifier
-                .widthIn(max = 300.dp)
+                // A photo/video bubble is exactly as wide as the picture: a long caption wraps
+                // under it instead of stretching the bubble and leaving a gap beside the image.
+                .then(if (isVisual) Modifier.width(248.dp) else Modifier.widthIn(max = 300.dp))
                 .clip(shape)
                 .background(fill)
                 .pointerInput(m.id) {
                     detectTapGestures(
                         onLongPress = { onLongPress() },
                         onDoubleTap = { onDoubleTap() },
-                        onTap = { if (m.status == MsgStatus.FAILED) onRetry() else if (isVisual && m.media?.isPlaceholder != true) onOpenMedia() },
+                        onTap = {
+                            when {
+                                m.status == MsgStatus.FAILED -> onRetry()
+                                isVisual && m.media?.isPlaceholder != true -> onOpenMedia()
+                                // Documents, APKs…: open in the matching app (audio/theme cards have their own buttons).
+                                m.kind == MsgKind.FILE && m.media?.mime?.startsWith("audio/") != true &&
+                                    m.media?.originalName?.endsWith(app.zura.ui.theme.CustomTheme.EXT, true) != true -> onOpenMedia()
+                            }
+                        },
                     )
                 }
                 .padding(if (isVisual) 4.dp else 0.dp),
@@ -190,6 +224,7 @@ private fun Bubble(
                 }
                 MsgKind.CALL, MsgKind.EVENT -> Unit
             }
+            m.moment?.let { MomentQuoteCard(it, item.mine, onFill) }
             m.link?.let { LinkCard(it, onFill, item.mine) }
             val text = m.text
             if (!text.isNullOrEmpty()) {
@@ -241,6 +276,10 @@ private fun Footer(m: Message, mine: Boolean, onFill: Color, fmt: ZuraFormat, mo
 }
 
 /** Ticks morph through states with a cross-scale instead of popping. */
+/** Multi-select: ids picked so far + toggle. Empty = normal mode. */
+class Selection(val ids: Set<String>, val toggle: (String) -> Unit)
+val LocalSelection = androidx.compose.runtime.staticCompositionLocalOf { Selection(emptySet()) {} }
+
 /** Translations of this chat's messages (id → state); a tap on one hides it. */
 val LocalTranslations = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.snapshots.SnapshotStateMap<String, Translation>?> { null }
 
@@ -366,6 +405,25 @@ private fun linkify(text: String, color: Color): androidx.compose.ui.text.Annota
             androidx.compose.ui.text.SpanStyle(color = color, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline),
         )
         links.forEach { (range, url) -> addLink(androidx.compose.ui.text.LinkAnnotation.Url(url, style), range.first, range.last + 1) }
+    }
+}
+
+/** "Reacted to your moment" with a tiny preview of that moment. */
+@Composable
+private fun MomentQuoteCard(q: app.zura.core.model.MomentQuote, mine: Boolean, onFill: Color) {
+    val thumb = remember(q.preview) { q.preview?.let(Previews::decode)?.asImageBitmap() }
+    Row(
+        Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp).clip(RoundedCornerShape(12.dp)).background(onFill.copy(alpha = 0.1f)).padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(width = 34.dp, height = 52.dp).clip(RoundedCornerShape(8.dp)).background(onFill.copy(alpha = 0.15f))) {
+            thumb?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        }
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(stringResource(if (mine) R.string.moment_quote_mine else R.string.moment_quote_theirs), style = Zura.type.caption, color = onFill.copy(alpha = 0.75f))
+            q.caption?.let { Text(it, style = Zura.type.caption, color = onFill.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
     }
 }
 

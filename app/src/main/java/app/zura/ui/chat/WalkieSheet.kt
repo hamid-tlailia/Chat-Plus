@@ -43,8 +43,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.zura.R
@@ -72,7 +70,7 @@ fun WalkieSheet(vm: ChatViewModel, peerName: String, onDismiss: () -> Unit) {
     DisposableEffect(Unit) { onDispose { g.s.walkie.stopTalking(); if (vm.recorder.live.value.recording) vm.cancelRecording() } }
     BackHandler(onBack = onDismiss)
 
-    Popup(onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
+    app.zura.ui.components.SheetHost(onDismiss = onDismiss) {
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss))
             Column(

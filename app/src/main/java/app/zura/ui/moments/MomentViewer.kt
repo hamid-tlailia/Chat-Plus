@@ -62,6 +62,12 @@ import app.zura.ui.components.ZuraMotion
 import app.zura.ui.components.rememberHaptics
 import app.zura.ui.media.VaultVideo
 import kotlinx.coroutines.launch
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.foundation.layout.size
 
 /**
  * Immersive Moments viewer: pager across people (cube-ish depth via graphicsLayer), segmented
@@ -115,11 +121,12 @@ private fun GroupPlayer(group: MomentGroup, active: Boolean, onNextGroup: () -> 
     val locale = LocalConfiguration.current.locales[0]
     var index by remember(group.ownerId) { mutableIntStateOf(group.items.indexOfFirst { it.status != app.zura.core.model.MsgStatus.READ }.coerceAtLeast(0)) }
     var paused by remember { mutableStateOf(false) }
+    var replying by remember { mutableStateOf(false) } // typing a reply pauses the moment
     val progress = remember(group.ownerId, index) { Animatable(0f) }
     val item = group.items.getOrNull(index) ?: return
 
-    LaunchedEffect(active, index, paused) {
-        if (!active || paused) return@LaunchedEffect
+    LaunchedEffect(active, index, paused, replying) {
+        if (!active || paused || replying) return@LaunchedEffect
         g.moments.markSeen(item.id)
         val total = if (item.kind == MsgKind.VIDEO) item.media?.durationMs?.coerceIn(1000, 30_000) ?: 5000L else 5000L
         val remaining = ((1f - progress.value) * total).toInt()
@@ -169,12 +176,70 @@ private fun GroupPlayer(group: MomentGroup, active: Boolean, onNextGroup: () -> 
                 IconButton(onClick = onClose) { Icon(Icons.Default.Close, null, tint = Color.White) }
             }
         }
+        // Someone else's moment: react or reply — it reaches them as a message (with a notification).
+        if (!group.mine) MomentReplyBar(group.ownerId, item, Modifier.align(Alignment.BottomCenter)) { replying = it }
         item.text?.takeIf { it.isNotBlank() }?.let {
             Text(
                 it, color = Color.White, style = app.zura.ui.theme.Zura.type.body.copy(textDirection = TextDirection.Content),
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(24.dp)
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(24.dp).padding(bottom = if (group.mine) 0.dp else 110.dp)
                     .clip(CircleShape).background(Color.Black.copy(alpha = 0.4f)).padding(horizontal = 14.dp, vertical = 8.dp),
             )
+        }
+    }
+}
+
+private val MOMENT_REACTIONS = listOf("❤️", "😂", "😮", "😢", "🔥", "👏")
+
+@Composable
+private fun MomentReplyBar(ownerId: String, item: app.zura.core.model.Message, modifier: Modifier, onTyping: (Boolean) -> Unit) {
+    val ctx = LocalContext.current
+    val g = ctx.graph
+    val haptics = rememberHaptics()
+    var text by remember(item.id) { mutableStateOf("") }
+    var burst by remember { mutableStateOf<String?>(null) }
+    val pop = remember { Animatable(0f) }
+    LaunchedEffect(burst) { if (burst != null) { pop.snapTo(0f); pop.animateTo(1f, tween(700)); burst = null } }
+    fun send(t: String) {
+        if (t.isBlank()) return
+        g.s.scope.launch { g.chats.replyToMoment(ownerId, item, t) }
+        android.widget.Toast.makeText(ctx, app.zura.R.string.moment_sent, android.widget.Toast.LENGTH_SHORT).show()
+    }
+    Box(modifier.fillMaxWidth()) {
+        burst?.let { e ->
+            Text(e, fontSize = 64.sp, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 140.dp)
+                .graphicsLayer { translationY = -pop.value * 220f; alpha = 1f - pop.value; scaleX = 1f + pop.value; scaleY = scaleX })
+        }
+        Column(
+            Modifier.fillMaxWidth()
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))))
+                .navigationBarsPadding().imePadding().padding(horizontal = 14.dp, vertical = 10.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                MOMENT_REACTIONS.forEach { e ->
+                    Text(e, fontSize = 30.sp, modifier = Modifier.clip(CircleShape).clickable { haptics.confirm(); burst = e; send(e) }.padding(6.dp))
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.foundation.text.BasicTextField(
+                    text, { text = it; onTyping(it.isNotEmpty()) },
+                    textStyle = app.zura.ui.theme.Zura.type.body.copy(color = Color.White, textDirection = TextDirection.Content),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White), maxLines = 3,
+                    modifier = Modifier.weight(1f).clip(CircleShape).background(Color.White.copy(alpha = 0.16f))
+                        .onFocusChanged { onTyping(it.isFocused) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                    decorationBox = { inner ->
+                        if (text.isEmpty()) Text(androidx.compose.ui.res.stringResource(app.zura.R.string.moment_reply_hint), color = Color.White.copy(alpha = 0.7f), style = app.zura.ui.theme.Zura.type.body)
+                        inner()
+                    },
+                )
+                if (text.isNotBlank()) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier.size(46.dp).clip(CircleShape).background(Color.White).clickable { haptics.confirm(); send(text); text = ""; onTyping(false) },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.AutoMirrored.Filled.Send, null, tint = Color.Black) }
+                }
+            }
         }
     }
 }

@@ -35,8 +35,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.compose.material3.Text
 import app.zura.ui.theme.Zura
 
@@ -52,7 +50,7 @@ fun <T> PickerSheet(title: String, hint: String?, options: List<Pair<T, String>>
     LaunchedEffect(shown.currentState, shown.targetState) { if (!shown.targetState && !shown.currentState) pending.value?.invoke() }
     BackHandler { close(onDismiss) }
 
-    Popup(onDismissRequest = { close(onDismiss) }, properties = PopupProperties(focusable = true)) {
+    app.zura.ui.components.SheetHost(onDismiss = { close(onDismiss) }) {
         Box(Modifier.fillMaxSize()) {
             AnimatedVisibility(shown, enter = fadeIn(), exit = fadeOut()) {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(remember { MutableInteractionSource() }, null) { close(onDismiss) })

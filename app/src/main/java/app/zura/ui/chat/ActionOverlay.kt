@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Icon
@@ -60,6 +61,7 @@ fun ActionOverlay(
     haptics: Haptics,
     canReply: Boolean = true,
     onTranslate: (() -> Unit)? = null,
+    onSelect: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     onReact: (String) -> Unit,
     onReply: () -> Unit,
@@ -110,6 +112,7 @@ fun ActionOverlay(
                 }
                 if (m.media != null) Action(ZuraIcons.Download, R.string.action_download, c.text, onDownload)
                 Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(c.divider))
+                if (onSelect != null) Action(Icons.Default.Done, R.string.action_select, c.text, onSelect)
                 // One entry; the confirmation sheet offers "for everyone" / "for me".
                 Action(Icons.Default.Delete, R.string.delete, c.danger) { haptics.tick(); onDeleteMe() }
             }

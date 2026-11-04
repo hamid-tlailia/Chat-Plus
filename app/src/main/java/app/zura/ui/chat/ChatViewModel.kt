@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -143,6 +144,18 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
     fun startEdit(m: Message) {
         editing = m; replyTo = null
         draft = TextFieldValue(m.text.orEmpty(), androidx.compose.ui.text.TextRange(m.text.orEmpty().length))
+    }
+
+    /** Multi-select (ids). */
+    val selected = androidx.compose.runtime.mutableStateListOf<String>()
+    fun toggleSelect(id: String) { if (id in selected) selected.remove(id) else selected.add(id) }
+
+    fun deleteSelected(forEveryone: Boolean) {
+        val ids = selected.toList(); selected.clear()
+        viewModelScope.launch {
+            g.chats.messages(chatId).first().filter { it.id in ids }.forEach { m -> m.media?.let(g.images::evict) }
+            if (forEveryone) g.chats.deleteForEveryone(chatId, ids) else g.chats.deleteForMe(chatId, ids)
+        }
     }
 
     /** Message id → translation state (shown under the original in the bubble). */

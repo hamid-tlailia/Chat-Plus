@@ -61,6 +61,23 @@ class MediaExporter(private val context: Context, private val vault: VaultStore)
         )
     }
 
+    /**
+     * Open a received document / APK / any file in the right app (PDF viewer, installer…).
+     * Decrypted to a short-lived copy under <cache>/export, granted read-only to that app.
+     */
+    suspend fun openIntent(chatId: String, ref: MediaRef): Intent = withContext(Dispatchers.IO) {
+        val dir = File(context.cacheDir, "export").apply { mkdirs() }
+        val f = File(dir, (ref.originalName ?: "zura.${ext(ref.mime)}").replace('/', '_'))
+        f.outputStream().use { vault.decryptTo(chatId, ref, it) }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", f)
+        val mime = when {
+            f.name.endsWith(".apk", true) -> "application/vnd.android.package-archive"
+            ref.mime == "application/octet-stream" -> android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(f.extension.lowercase()) ?: ref.mime
+            else -> ref.mime
+        }
+        Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
     private fun ext(mime: String) = when (mime) {
         "image/webp" -> "webp"; "image/jpeg" -> "jpg"; "image/png" -> "png"
         "video/mp4" -> "mp4"; "audio/ogg" -> "ogg"; "audio/mp4" -> "m4a"

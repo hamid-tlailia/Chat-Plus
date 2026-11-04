@@ -36,11 +36,22 @@ class CallService : Service() {
                 startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
         }
-        val ui = session?.calls?.ui?.value ?: return START_NOT_STICKY.also { stopSelf() }
-        if (!ui.inCall) { stopSelf(); return START_NOT_STICKY }
+        val ui = session?.calls?.ui?.value
+        if (ui == null || !ui.inCall) {
+            // No call any more (ended, or the process was restarted and lost it): never leave a
+            // dead ringing notification behind.
+            getSystemService(NotificationManager::class.java).cancel(ID)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         val n = build(this, ui)
         val type = if (Build.VERSION.SDK_INT >= 30) {
-            var t = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            // Ringing: "phone call" type — allowed to start from the background (a push), unlike the
+            // microphone type, whose refusal used to leave the call without a service: Android then
+            // killed the app, the call screen never showed and Answer/Decline did nothing.
+            // Microphone / camera are added once the call is answered (the app is in front by then).
+            var t = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL else 0
+            if (ui.phase != CallPhase.INCOMING) t = t or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             if (ui.video && ui.phase != CallPhase.INCOMING) t = t or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
             if (ui.sharingScreen) t = t or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             t
@@ -48,8 +59,13 @@ class CallService : Service() {
         runCatching {
             if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, type) else startForeground(ID, n)
             if (ui.sharingScreen) projectionReady = true
+        }.recoverCatching {
+            // e.g. camera permission denied: keep the call alive with fewer types rather than none.
+            app.zura.DiagLog.record("call fgs", it)
+            val basic = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL else 0
+            if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, basic) else startForeground(ID, n)
         }.onFailure {
-            // Missing runtime permission (e.g. camera denied): fall back to a plain notification.
+            app.zura.DiagLog.record("call fgs basic", it)
             getSystemService(NotificationManager::class.java).notify(ID, n)
         }
         return START_NOT_STICKY
@@ -72,6 +88,11 @@ class CallService : Service() {
                     // Background-start restrictions: still ring/show the call via a plain notification.
                     runCatching { context.getSystemService(NotificationManager::class.java).notify(ID, build(context, ui)) }
                 }
+        }
+
+        /** App opened with no call in progress: remove a ringing notification a killed process left behind. */
+        fun clearStale(context: Context, inCall: Boolean) {
+            if (!inCall) runCatching { context.getSystemService(NotificationManager::class.java).cancel(ID) }
         }
 
         fun stop(context: Context) {

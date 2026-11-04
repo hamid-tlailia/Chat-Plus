@@ -50,7 +50,8 @@ class MessageNotifier(private val context: Context) {
                 MsgKind.TEXT -> R.string.message_hint
             },
         )
-        val list = synchronized(lines) { lines.getOrPut(meta.id) { ArrayList() }.apply { add(NotificationCompat.MessagingStyle.Message(text, m.sentAt, sender)); while (size > 6) removeAt(0) }.toList() }
+        val shown = if (m.moment != null) context.getString(R.string.moment_notif, text) else text
+        val list = synchronized(lines) { lines.getOrPut(meta.id) { ArrayList() }.apply { add(NotificationCompat.MessagingStyle.Message(shown, m.sentAt, sender)); while (size > 6) removeAt(0) }.toList() }
         val style = NotificationCompat.MessagingStyle(me).also { s -> list.forEach(s::addMessage) }
         val open = PendingIntent.getActivity(
             context, meta.id.hashCode(),

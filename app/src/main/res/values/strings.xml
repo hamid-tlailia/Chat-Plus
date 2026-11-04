@@ -339,4 +339,18 @@
     <string name="walkie_offline">They\'re not in the app — holding records a voice note instead</string>
     <string name="walkie_talking">%1$s is talking…</string>
     <string name="walkie_you">Talking…</string>
+    <string name="no_app_to_open">No app on this phone can open this file</string>
+    <string name="action_select">Select</string>
+    <string name="delete_n_q">Delete %1$d messages?</string>
+    <string name="delete_n_hint_mine">“For everyone” also removes them from the other phone.</string>
+    <string name="copy_n">Copy</string>
+    <string name="welcome_dm_title">Say hi to %1$s 👋</string>
+    <string name="welcome_dm_body">Messages and calls here are end-to-end encrypted: only you two can read or hear them — not Zura, not anyone in between. They are stored encrypted on your phones.</string>
+    <string name="welcome_notes_title">Your private notes 🔒</string>
+    <string name="welcome_notes_body">Write, save links, photos and voice memos for yourself. Everything stays encrypted on this phone only — nothing is sent anywhere.</string>
+    <string name="moment_reply_hint">Reply…</string>
+    <string name="moment_sent">Sent</string>
+    <string name="moment_quote_theirs">Reacted to your moment</string>
+    <string name="moment_quote_mine">You replied to their moment</string>
+    <string name="moment_notif">On your moment: %1$s</string>
 </resources>

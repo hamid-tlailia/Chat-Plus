@@ -339,4 +339,18 @@
     <string name="walkie_offline">ليس في التطبيق الآن — الضغط يسجّل رسالة صوتية بدلاً من ذلك</string>
     <string name="walkie_talking">%1$s يتحدث…</string>
     <string name="walkie_you">تتحدث…</string>
+    <string name="no_app_to_open">لا يوجد تطبيق في الهاتف يفتح هذا الملف</string>
+    <string name="action_select">تحديد</string>
+    <string name="delete_n_q">حذف %1$d رسائل؟</string>
+    <string name="delete_n_hint_mine">\"للجميع\" تحذفها من هاتف الطرف الآخر أيضاً.</string>
+    <string name="copy_n">نسخ</string>
+    <string name="welcome_dm_title">قل مرحباً لـ %1$s 👋</string>
+    <string name="welcome_dm_body">الرسائل والمكالمات هنا مشفّرة من الطرفين: لا يقرؤها أو يسمعها إلا أنتما — لا Zura ولا أي طرف في المنتصف. وتُحفظ مشفّرة على هاتفيكما.</string>
+    <string name="welcome_notes_title">ملاحظاتك الخاصة 🔒</string>
+    <string name="welcome_notes_body">اكتب واحفظ الروابط والصور والتسجيلات الصوتية لنفسك. كل شيء يبقى مشفّراً على هذا الهاتف فقط — لا يُرسل أي شيء لأي مكان.</string>
+    <string name="moment_reply_hint">اكتب رداً…</string>
+    <string name="moment_sent">تم الإرسال</string>
+    <string name="moment_quote_theirs">تفاعل مع لحظتك</string>
+    <string name="moment_quote_mine">رددتَ على لحظته</string>
+    <string name="moment_notif">على لحظتك: %1$s</string>
 </resources>

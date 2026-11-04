@@ -40,6 +40,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.foundation.clickable
@@ -142,12 +144,32 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
     // Real frosted glass: the message list is blurred live behind the header and the composer.
     val haze = remember { dev.chrisbanes.haze.HazeState() }
     val showRead by vm.showReadTicks.collectAsStateWithLifecycle()
-    androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze, LocalShowReadTicks provides showRead, LocalTranslations provides vm.translations) {
+    androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze, LocalShowReadTicks provides showRead, LocalTranslations provides vm.translations,
+        LocalSelection provides Selection(vm.selected.toSet(), vm::toggleSelect)) {
     Box(Modifier.fillMaxSize()) {
         // Theme Studio wallpaper, dimmed toward the theme background so messages stay readable.
         app.zura.ui.theme.LocalWallpaper.current?.let { (img, dim) ->
             androidx.compose.foundation.Image(img, null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Zura.colors.bg.copy(alpha = dim / 100f)))
+        }
+        // First visit / empty chat: a calm welcome with what privacy this chat has.
+        if (items.isEmpty()) {
+            val notes = meta?.peerIds.isNullOrEmpty()
+            Column(
+                Modifier.align(Alignment.Center).padding(horizontal = 32.dp).padding(bottom = 80.dp)
+                    .glass(RoundedCornerShape(24.dp)).padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    if (notes) stringResource(R.string.welcome_notes_title) else stringResource(R.string.welcome_dm_title, meta?.title.orEmpty()),
+                    style = Zura.type.headline, color = Zura.colors.text, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(if (notes) R.string.welcome_notes_body else R.string.welcome_dm_body),
+                    style = Zura.type.label, color = Zura.colors.textMuted, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
         }
         Column(Modifier.fillMaxSize()) {
             LazyColumn(
@@ -164,7 +186,13 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                             onReply = { if (vm.pending.isEmpty()) { vm.replyTo = it; vm.editing = null } }, // no replies while attachments wait
                             onLongPress = { vm.focused = it },
                             onDoubleTap = { vm.react(it, "❤️") },
-                            onOpenMedia = { onOpenMedia(it.id) },
+                            onOpenMedia = { msg ->
+                                if (msg.kind == app.zura.core.model.MsgKind.FILE) scope.launch {
+                                    val ref = msg.media ?: return@launch
+                                    runCatching { ctx.startActivity(g.exporter.openIntent(chatId, ref)) }
+                                        .onFailure { Toast.makeText(ctx, R.string.no_app_to_open, Toast.LENGTH_SHORT).show() }
+                                } else onOpenMedia(msg.id)
+                            },
                             onRetry = { vm.retry(it) },
                             modifier = Modifier.animateItem(
                                 fadeInSpec = spring(stiffness = 600f),
@@ -278,6 +306,39 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
             )
         }
 
+        // Multi-select bar (replaces the header while messages are selected).
+        if (vm.selected.isNotEmpty()) {
+            var confirmMany by remember { mutableStateOf(false) }
+            androidx.activity.compose.BackHandler { vm.selected.clear() }
+            Row(
+                Modifier.fillMaxWidth().background(Zura.colors.surfaceHigh).padding(top = top).height(64.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { vm.selected.clear() }) { Icon(androidx.compose.material.icons.Icons.Default.Close, null, tint = Zura.colors.text) }
+                Text("${vm.selected.size}", style = Zura.type.headline, color = Zura.colors.text, modifier = Modifier.weight(1f))
+                val texts = byId.values.filter { it.id in vm.selected && !it.text.isNullOrBlank() }.sortedBy { it.sentAt }
+                if (texts.isNotEmpty()) IconButton(onClick = {
+                    ctx.getSystemService(android.content.ClipboardManager::class.java)
+                        .setPrimaryClip(android.content.ClipData.newPlainText("zura", texts.joinToString("\n") { it.text.orEmpty() }))
+                    Toast.makeText(ctx, R.string.copied, Toast.LENGTH_SHORT).show(); vm.selected.clear()
+                }) { Icon(app.zura.ui.ZuraIcons.Copy, stringResource(R.string.copy_n), tint = Zura.colors.text) }
+                IconButton(onClick = { haptics.tick(); confirmMany = true }) { Icon(androidx.compose.material.icons.Icons.Default.Delete, null, tint = Zura.colors.danger) }
+            }
+            if (confirmMany) {
+                val allMine = vm.selected.all { id -> byId[id]?.senderId == vm.me }
+                app.zura.ui.components.ConfirmSheet(
+                    title = stringResource(R.string.delete_n_q, vm.selected.size),
+                    message = if (allMine && vm.peerId != null) stringResource(R.string.delete_n_hint_mine) else stringResource(R.string.delete_message_hint),
+                    actions = buildList {
+                        if (allMine && vm.peerId != null) add(app.zura.ui.components.ConfirmAction(stringResource(R.string.action_delete_all), danger = true) { confirmMany = false; vm.deleteSelected(true) })
+                        add(app.zura.ui.components.ConfirmAction(stringResource(R.string.action_delete_me), danger = true) { confirmMany = false; vm.deleteSelected(false) })
+                    },
+                    cancelLabel = stringResource(R.string.cancel),
+                    onDismiss = { confirmMany = false },
+                )
+            }
+        }
+
         vm.focused?.let { m ->
             val mine = m.senderId == vm.me
             ActionOverlay(
@@ -286,6 +347,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                 onReact = { vm.react(m, it); vm.focused = null },
                 canReply = vm.pending.isEmpty(),
                 onTranslate = { vm.translate(m); vm.focused = null },
+                onSelect = { vm.selected.add(m.id); vm.focused = null },
                 onReply = { if (vm.pending.isEmpty()) vm.replyTo = m; vm.focused = null },
                 onEdit = { vm.startEdit(m); vm.focused = null },
                 onCopy = { copy(ctx, m); vm.focused = null },

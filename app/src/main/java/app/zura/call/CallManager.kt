@@ -183,6 +183,7 @@ class CallManager(
             acceptWhenOffer = true
             audio.stopTones()
             _ui.update { it.copy(phase = CallPhase.CONNECTING) }
+            CallService.start(context, _ui.value) // now with the microphone type (app is in front)
             return@launch
         }
         answer(offer)

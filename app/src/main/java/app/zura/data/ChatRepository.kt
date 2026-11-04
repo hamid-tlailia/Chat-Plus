@@ -3,6 +3,7 @@ package app.zura.data
 import app.zura.core.model.ChatMeta
 import app.zura.core.model.MediaRef
 import app.zura.core.model.Message
+import app.zura.core.model.MomentQuote
 import app.zura.core.model.MsgKind
 import app.zura.core.model.MsgStatus
 import app.zura.core.model.TTL_AFTER_READ
@@ -256,7 +257,14 @@ class ChatRepository(
     /** A system line both sides see, e.g. [EVENT_SCREENSHOT] when I capture this chat. */
     suspend fun logEvent(chatId: String, code: String) = send(chatId, MsgKind.EVENT, code, null, null)
 
-    private suspend fun send(chatId: String, kind: MsgKind, text: String?, media: MediaRef?, replyTo: String?) =
+    /** React / reply to a contact's moment: a normal E2EE message in our chat, carrying a preview of it. */
+    suspend fun replyToMoment(ownerId: String, item: Message, text: String) {
+        val chatId = ContactsRepository.dmChatId(me, ownerId)
+        if (!vault.exists(chatId)) return
+        send(chatId, MsgKind.TEXT, text.trim(), null, null, MomentQuote(item.media?.preview, item.text?.take(80), item.kind == MsgKind.VIDEO))
+    }
+
+    private suspend fun send(chatId: String, kind: MsgKind, text: String?, media: MediaRef?, replyTo: String?, moment: MomentQuote? = null) =
         withContext(Dispatchers.IO) {
             val store = vault.chat(chatId)
             val peers = peersOf(chatId)
@@ -265,6 +273,7 @@ class ChatRepository(
                 kind = kind, text = text, media = media, replyTo = replyTo,
                 status = if (peers.isEmpty()) MsgStatus.READ else MsgStatus.PENDING,
                 ttlMs = if (kind == MsgKind.EVENT) null else store.meta.value?.disappearMs,
+                moment = moment,
             )
             store.upsert(msg)
             touchMeta(store, msg, unreadDelta = 0)
@@ -302,7 +311,7 @@ class ChatRepository(
                 store.upsert(wire)
             }
         }
-        val frame = Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text, wire.media, wire.replyTo, wire.link, wire.ttlMs)
+        val frame = Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text, wire.media, wire.replyTo, wire.link, wire.ttlMs, wire.moment)
         val ok = peersOf(wire.chatId).all { transport.send(it, frame) }
         // Never leave a message on the clock forever: sent → ✓, otherwise → "failed, tap to retry"
         // (also retried automatically on the next reconnect).
@@ -402,7 +411,7 @@ class ChatRepository(
                     val blob = ref.remoteBlobId ?: return@let null
                     runCatching { backend.download("blobs", blob) { vault.adoptCiphertext(f.chatId, ref, it) } }.getOrNull()
                 }
-                val msg = Message(f.id, f.chatId, from, f.sentAt, f.kind, f.text, media, MsgStatus.DELIVERED, replyTo = f.replyTo, link = f.link, ttlMs = f.ttlMs)
+                val msg = Message(f.id, f.chatId, from, f.sentAt, f.kind, f.text, media, MsgStatus.DELIVERED, replyTo = f.replyTo, link = f.link, ttlMs = f.ttlMs, moment = f.moment)
                 // The other side changed this chat's timer: it's announced as a system line.
                 if (f.kind == MsgKind.EVENT) parseTimer(f.text)?.let { ms ->
                     store.meta.value?.let { store.writeMeta(it.copy(disappearMs = ms.takeIf { v -> v != 0L })) }

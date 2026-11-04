@@ -34,6 +34,7 @@ sealed interface Frame {
         val replyTo: String? = null,
         val link: app.zura.core.model.LinkPreview? = null,
         val ttlMs: Long? = null,
+        val moment: app.zura.core.model.MomentQuote? = null,
     ) : Frame
 
     /** Relay accepted & persisted the frame → sender shows a single tick. */

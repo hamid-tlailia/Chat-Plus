@@ -56,7 +56,12 @@ data class Message(
     val link: LinkPreview? = null,
     /** Disappearing: ms to live after sending, [TTL_AFTER_READ] = gone once read and the chat is left. */
     val ttlMs: Long? = null,
+    /** This message reacts / replies to a moment (story): a small preview of it travels along. */
+    val moment: MomentQuote? = null,
 )
+
+@Serializable
+data class MomentQuote(val preview: String? = null, val caption: String? = null, val video: Boolean = false)
 
 /** Message timer value meaning "disappears after it has been read". */
 const val TTL_AFTER_READ = -1L
