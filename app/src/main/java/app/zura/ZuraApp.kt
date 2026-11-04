@@ -43,7 +43,12 @@ open class ZuraApp : Application() {
         // Phone unlocked → chat keys work again: pull anything that waited on the server.
         registerReceiver(object : android.content.BroadcastReceiver() {
             override fun onReceive(c: android.content.Context, i: android.content.Intent) {
-                graph.session.value?.let { s -> s.scope.launch { runCatching { s.transport.syncInbox() } } }
+                graph.session.value?.let { s ->
+                    s.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { s.chats.ensureIndex() } // the chat list was unreadable while locked
+                        runCatching { s.transport.syncInbox() }
+                    }
+                }
             }
         }, android.content.IntentFilter(android.content.Intent.ACTION_USER_PRESENT))
 

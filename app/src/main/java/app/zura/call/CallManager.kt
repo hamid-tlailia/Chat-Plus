@@ -191,7 +191,10 @@ class CallManager(
             repeat(16) {
                 delay(2_500)
                 if (_ui.value.callId != callId || _ui.value.phase != CallPhase.OUTGOING) return@launch
-                transport.signal(peerId, frame)
+                // Re-sent with every network route gathered so far INSIDE the SDP: a phone that was
+                // asleep missed the separately-trickled routes, and without them a mobile-to-mobile
+                // call (both behind carrier NAT) can never connect.
+                transport.signal(peerId, frame.copy(sdp = pc?.localDescription?.description ?: frame.sdp))
             }
         }
         // No answer within 45 s → missed call.
@@ -234,7 +237,7 @@ class CallManager(
         }
         val answer = pc!!.awaitCreate(offer = false, iceRestart = false)
         pc!!.awaitSetLocal(answer)
-        signalReliably(offer.from, Frame.CallAnswer(offer.callId, me, answer.description))
+        signalReliably(offer.from, Frame.CallAnswer(offer.callId, me, withRoutes(answer.description)))
         pendingOffer = null
     }
 
@@ -327,16 +330,19 @@ class CallManager(
                         applyRemote(SessionDescription(SessionDescription.Type.OFFER, f.sdp))
                         val answer = pc!!.awaitCreate(offer = false, iceRestart = false)
                         pc!!.awaitSetLocal(answer)
-                        signalReliably(from, Frame.CallAnswer(f.callId, me, answer.description))
+                        signalReliably(from, Frame.CallAnswer(f.callId, me, withRoutes(answer.description)))
                     }
                     return@withContext
                 }
                 // Same call announced earlier by push: attach the offer (and answer now if the user already tapped Answer).
                 if (s.callId == f.callId) {
-                    if (pendingOffer == null && (s.phase == CallPhase.INCOMING || s.phase == CallPhase.CONNECTING) && pc == null) {
-                        pendingOffer = f
-                        transport.signal(from, Frame.CallRinging(f.callId, me))
-                        if (acceptWhenOffer) answer(f)
+                    if ((s.phase == CallPhase.INCOMING || s.phase == CallPhase.CONNECTING) && pc == null) {
+                        val first = pendingOffer == null
+                        pendingOffer = f // keep the LATEST: it carries more of the caller's routes
+                        if (first) {
+                            transport.signal(from, Frame.CallRinging(f.callId, me))
+                            if (acceptWhenOffer) answer(f)
+                        }
                     }
                     return@withContext
                 }
@@ -551,7 +557,20 @@ class CallManager(
         val peer = s.peerId ?: return
         val offer = runCatching { p.awaitCreate(offer = true, iceRestart = true) }.getOrNull() ?: return
         runCatching { p.awaitSetLocal(offer) }.getOrNull() ?: return
-        signalReliably(peer, Frame.CallOffer(s.callId!!, me, s.video, offer.description, restart = true))
+        signalReliably(peer, Frame.CallOffer(s.callId!!, me, s.video, withRoutes(offer.description), restart = true))
+    }
+
+    /**
+     * Wait (≤ 2.5 s) for ICE gathering so the SDP itself carries this phone's network routes
+     * (incl. TURN relay): delivery no longer depends on every trickled candidate arriving.
+     * Trickling still happens too, so nothing gets slower when the network is good.
+     */
+    private suspend fun withRoutes(fallback: String): String {
+        val p = pc ?: return fallback
+        kotlinx.coroutines.withTimeoutOrNull(2_500) {
+            while (p.iceGatheringState() != PeerConnection.IceGatheringState.COMPLETE) delay(100)
+        }
+        return p.localDescription?.description ?: fallback
     }
 
     private var lastLost = 0L

@@ -53,7 +53,9 @@ class AccountSession(
     private val backend: Backend,
     store: AccountStore,
 ) {
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // Never let one failed background task kill the app: with the phone LOCKED, chat keys refuse to
+    // work (by design) — an unhandled "device locked" here used to crash Zura mid-call.
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + kotlinx.coroutines.CoroutineExceptionHandler { _, t -> DiagLog.record("background task", t) })
     val keys = store.keysFor(uid)
     private val dir = store.dir(uid)
     private val short = uid.replace("-", "").take(12)
@@ -168,7 +170,7 @@ class AccountSession(
             vault.deleteChat(probe); null
         }
         val cs = contacts.contacts.value
-        step("Contacts") { "${cs.size} contact(s)" }
+        step("Contacts: ${cs.size}") { if (cs.isEmpty()) "no contacts yet" else null }
         for (c in cs) {
             val n = c.profile.username
             step("@$n: encryption key") { if (contacts.peerKey(c.profile.id) != null) null else "not available (hasKey=${c.profile.identityKey != null})" }

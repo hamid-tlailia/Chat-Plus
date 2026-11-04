@@ -23,7 +23,7 @@ import java.io.File
  * live here; everything belonging to the signed-in account lives in [AccountSession].
  */
 class AppGraph(val app: Application) {
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + kotlinx.coroutines.CoroutineExceptionHandler { _, t -> DiagLog.record("background task", t) })
 
     val settings by lazy { SettingsStore(app.getSharedPreferences("zura", Context.MODE_PRIVATE)) }
     /** Notification tones, ringtones and vibration (global + per chat / person). */

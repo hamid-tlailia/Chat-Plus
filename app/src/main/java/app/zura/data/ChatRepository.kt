@@ -61,20 +61,23 @@ class ChatRepository(
     /** False only during the one-time build of the index (first start after the update) → skeletons. */
     val chatsLoaded = MutableStateFlow(true)
 
-    init {
-        // Chats missing from the index (older install): open them once in the background to fill it.
-        scope.launch(Dispatchers.IO) {
-            val missing = (vault.chatIds.value - MomentsRepository.STORE).filter { it !in vault.metaIndex.value }
-            if (missing.isNotEmpty()) {
-                chatsLoaded.value = false
-                // Several at once; newest chats first so the top of the list fills in quickly.
-                val ordered = missing.sortedByDescending { java.io.File(vault.paths.chatDir(it), "log.zl").lastModified() }
-                kotlinx.coroutines.coroutineScope {
-                    ordered.chunked(4).forEach { batch -> batch.map { id -> launch { runCatching { vault.chat(id) } } }.forEach { it.join() } }
-                }
-                chatsLoaded.value = true
-            }
+    init { scope.launch(Dispatchers.IO) { ensureIndex() } }
+
+    /**
+     * Chats missing from the index (older install, or the phone was locked at start): open them
+     * once in the background to fill it. Called at start and again after every unlock.
+     */
+    suspend fun ensureIndex() {
+        vault.retryIndex()
+        val missing = (vault.chatIds.value - MomentsRepository.STORE).filter { it !in vault.metaIndex.value }
+        if (missing.isEmpty()) { chatsLoaded.value = true; return }
+        chatsLoaded.value = false
+        // Several at once; newest chats first so the top of the list fills in quickly.
+        val ordered = missing.sortedByDescending { java.io.File(vault.paths.chatDir(it), "log.zl").lastModified() }
+        kotlinx.coroutines.coroutineScope {
+            ordered.chunked(4).forEach { batch -> batch.map { id -> launch { runCatching { vault.chat(id) } } }.forEach { it.join() } }
         }
+        chatsLoaded.value = true
     }
 
     fun messages(chatId: String): Flow<List<Message>> = flowOf(chatId).flatMapLatest { vault.chat(it).messages }.flowOn(Dispatchers.IO)

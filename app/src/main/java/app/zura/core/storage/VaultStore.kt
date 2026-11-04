@@ -51,6 +51,12 @@ class VaultStore(val paths: ZuraPaths, private val wrapper: KeyWrapper) {
     private val _index = kotlinx.coroutines.flow.MutableStateFlow(readIndex().orEmpty())
     val metaIndex: kotlinx.coroutines.flow.StateFlow<Map<String, ChatMeta>> = _index
 
+    /** Phone unlocked: read the index if it couldn't be read while locked. */
+    fun retryIndex() {
+        if (indexRead) return
+        synchronized(_index) { readIndex()?.let { disk -> _index.value = disk + _index.value } }
+    }
+
     private fun noteMeta(chatId: String, meta: ChatMeta) {
         if (_index.value[chatId] == meta) return
         synchronized(_index) {
