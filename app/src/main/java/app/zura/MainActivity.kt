@@ -24,6 +24,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -167,6 +170,8 @@ class MainActivity : ComponentActivity() {
                 NavHost(nav)
                 app.zura.push.CallReadinessPrompt()
             }
+            // Live walkie-talkie audio from a contact, wherever I am in the app.
+            if (!locked) app.zura.ui.chat.WalkieIndicator(Modifier.align(androidx.compose.ui.Alignment.TopCenter).statusBarsPadding().padding(top = 8.dp))
             // Calls ring and can be answered above the lock (like WhatsApp).
             CallScreen(session.calls)
         }

@@ -26,6 +26,9 @@ data class CallUi(
     val frontCamera: Boolean = true,
     val remoteVideoOn: Boolean = false,
     val remoteMuted: Boolean = false,
+    /** I'm sharing my screen / the other person is sharing theirs. */
+    val sharingScreen: Boolean = false,
+    val remoteScreen: Boolean = false,
     val connectedAt: Long? = null,
     val quality: NetQuality = NetQuality.UNKNOWN,
     val rttMs: Int? = null,

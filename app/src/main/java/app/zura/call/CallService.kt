@@ -42,10 +42,12 @@ class CallService : Service() {
         val type = if (Build.VERSION.SDK_INT >= 30) {
             var t = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             if (ui.video && ui.phase != CallPhase.INCOMING) t = t or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            if (ui.sharingScreen) t = t or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             t
         } else 0
         runCatching {
             if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, type) else startForeground(ID, n)
+            if (ui.sharingScreen) projectionReady = true
         }.onFailure {
             // Missing runtime permission (e.g. camera denied): fall back to a plain notification.
             getSystemService(NotificationManager::class.java).notify(ID, n)
@@ -55,6 +57,8 @@ class CallService : Service() {
 
     companion object {
         private const val ID = 7001
+        /** Set once the service runs with the mediaProjection type (required before screen capture). */
+        @Volatile var projectionReady = false
         private const val CH_INCOMING = "calls_incoming"
         private const val CH_ONGOING = "calls_ongoing"
         private const val CH_RING = "calls_ring"

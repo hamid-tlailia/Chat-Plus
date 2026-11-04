@@ -234,7 +234,10 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                 val hdrContacts by g.s.contacts.contacts.collectAsStateWithLifecycle()
                 val hdrBlockedMe by g.s.contacts.blockedMe.collectAsStateWithLifecycle()
                 val blockedEither = vm.peerId?.let { id -> id in hdrBlockedMe || hdrContacts.any { it.profile.id == id && it.blocked } } == true
+                var walkieOpen by remember { mutableStateOf(false) }
+                if (walkieOpen) WalkieSheet(vm, meta?.title.orEmpty()) { walkieOpen = false }
                 if (vm.peerId != null && !blockedEither) {
+                    IconButton(onClick = { haptics.tick(); walkieOpen = true }) { Text("📻", style = Zura.type.headline) }
                     IconButton(onClick = { haptics.tick(); callVideo(ctx) }) { Icon(app.zura.ui.ZuraIcons.VideoCam, stringResource(R.string.video_call), tint = Zura.colors.text) }
                     IconButton(onClick = { haptics.tick(); callVoice(ctx) }) { Icon(Icons.Default.Call, stringResource(R.string.voice_call), tint = Zura.colors.text) }
                 }

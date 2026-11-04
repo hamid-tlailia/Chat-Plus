@@ -34,6 +34,7 @@ import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
+import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpParameters
@@ -149,7 +150,7 @@ class CallManager(
         CallService.start(context, _ui.value)
         audio.startCallMode(speaker = video)
         audio.startRingback()
-        createPeer(video)
+        createPeer(video, outgoing = true)
         val offer = pc!!.awaitCreate(offer = true, iceRestart = false)
         pc!!.awaitSetLocal(offer)
         val frame = Frame.CallOffer(callId, me, video, offer.description)
@@ -195,8 +196,15 @@ class CallManager(
         _ui.update { it.copy(phase = CallPhase.CONNECTING, speaker = offer.video) }
         CallService.start(context, _ui.value)
         audio.startCallMode(speaker = offer.video)
-        createPeer(offer.video)
+        createPeer(offer.video, outgoing = false)
         applyRemote(SessionDescription(SessionDescription.Type.OFFER, offer.sdp))
+        if (!offer.video) {
+            // Voice call: the caller offered an idle video slot — make it two-way so I can share my screen too.
+            pc!!.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.let {
+                it.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV
+                videoSender = it.sender
+            }
+        }
         val answer = pc!!.awaitCreate(offer = false, iceRestart = false)
         pc!!.awaitSetLocal(answer)
         transport.signal(offer.from, Frame.CallAnswer(offer.callId, me, answer.description))
@@ -323,6 +331,7 @@ class CallManager(
             }
             is Frame.CallRestartRequest -> if (f.callId == s.callId && s.outgoing) restartIce()
             is Frame.CallMedia -> if (f.callId == s.callId && from == s.peerId) {
+                _ui.update { it.copy(remoteScreen = f.screen) }
                 // Sent by the callee the moment they tap Accept.
                 if (s.phase == CallPhase.OUTGOING || s.phase == CallPhase.RINGING) {
                     audio.stopTones()
@@ -344,7 +353,7 @@ class CallManager(
 
     // ================================================================= peer connection
 
-    private suspend fun createPeer(video: Boolean) {
+    private suspend fun createPeer(video: Boolean, outgoing: Boolean) {
         val ice = iceServers()
         val config = PeerConnection.RTCConfiguration(ice).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -358,6 +367,13 @@ class CallManager(
         audioSource = factory.createAudioSource(MediaConstraints())
         audioTrack = factory.createAudioTrack("a0", audioSource).also { pc!!.addTrack(it, listOf("s0")) }
         if (video) startCamera()
+        else if (outgoing) {
+            // An idle two-way video slot in voice calls: screen sharing can start later without renegotiation.
+            videoSender = pc!!.addTransceiver(
+                MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
+                RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV, listOf("s0")),
+            ).sender
+        }
         remoteSet = false
     }
 
@@ -539,7 +555,7 @@ class CallManager(
     private suspend fun announceMedia() {
         val s = _ui.value
         val peer = s.peerId ?: return
-        transport.signal(peer, Frame.CallMedia(s.callId ?: return, me, s.cameraOn, s.muted))
+        transport.signal(peer, Frame.CallMedia(s.callId ?: return, me, s.cameraOn && !s.sharingScreen, s.muted, s.sharingScreen))
     }
 
     // ================================================================= teardown
@@ -572,7 +588,79 @@ class CallManager(
         scope.launch(rtc) { delay(1_600); if (_ui.value.phase == CallPhase.ENDED && _ui.value.callId == s.callId) _ui.value = CallUi(net = network.type.value) }
     }
 
+    // ================================================================= screen sharing
+
+    private var screenCapturer: org.webrtc.ScreenCapturerAndroid? = null
+    private var screenHelper: SurfaceTextureHelper? = null
+    private var screenSource: VideoSource? = null
+    private var screenTrack: VideoTrack? = null
+
+    /** [permission] = the result Intent of the system "start recording / casting" consent screen. */
+    fun startScreenShare(permission: android.content.Intent) = scope.launch(rtc) {
+        val s = _ui.value
+        val sender = videoSender ?: return@launch
+        if (!s.inCall || s.sharingScreen) return@launch
+        // Android 14: a mediaProjection foreground service must be running before capture starts.
+        _ui.update { it.copy(sharingScreen = true) }
+        CallService.projectionReady = false
+        CallService.start(context, _ui.value)
+        val ready = kotlinx.coroutines.withTimeoutOrNull(3_000) { while (!CallService.projectionReady) delay(50); true } == true
+        if (!ready && android.os.Build.VERSION.SDK_INT >= 34) { _ui.update { it.copy(sharingScreen = false) }; return@launch }
+        runCatching {
+            runCatching { capturer?.stopCapture() } // camera rests while the screen is shown
+            val dm = context.resources.displayMetrics
+            val scale = 1280f / maxOf(dm.widthPixels, dm.heightPixels)
+            val w = (dm.widthPixels * minOf(1f, scale)).toInt() / 2 * 2
+            val h = (dm.heightPixels * minOf(1f, scale)).toInt() / 2 * 2
+            val cap = org.webrtc.ScreenCapturerAndroid(permission, object : android.media.projection.MediaProjection.Callback() {
+                override fun onStop() { stopScreenShare() }
+            })
+            val helper = SurfaceTextureHelper.create("zura-screen", egl.eglBaseContext)
+            val src = factory.createVideoSource(true)
+            cap.initialize(helper, context, src.capturerObserver)
+            cap.startCapture(w, h, 15)
+            val track = factory.createVideoTrack("screen0", src)
+            sender.setTrack(track, false)
+            sender.parameters = sender.parameters.apply {
+                degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+                encodings.firstOrNull()?.maxBitrateBps = 1_200_000
+            }
+            screenCapturer = cap; screenHelper = helper; screenSource = src; screenTrack = track
+            announceMedia()
+        }.onFailure {
+            app.zura.DiagLog.record("screen share", it)
+            stopScreenShareNow()
+        }
+    }
+
+    fun stopScreenShare() = scope.launch(rtc) { stopScreenShareNow() }
+
+    private suspend fun stopScreenShareNow() {
+        disposeScreen()
+        val s = _ui.value
+        // Back to the camera (video call with camera on) or to an idle slot.
+        videoSender?.setTrack(if (s.video) _local.value else null, false)
+        videoSender?.let { sd ->
+            sd.parameters = sd.parameters.apply {
+                degradationPreference = RtpParameters.DegradationPreference.BALANCED
+                encodings.firstOrNull()?.maxBitrateBps = 1_500_000
+            }
+        }
+        if (s.video && s.cameraOn) runCatching { capturer?.startCapture(1280, 720, 30) }
+        _ui.update { it.copy(sharingScreen = false) }
+        if (s.inCall) { CallService.start(context, _ui.value); announceMedia() }
+    }
+
+    private fun disposeScreen() {
+        runCatching { screenCapturer?.stopCapture() }
+        screenCapturer?.dispose(); screenCapturer = null
+        screenTrack?.dispose(); screenTrack = null
+        screenSource?.dispose(); screenSource = null
+        screenHelper?.dispose(); screenHelper = null
+    }
+
     private fun release() {
+        disposeScreen()
         runCatching { capturer?.stopCapture() }
         capturer?.dispose(); capturer = null
         surfaceHelper?.dispose(); surfaceHelper = null

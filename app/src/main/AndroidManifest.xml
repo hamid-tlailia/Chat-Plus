@@ -16,6 +16,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- Lets the user exempt Zura from battery optimisation so calls wake the phone reliably. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -101,7 +102,7 @@
         <service
             android:name=".call.CallService"
             android:exported="false"
-            android:foregroundServiceType="microphone|camera" />
+            android:foregroundServiceType="microphone|camera|mediaProjection" />
 
         <!-- Exposes decrypted media to other apps only through short-lived, explicit grants. -->
         <provider

@@ -329,4 +329,14 @@
     <string name="theme_applied">تم تطبيق الثيم</string>
     <string name="theme_bad_file">تعذّرت قراءة ملف الثيم</string>
     <string name="edit_studio">فتح استوديو الثيمات</string>
+    <string name="share_screen">مشاركة الشاشة</string>
+    <string name="stop_sharing">إيقاف المشاركة</string>
+    <string name="you_are_sharing">أنت تشارك شاشتك</string>
+    <string name="peer_sharing">يشارك شاشته</string>
+    <string name="walkie">اضغط وتحدث</string>
+    <string name="walkie_hold">اضغط مطوّلاً للتحدث</string>
+    <string name="walkie_live">مباشر — يسمعك أثناء كلامك</string>
+    <string name="walkie_offline">ليس في التطبيق الآن — الضغط يسجّل رسالة صوتية بدلاً من ذلك</string>
+    <string name="walkie_talking">%1$s يتحدث…</string>
+    <string name="walkie_you">تتحدث…</string>
 </resources>

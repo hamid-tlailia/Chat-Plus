@@ -57,6 +57,10 @@ sealed interface Frame {
     @Serializable @SerialName("react")
     data class React(val chatId: String, val from: String, val id: String, val emoji: String?) : Frame
 
+    /** Walkie-talkie: 250 ms of μ-law audio (base64), streamed live; [end] closes the burst. */
+    @Serializable @SerialName("walkie")
+    data class Walkie(val chatId: String, val from: String, val seq: Int, val audio: String, val end: Boolean = false) : Frame
+
     /** "I blocked / unblocked you" — so the other side can show it instead of failing silently. */
     @Serializable @SerialName("block")
     data class Block(val from: String, val blocked: Boolean) : Frame
@@ -98,7 +102,7 @@ sealed interface Frame {
     data class CallEnd(val callId: String, val from: String, val reason: String) : Frame
 
     @Serializable @SerialName("call_media")
-    data class CallMedia(val callId: String, val from: String, val videoOn: Boolean, val muted: Boolean) : Frame
+    data class CallMedia(val callId: String, val from: String, val videoOn: Boolean, val muted: Boolean, val screen: Boolean = false) : Frame
 }
 
 val WireJson = Json {

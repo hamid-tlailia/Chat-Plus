@@ -91,7 +91,9 @@ fun CallScreen(calls: CallManager) {
     val remote by calls.remoteVideo.collectAsStateWithLifecycle()
     val local by calls.localVideo.collectAsStateWithLifecycle()
     val haptics = rememberHaptics()
-    val showRemoteVideo = s.video && remote != null && s.remoteVideoOn && s.phase in setOf(CallPhase.ACTIVE, CallPhase.RECONNECTING)
+    val live = s.phase in setOf(CallPhase.ACTIVE, CallPhase.RECONNECTING)
+    // Their camera (video calls) or their shared screen (any call).
+    val showRemoteVideo = remote != null && live && ((s.video && s.remoteVideoOn) || s.remoteScreen)
 
     LaunchedEffect(s.phase) { if (s.phase == CallPhase.ENDED) { haptics.reject(); delay(1_600); calls.dismiss() } }
 
@@ -100,7 +102,7 @@ fun CallScreen(calls: CallManager) {
     androidx.compose.runtime.CompositionLocalProvider(LocalCallFg provides fg, LocalOverVideo provides showRemoteVideo) {
     Box(Modifier.fillMaxSize().background(if (showRemoteVideo) Color.Black else Zura.colors.bg)) {
         if (showRemoteVideo) {
-            Video(calls, remote!!, mirror = false, Modifier.fillMaxSize())
+            Video(calls, remote!!, mirror = false, Modifier.fillMaxSize(), fit = s.remoteScreen)
             // Soft dark scrims top and bottom: the name, timer and buttons stay legible over bright video.
             Box(Modifier.fillMaxWidth().height(200.dp).align(Alignment.TopCenter).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent))))
             Box(Modifier.fillMaxWidth().height(220.dp).align(Alignment.BottomCenter).background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))))
@@ -129,7 +131,15 @@ fun CallScreen(calls: CallManager) {
         }
 
         // Self-view (draggable, snaps to the nearest corner with a spring)
-        if (s.video && s.cameraOn && local != null && s.phase != CallPhase.ENDED) SelfView(calls, local!!, s.frontCamera)
+        if (s.video && s.cameraOn && !s.sharingScreen && local != null && s.phase != CallPhase.ENDED) SelfView(calls, local!!, s.frontCamera)
+        if (s.sharingScreen || (s.remoteScreen && showRemoteVideo)) {
+            Text(
+                stringResource(if (s.sharingScreen) R.string.you_are_sharing else R.string.peer_sharing),
+                style = Zura.type.caption, color = Color.White,
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 110.dp)
+                    .clip(CircleShape).background(Color(0xFFE5484D).copy(alpha = 0.85f)).padding(horizontal = 12.dp, vertical = 5.dp),
+            )
+        }
 
         // Controls
         Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)) {
@@ -227,6 +237,16 @@ private fun ActiveControls(calls: CallManager, s: CallUi) {
             RoundButton(ZuraIcons.Speaker, stringResource(R.string.speaker), active = s.speaker) { haptics.tick(); calls.toggleSpeaker() }
         }
         RoundButton(ZuraIcons.MicOff, stringResource(R.string.mute), active = s.muted) { haptics.tick(); calls.toggleMute() }
+        // Screen sharing: the system asks for consent every time (Android rule).
+        val ctx = LocalContext.current
+        val consent = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { r ->
+            if (r.resultCode == android.app.Activity.RESULT_OK && r.data != null) calls.startScreenShare(r.data!!)
+        }
+        if (s.phase == CallPhase.ACTIVE || s.sharingScreen) RoundButton(ZuraIcons.ScreenShare, stringResource(if (s.sharingScreen) R.string.stop_sharing else R.string.share_screen), active = s.sharingScreen) {
+            haptics.tick()
+            if (s.sharingScreen) calls.stopScreenShare()
+            else runCatching { consent.launch(ctx.getSystemService(android.media.projection.MediaProjectionManager::class.java).createScreenCaptureIntent()) }
+        }
         RoundButton(ZuraIcons.CallEnd, stringResource(R.string.end_call), active = false, danger = true) { haptics.reject(); calls.hangup() }
     }
 }
@@ -287,7 +307,7 @@ private fun Pulse(active: Boolean, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Video(calls: CallManager, track: VideoTrack, mirror: Boolean, modifier: Modifier, overlay: Boolean = false) {
+private fun Video(calls: CallManager, track: VideoTrack, mirror: Boolean, modifier: Modifier, overlay: Boolean = false, fit: Boolean = false) {
     val ctx = LocalContext.current
     val view = remember {
         SurfaceViewRenderer(ctx).apply {
@@ -303,6 +323,8 @@ private fun Video(calls: CallManager, track: VideoTrack, mirror: Boolean, modifi
     }
     DisposableEffect(Unit) { onDispose { view.release() } }
     view.setMirror(mirror)
+    // A shared screen is shown whole (no cropping); cameras fill the screen.
+    view.setScalingType(if (fit) RendererCommon.ScalingType.SCALE_ASPECT_FIT else RendererCommon.ScalingType.SCALE_ASPECT_FILL)
     AndroidView({ view }, modifier)
 }
 

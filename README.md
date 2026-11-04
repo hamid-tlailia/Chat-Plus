@@ -18,6 +18,25 @@ See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full blueprint: sta
 ./gradlew :app:assembleRelease
 ```
 
+## Privacy & power features (0.9)
+
+- **Stealth mode** — hide read receipts, "typing…", online / last seen; or go invisible to one
+  contact (ghost mode). Fair play: what you hide, you don't see. Last seen travels end-to-end
+  encrypted per contact; the server no longer stores it.
+- **Disappearing messages** — per chat: after reading, 1 h, 24 h or 7 days. Expired messages are
+  crypto-shredded on both phones; screenshots are blocked while such a chat is open.
+- **Locked chats** — fingerprint / face / phone PIN to open; hidden behind "Locked chats";
+  notifications never show who or what.
+- **Media & files vault** — every stored photo, video, audio and file; filter, sort by size or
+  date, wipe in bulk.
+- **Sounds & vibration** — message tone, ringtone and vibration pattern globally or per chat.
+- **Translation** — any message, on the phone (ML Kit; each language model downloads once).
+- **Theme Studio** — colours, bubble roundness, your own font and chat wallpaper; share as a
+  `.zuratheme` file that friends apply with one tap.
+- **Screen sharing** in voice and video calls.
+- **Walkie-talkie** — hold to talk live when the other person is in the app (8 kHz μ-law chunks,
+  sealed E2EE over realtime); otherwise the same gesture sends a voice note.
+
 ## Enable push (calls & messages while the app is closed)
 
 1. [Firebase console](https://console.firebase.google.com) → **Add project** → add an **Android app** with package name `app.zura`.

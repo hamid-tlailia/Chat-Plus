@@ -329,4 +329,14 @@
     <string name="theme_applied">Theme applied</string>
     <string name="theme_bad_file">Couldn\'t read this theme file</string>
     <string name="edit_studio">Open Theme Studio</string>
+    <string name="share_screen">Share screen</string>
+    <string name="stop_sharing">Stop sharing</string>
+    <string name="you_are_sharing">You\'re sharing your screen</string>
+    <string name="peer_sharing">Sharing their screen</string>
+    <string name="walkie">Walkie-talkie</string>
+    <string name="walkie_hold">Hold to talk</string>
+    <string name="walkie_live">Live — they hear you as you speak</string>
+    <string name="walkie_offline">They\'re not in the app — holding records a voice note instead</string>
+    <string name="walkie_talking">%1$s is talking…</string>
+    <string name="walkie_you">Talking…</string>
 </resources>

@@ -4,6 +4,7 @@ import android.app.Application
 import app.zura.BuildConfig
 import app.zura.DiagLog
 import app.zura.call.CallManager
+import app.zura.call.Walkie
 import app.zura.core.crypto.E2EE
 import app.zura.core.model.ChatMeta
 import app.zura.push.MessageNotifier
@@ -62,6 +63,7 @@ class AccountSession(
     val privacy = Privacy(app.getSharedPreferences("zura_priv_$short", android.content.Context.MODE_PRIVATE))
     val chats = ChatRepository(vault, transport, backend, uid, scope, privacy)
     val moments = MomentsRepository(vault, chats, transport, backend, uid, { contactIds() }, scope, nameOf = { contacts.profile(it)?.displayName })
+    val walkie by lazy { Walkie(transport, uid, scope) }
     val calls by lazy { CallManager(app, transport, contacts, chats, backend, uid, scope) }
 
     val images by lazy { VaultImages(vault) }
@@ -82,6 +84,8 @@ class AccountSession(
             when (f) {
                 is Frame.MomentPost -> moments.handle(from, f)
                 is Frame.Block -> if (f.from == from) contacts.markBlockedMe(from, f.blocked)
+                // Live voice only from accepted, unblocked contacts.
+                is Frame.Walkie -> if (f.from == from && contacts.contacts.value.any { it.profile.id == from } && !contacts.isBlocked(from)) walkie.onFrame(from, f)
                 is Frame.CallOffer, is Frame.CallAnswer, is Frame.CallIce, is Frame.CallEnd,
                 is Frame.CallRinging, is Frame.CallRestartRequest, is Frame.CallMedia -> calls.handle(from, f)
                 else -> try {
@@ -212,6 +216,7 @@ class AccountSession(
         chats.lockedRevealed.value = false // locked chats close again
         transport.stop()
         playback.release()
+        walkie.release()
     }
 
     fun close() {
