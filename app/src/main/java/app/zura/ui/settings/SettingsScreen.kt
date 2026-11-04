@@ -97,29 +97,10 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}, onVault: () -
                     }
                 }
             }
-            // Theme Studio: my own theme (tap = apply if designed, otherwise open the editor).
-            val custom by g.settings.customTheme.collectAsStateWithLifecycle()
-            val useCustom by g.settings.useCustom.collectAsStateWithLifecycle()
-            Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                custom?.let { ct ->
-                    val cp = ct.palette()
-                    Box(
-                        Modifier.size(54.dp).clip(RoundedCornerShape(14.dp)).background(Brush.verticalGradient(listOf(cp.bgAccent, cp.bg)))
-                            .border(if (useCustom) 2.dp else 0.dp, c.accent, RoundedCornerShape(14.dp))
-                            .clickable { haptics.tick(); g.settings.setUseCustom(true) }.padding(6.dp),
-                    ) {
-                        Box(Modifier.align(Alignment.BottomEnd).width(26.dp).height(9.dp).clip(CircleShape).background(Brush.linearGradient(listOf(cp.bubbleMine, cp.bubbleMineAlt))))
-                        Box(Modifier.align(Alignment.TopStart).width(22.dp).height(9.dp).clip(CircleShape).background(cp.bubbleTheirs))
-                    }
-                }
-                Text(
-                    "✨ " + stringResource(R.string.edit_studio) + " →", style = Zura.type.label, color = c.accent,
-                    modifier = Modifier.weight(1f).clickable(onClick = onStudio).padding(vertical = 10.dp),
-                )
-            }
+
         }
 
-        Section(R.string.chat_colors) { BubblePicker() }
+        Section(R.string.chat_colors) { BubblePicker(onStudio) }
 
         Section(R.string.language) {
             val current = LocaleEngine.current(ctx)
@@ -304,23 +285,45 @@ private fun AccountCard() {
 
 /** Message colour presets: each swatch shows "my" bubble over "their" bubble, in the current theme. */
 @Composable
-private fun BubblePicker() {
+private fun BubblePicker(onStudio: () -> Unit) {
     val g = LocalContext.current.graph
     val c = Zura.colors
     val haptics = rememberHaptics()
     val current by g.settings.bubbles.collectAsStateWithLifecycle()
     val theme by g.settings.theme.collectAsStateWithLifecycle()
+    val custom by g.settings.customTheme.collectAsStateWithLifecycle()
+    val useCustom by g.settings.useCustom.collectAsStateWithLifecycle()
     val base = ZuraPalettes.of(theme)
     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // My own chat style from the studio (tap = use it; the editor is below).
+        custom?.let { ct ->
+            item {
+                val p = ct.applyTo(base)
+                val ring by animateDpAsState(if (useCustom) 2.dp else 0.dp, label = "custom")
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        Modifier.size(64.dp, 76.dp).clip(RoundedCornerShape(16.dp)).background(base.bg)
+                            .border(ring, c.accent, RoundedCornerShape(16.dp))
+                            .clickable { haptics.tick(); g.settings.setUseCustom(true) }.padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(Modifier.size(34.dp, 14.dp).clip(RoundedCornerShape(ct.radius.dp)).background(p.bubbleTheirs))
+                        Box(Modifier.align(Alignment.End).size(38.dp, 14.dp).clip(RoundedCornerShape(ct.radius.dp)).background(Brush.linearGradient(listOf(p.bubbleMine, p.bubbleMineAlt))))
+                        Box(Modifier.size(26.dp, 14.dp).clip(RoundedCornerShape(ct.radius.dp)).background(p.bubbleTheirs))
+                    }
+                    Text(ct.name.ifBlank { "✨" }, style = Zura.type.caption, color = if (useCustom) c.text else c.textMuted, maxLines = 1, modifier = Modifier.padding(top = 6.dp).width(64.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
+        }
         items(app.zura.ui.theme.BubbleStyle.entries.size) { i ->
             val style = app.zura.ui.theme.BubbleStyle.entries[i]
             val p = style.applyTo(base)
-            val ring by animateDpAsState(if (style == current) 2.dp else 0.dp, label = "bubble")
+            val ring by animateDpAsState(if (style == current && !useCustom) 2.dp else 0.dp, label = "bubble")
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Column(
                     Modifier.size(64.dp, 76.dp).clip(RoundedCornerShape(16.dp)).background(base.bg)
                         .border(ring, c.accent, RoundedCornerShape(16.dp))
-                        .clickable { haptics.tick(); g.settings.setBubbles(style) }
+                        .clickable { haptics.tick(); g.settings.setUseCustom(false); g.settings.setBubbles(style) }
                         .padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -335,6 +338,10 @@ private fun BubblePicker() {
             }
         }
     }
+    Text(
+        "✨ " + androidx.compose.ui.res.stringResource(R.string.edit_studio) + " →", style = Zura.type.label, color = c.accent,
+        modifier = Modifier.padding(top = 14.dp).clickable(onClick = onStudio).padding(vertical = 6.dp),
+    )
 }
 
 private fun bubbleName(s: app.zura.ui.theme.BubbleStyle) = when (s) {

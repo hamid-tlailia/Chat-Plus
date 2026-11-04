@@ -90,6 +90,8 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
     val online by g.s.transport.online.collectAsStateWithLifecycle()
     val typing by g.chats.typingChats.collectAsStateWithLifecycle(emptySet())
     val revealed by g.chats.lockedRevealed.collectAsStateWithLifecycle()
+    val chatsLoaded by g.chats.chatsLoaded.collectAsStateWithLifecycle()
+    val skeleton = app.zura.ui.components.shimmerBrush()
     val deviceAuth = app.zura.security.rememberDeviceAuth()
 
     val pickMoment = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -145,6 +147,8 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
                     Text(if (revealed) "▲" else fmt.count(lockedCount), style = Zura.type.label, color = Zura.colors.textMuted)
                 }
             }
+            // One-time index build after an update: elegant placeholders instead of an empty list.
+            if (!chatsLoaded && chats.isEmpty()) items(6, key = { "sk$it" }) { app.zura.ui.components.SkeletonRow(skeleton) }
             items(chats.filter { !it.locked || revealed }, key = { it.id }, contentType = { "chat" }) { c ->
                 ChatRow(
                     c, fmt, typing = c.id in typing,

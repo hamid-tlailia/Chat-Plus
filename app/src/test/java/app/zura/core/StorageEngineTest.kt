@@ -86,6 +86,24 @@ class StorageEngineTest {
         assertEquals("Sara", reopened.meta.value?.title)
     }
 
+    @Test fun chatListIndexIsEncryptedSurvivesRestartWithoutOpeningLogsAndForgetsDeletedChats() = runBlocking {
+        val (v, w) = vault()
+        v.createChat(ChatMeta("c1", "Sara", listOf("u2"), 1L, preview = "secret-preview"))
+        v.createChat(ChatMeta("c2", "Omar", listOf("u3"), 2L))
+        assertEquals(setOf("c1", "c2"), v.metaIndex.value.keys)
+
+        val raw = File(tmp.root, "files/zura/index.zs").readBytes().decodeToString()
+        assertFalse(raw.contains("secret-preview")) // encrypted at rest
+
+        val (v2, _) = vault(w) // fresh process: the list is known before any chat log is opened
+        assertEquals("Sara", v2.metaIndex.value["c1"]?.title)
+        assertEquals("secret-preview", v2.metaIndex.value["c1"]?.preview)
+
+        v2.deleteChat("c2")
+        val (v3, _) = vault(w)
+        assertEquals(setOf("c1"), v3.metaIndex.value.keys)
+    }
+
     @Test fun purgeRotatesKeyDeletesMediaAndOldKeyIsDestroyed() = runBlocking {
         val (v, w) = vault()
         val store = v.chat("c1")

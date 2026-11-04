@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Notification / themed-icon glyph: the Z alone (status-bar icons use only the alpha). -->
+<!-- Status-bar / notification glyph on the standard 24dp grid: a bold Z filling the icon area
+     (the old one reused the 108dp launcher canvas and showed up tiny). Only the alpha is used. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp" android:height="108dp"
-    android:viewportWidth="108" android:viewportHeight="108">
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
     <path android:fillColor="#FFFFFFFF"
-        android:pathData="M38,40h32v5.5L46.5,65h23.5v5.5H38V65l23.5,-19.5H38z" />
+        android:pathData="M3,3h18v3.4L9.2,17.6H21V21H3v-3.4L14.8,6.4H3z" />
 </vector>

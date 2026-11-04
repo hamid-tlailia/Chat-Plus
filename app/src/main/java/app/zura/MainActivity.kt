@@ -96,13 +96,14 @@ class MainActivity : ComponentActivity() {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         val g = graph
-        val dark = g.settings.customTheme.value?.takeIf { g.settings.useCustom.value }?.dark ?: ZuraPalettes.of(g.settings.theme.value).isDark
+        val dark = ZuraPalettes.of(g.settings.theme.value).isDark
         enableEdgeToEdge(
             statusBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
             navigationBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
         )
         super.onCreate(savedInstanceState)
         deepLink.value = intent.getStringExtra(EXTRA_CHAT)
+        deepLink.value?.let(::prewarm)
         handleAuthLink(intent)
 
         // Block screenshots / screen recording when asked. With app lock on, also keep chats out of
@@ -136,6 +137,15 @@ class MainActivity : ComponentActivity() {
             val wall by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, active != null, files) {
                 value = if (active == null) null else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     app.zura.ui.theme.CustomTheme.wallFile(ctx).takeIf { it.exists() }?.let { android.graphics.BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() }
+                }
+            }
+            // Status / navigation bar icons follow the theme live (dark theme → light icons).
+            val view = androidx.compose.ui.platform.LocalView.current
+            val isDark = ZuraPalettes.of(theme).isDark
+            androidx.compose.runtime.LaunchedEffect(isDark) {
+                androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !isDark
+                    isAppearanceLightNavigationBars = !isDark
                 }
             }
             ZuraTheme(theme, bubbles, active, font, wall) {
@@ -180,6 +190,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Opened from a message notification: decrypt that chat now, while the lock / splash is showing. */
+    private fun prewarm(chatId: String) {
+        val s = (graph.accounts.state.value as? AuthState.SignedIn)?.session ?: return
+        s.scope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { if (s.vault.exists(chatId)) s.vault.chat(chatId) } }
+    }
+
     private fun showOverLock(on: Boolean) {
         if (android.os.Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(on); setTurnScreenOn(on) }
         else {
@@ -198,7 +214,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        intent.getStringExtra(EXTRA_CHAT)?.let { deepLink.value = it }
+        intent.getStringExtra(EXTRA_CHAT)?.let { deepLink.value = it; prewarm(it) }
         handleAuthLink(intent)
     }
 

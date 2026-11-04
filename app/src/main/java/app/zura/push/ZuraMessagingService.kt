@@ -28,7 +28,9 @@ class ZuraMessagingService : FirebaseMessagingService() {
         val data = msg.data
         val kind = data["t"] ?: return
         val from = data["f"] ?: return
-        runBlocking {
+        // A call: start ringing immediately — before opening the account or touching the network.
+        if (kind == "call") app.zura.call.CallService.preRing(this)
+        try { runBlocking {
             // Cold start: AccountManager resumes the remembered account on its own; wait for it.
             val session = withTimeoutOrNull(7_000) {
                 (graph.accounts.state.first { it is AuthState.SignedIn } as AuthState.SignedIn).session
@@ -52,6 +54,11 @@ class ZuraMessagingService : FirebaseMessagingService() {
                     session.calls.onPushInvite(invite)
                 }
                 "call_end" -> data["c"]?.let { session.calls.onPushCancelled(it, from) }
+            }
+        } } finally {
+            // Call push that didn't become a call (blocked, expired, account not ready): silence it.
+            if (kind == "call" && graph.accounts.state.value.let { (it as? AuthState.SignedIn)?.session?.calls?.ui?.value?.inCall } != true) {
+                app.zura.call.CallService.cancelPreRing(this)
             }
         }
     }

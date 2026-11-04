@@ -52,18 +52,26 @@ class ChatRepository(
 ) {
     // ------------------------------------------------------------------ chat list
 
-    val chats: StateFlow<List<ChatMeta>> = vault.chatIds
-        .flatMapLatest { ids ->
-            val visible = ids - MomentsRepository.STORE
-            if (visible.isEmpty()) flowOf(emptyList())
-            else combine(visible.map { vault.chat(it).meta }) { metas ->
-                metas.filterNotNull().sortedWith(compareByDescending<ChatMeta> { it.pinned }.thenByDescending { it.updatedAt })
+    /** Chat list straight from the vault's encrypted index: no chat history is decrypted for it. */
+    val chats: StateFlow<List<ChatMeta>> = combine(vault.chatIds, vault.metaIndex) { ids, index ->
+        (ids - MomentsRepository.STORE).mapNotNull { index[it] }
+            .sortedWith(compareByDescending<ChatMeta> { it.pinned }.thenByDescending { it.updatedAt })
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** False only during the one-time build of the index (first start after the update) → skeletons. */
+    val chatsLoaded = MutableStateFlow(true)
+
+    init {
+        // Chats missing from the index (older install): open them once in the background to fill it.
+        scope.launch(Dispatchers.IO) {
+            val missing = (vault.chatIds.value - MomentsRepository.STORE).filter { it !in vault.metaIndex.value }
+            if (missing.isNotEmpty()) {
+                chatsLoaded.value = vault.metaIndex.value.isNotEmpty()
+                missing.forEach { id -> runCatching { vault.chat(id) } }
+                chatsLoaded.value = true
             }
         }
-        .flowOn(Dispatchers.IO)
-        // A chat key can be temporarily unusable (phone locked); retry instead of crashing.
-        .retryWhen { _, _ -> delay(3_000); true }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+    }
 
     fun messages(chatId: String): Flow<List<Message>> = flowOf(chatId).flatMapLatest { vault.chat(it).messages }.flowOn(Dispatchers.IO)
     fun meta(chatId: String): Flow<ChatMeta?> = flowOf(chatId).flatMapLatest { vault.chat(it).meta }.flowOn(Dispatchers.IO)

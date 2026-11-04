@@ -15,6 +15,7 @@ import androidx.core.app.Person
 import androidx.core.content.ContextCompat
 import app.zura.MainActivity
 import app.zura.R
+import kotlinx.coroutines.launch
 import app.zura.graph
 
 /**
@@ -31,17 +32,43 @@ class CallService : Service() {
 
     override fun onDestroy() { runningType = null; super.onDestroy() }
 
+    /** The signed-in account, read straight from the auth state (no derived flow that may lag). */
+    private fun activeSession() = (graph.accounts.state.value as? app.zura.account.AuthState.SignedIn)?.session
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val session = graph.session.value
+        val session = activeSession()
         when (intent?.action) {
-            ACTION_HANGUP -> { session?.calls?.hangup(); return START_NOT_STICKY }
-            ACTION_DECLINE -> { session?.calls?.decline(); return START_NOT_STICKY }
-            ACTION_ANSWER -> {
-                session?.calls?.accept()
-                startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            ACTION_PRE_RING -> if (session?.calls?.ui?.value?.inCall != true) { preRing(); return START_NOT_STICKY }
+            ACTION_CANCEL_PRE -> if (session?.calls?.ui?.value?.inCall != true) {
+                preRingUntil = 0
+                runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+                getSystemService(NotificationManager::class.java).cancel(ID)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_HANGUP, ACTION_DECLINE, ACTION_ANSWER -> {
+                val action = intent.action
+                if (action == ACTION_ANSWER) startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                // A freshly woken app may still be opening the account / decrypting the invite:
+                // wait a moment for the call instead of ignoring the tap.
+                graph.scope.launch {
+                    val calls = kotlinx.coroutines.withTimeoutOrNull(8_000) {
+                        var c = activeSession()?.calls
+                        while (c == null || !c.ui.value.inCall) { kotlinx.coroutines.delay(100); c = activeSession()?.calls }
+                        c
+                    }
+                    when (action) {
+                        ACTION_HANGUP -> calls?.hangup()
+                        ACTION_DECLINE -> calls?.decline()
+                        else -> calls?.accept()
+                    }
+                    if (calls == null) clearStale(this@CallService, false)
+                }
+                return START_NOT_STICKY
             }
         }
         val ui = session?.calls?.ui?.value
+        if ((ui == null || !ui.inCall) && System.currentTimeMillis() < preRingUntil) return START_NOT_STICKY // provisional ring still up
         if (ui == null || !ui.inCall) {
             // No call any more (ended, or the process was restarted and lost it): never leave a
             // dead ringing notification behind.
@@ -86,8 +113,46 @@ class CallService : Service() {
         return START_NOT_STICKY
     }
 
+    /**
+     * Ring NOW, before anything else: a call push woke a killed app. Android allows starting this
+     * only shortly after the push — opening the account and decrypting the invite come after.
+     * Replaced by the real call notification within a second; gone after 20 s if no call shows up.
+     */
+    private fun preRing() {
+        preRingUntil = System.currentTimeMillis() + 20_000
+        val n = build(this, CallUi(phase = CallPhase.INCOMING, peerName = "Zura"))
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL else 0)
+            else startForeground(ID, n)
+            runningType = if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL else 0
+        }.onFailure { app.zura.DiagLog.record("pre-ring", it) }
+        android.os.Handler(mainLooper).postDelayed({
+            if (activeSession()?.calls?.ui?.value?.inCall != true) {
+                preRingUntil = 0
+                runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+                getSystemService(NotificationManager::class.java).cancel(ID)
+                stopSelf()
+            }
+        }, 20_000)
+    }
+
     companion object {
         private const val ID = 7001
+        const val ACTION_PRE_RING = "zura.call.PRE_RING"
+        const val ACTION_CANCEL_PRE = "zura.call.CANCEL_PRE"
+
+        /** The pushed call turned out invalid (blocked, expired, undecryptable): stop the provisional ring. */
+        fun cancelPreRing(context: Context) {
+            if (preRingUntil == 0L) return
+            runCatching { context.startService(Intent(context, CallService::class.java).setAction(ACTION_CANCEL_PRE)) }
+        }
+        /** While a provisional ring is up, "no call yet" is expected — don't clear it. */
+        @Volatile var preRingUntil = 0L
+
+        fun preRing(context: Context) {
+            runCatching { ContextCompat.startForegroundService(context, Intent(context, CallService::class.java).setAction(ACTION_PRE_RING)) }
+                .onFailure { app.zura.DiagLog.record("pre-ring start", it) }
+        }
         /** Set once the service runs with the mediaProjection type (required before screen capture). */
         @Volatile var projectionReady = false
         private const val CH_INCOMING = "calls_incoming"
@@ -107,7 +172,7 @@ class CallService : Service() {
 
         /** App opened with no call in progress: remove a ringing notification a killed process left behind. */
         fun clearStale(context: Context, inCall: Boolean) {
-            if (!inCall) runCatching { context.getSystemService(NotificationManager::class.java).cancel(ID) }
+            if (!inCall && System.currentTimeMillis() >= preRingUntil) runCatching { context.getSystemService(NotificationManager::class.java).cancel(ID) }
         }
 
         fun stop(context: Context) {

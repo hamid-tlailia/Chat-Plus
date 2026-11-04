@@ -257,8 +257,11 @@ private fun ContactsList(
     // Everyone on Zura you could invite — so a new user never faces an empty screen.
     var people by remember { mutableStateOf<List<SearchHit>?>(null) }
     LaunchedEffect(refreshKey) { people = runCatching { repo.discover() }.getOrNull() ?: people }
+    val loaded by repo.loaded.collectAsStateWithLifecycle()
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-        if (contacts.isEmpty() && people.isNullOrEmpty()) item { Empty(stringResource(R.string.start_chat_hint)) }
+        // Still fetching (no local copy yet): placeholders, never a false "no contacts".
+        if (!loaded && contacts.isEmpty()) items(5, key = { "sk$it" }) { app.zura.ui.components.SkeletonRow(app.zura.ui.components.shimmerBrush()) }
+        else if (contacts.isEmpty() && people.isNullOrEmpty()) item { Empty(stringResource(R.string.start_chat_hint)) }
         items(contacts, key = { it.profile.id }) { ct ->
             Box {
                 PersonRow(

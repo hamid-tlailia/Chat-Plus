@@ -36,6 +36,8 @@ class ChatStore internal constructor(
     val chatId: String,
     private val dir: File,
     private val wrapper: KeyWrapper,
+    /** Told about every meta change (and the meta found on open) — feeds the vault's chat-list index. */
+    private val onMeta: (ChatMeta) -> Unit = {},
 ) {
     private val logFile = File(dir, "log.zl")
     val mediaDir = File(dir, "media")
@@ -56,6 +58,7 @@ class ChatStore internal constructor(
     init {
         mediaDir.mkdirs()
         if (logFile.exists() && logFile.length() > 0) replay() else rewriteLocked(rotateKey = true)
+        _meta.value?.let(onMeta)
     }
 
     // ---------------------------------------------------------------- reads
@@ -90,6 +93,7 @@ class ChatStore internal constructor(
     suspend fun writeMeta(meta: ChatMeta) = mutex.withLock {
         appendLines(listOf(seal(Record(meta = meta))))
         _meta.value = meta
+        onMeta(meta)
     }
 
     /** Edit: the previous plaintext must not survive anywhere → purge-rewrite with rotation. */

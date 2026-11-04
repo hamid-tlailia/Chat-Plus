@@ -15,8 +15,9 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 /**
- * A theme designed in the Theme Studio: base (dark/light), accent, my bubble gradient, the other
- * person's bubble, bubble roundness, an optional imported font and chat wallpaper.
+ * A chat style designed in the Theme Studio: my bubble gradient, the other person's bubble,
+ * bubble roundness, an optional imported font (messages only) and chat wallpaper.
+ * (`dark` / `accent` are kept only so older shared files still parse.)
  * Shared as a small `.zuratheme` file (JSON; font and wallpaper embedded when present).
  */
 @Serializable
@@ -35,17 +36,15 @@ data class CustomTheme(
     val fontB64: String? = null,
     val wallB64: String? = null,
 ) {
-    fun palette(): ZuraPalette {
-        val base = if (dark) ZuraPalettes.Midnight else ZuraPalettes.Light
-        val acc = Color(accent)
+    /**
+     * A CHAT style: only the bubbles change (colours with readable text on them); the app's own
+     * light / dark theme, accent and screens stay as they are.
+     */
+    fun applyTo(base: ZuraPalette): ZuraPalette {
         val a = Color(mineA)
         val t = Color(theirs)
         fun on(c: Color) = if (c.luminance() > 0.5f) Color(0xFF111114) else Color.White
-        fun mix(x: Color, y: Color, f: Float) = Color(x.red + (y.red - x.red) * f, x.green + (y.green - x.green) * f, x.blue + (y.blue - x.blue) * f, 1f)
         return base.copy(
-            bgAccent = mix(base.bg, acc, if (dark) 0.08f else 0.05f),
-            glassStroke = acc.copy(alpha = 0.2f),
-            accent = acc, accentAlt = Color(mineB), onAccent = on(acc),
             bubbleMine = a, bubbleMineAlt = Color(mineB), onBubbleMine = on(a),
             bubbleTheirs = t, onBubbleTheirs = on(t),
             read = if (on(a) == Color.White) Color(0xFFBDF4FF) else Color(0xFF0B4F6C),

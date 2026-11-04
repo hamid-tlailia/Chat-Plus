@@ -55,7 +55,12 @@ data class InboxRow(
 data class Invite(val id: String, val incoming: Boolean, val profile: Profile, val message: String?, val createdAt: String)
 
 @Immutable
+@Serializable
 data class Contact(val profile: Profile, val blocked: Boolean)
+
+/** Encrypted on-device copy of the social graph: instant start, offline, and calls ring without network. */
+@Serializable
+data class ContactsSnapshot(val me: Profile? = null, val contacts: List<Contact> = emptyList())
 
 /**
  * An account that has been used on this device. Shown on the sign-in screen as avatar + name.

@@ -14,6 +14,7 @@ import app.zura.core.model.MsgKind
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
@@ -71,7 +72,11 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
     val peerTyping = g.chats.peerTyping(chatId).stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** Grouping and day splitting happen here, off the UI thread, once per change. */
+    /** False until this chat's encrypted history has been opened → skeleton bubbles, not an empty chat. */
+    val loaded = MutableStateFlow(false)
+
     val items: StateFlow<List<ChatItem>> = g.chats.messages(chatId).map { ms ->
+        loaded.value = true
         val out = ArrayList<ChatItem>(ms.size + 8)
         val zone = java.time.ZoneId.systemDefault()
         fun day(t: Long) = java.time.Instant.ofEpochMilli(t).atZone(zone).toLocalDate()

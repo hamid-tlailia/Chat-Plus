@@ -219,14 +219,22 @@ class CallManager(
         val s = _ui.value
         if (s.callId == inv.callId) return@withContext
         if (s.inCall) { transport.signal(inv.from, Frame.CallEnd(inv.callId, me, "busy")); return@withContext }
-        if (contacts.contacts.value.none { it.profile.id == inv.from }) runCatching { contacts.refresh() }
-        val p = contacts.profile(inv.from) ?: return@withContext
+        // Ring FIRST, no network: the server only delivers call pushes between mutual, unblocked
+        // contacts, and the name comes from the on-device copy. (Waiting for a contacts refresh
+        // here used to miss Android's short "may start ringing" window after a push.)
         if (contacts.isBlocked(inv.from)) return@withContext // I blocked them: stay silent
+        val p = contacts.profile(inv.from)
+        if (p == null) scope.launch {
+            contacts.loadProfile(inv.from)?.let { lp ->
+                _ui.update { if (it.callId == inv.callId) it.copy(peerName = lp.displayName, peerAvatar = lp.avatarPath) else it }
+                if (_ui.value.callId == inv.callId) CallService.start(context, _ui.value)
+            }
+        }
         pendingOffer = null; acceptWhenOffer = false
         pendingIce.clear(); remoteSet = false
         _ui.value = CallUi(
-            phase = CallPhase.INCOMING, callId = inv.callId, peerId = inv.from, peerName = p.displayName,
-            peerAvatar = p.avatarPath, peerHue = (inv.from.hashCode() and 0xFFFF) % 360f, outgoing = false,
+            phase = CallPhase.INCOMING, callId = inv.callId, peerId = inv.from, peerName = p?.displayName ?: "Zura",
+            peerAvatar = p?.avatarPath, peerHue = (inv.from.hashCode() and 0xFFFF) % 360f, outgoing = false,
             video = inv.video, cameraOn = inv.video, speaker = inv.video, remoteVideoOn = inv.video, net = network.type.value,
         )
         CallService.start(context, _ui.value)

@@ -54,6 +54,8 @@ class ContactsRepository(
     private val vault: VaultStore,
     private val pins: SecureFile,
     private val scope: CoroutineScope,
+    /** Encrypted local copy of contacts + profiles (null in tests). */
+    private val snapshot: SecureFile? = null,
 ) {
     private val profiles = ConcurrentHashMap<String, Profile>()
     private val keys = ConcurrentHashMap<String, PublicKey>()
@@ -97,7 +99,27 @@ class ContactsRepository(
         contacts.forEach { ensureChat(it.profile) }
     }
 
+    /** True once contacts are known (from the local copy or the server) — the UI shows skeletons until then. */
+    private val _loaded = MutableStateFlow(false)
+    val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
+
+    /** Instant: contacts, profiles and keys from the encrypted on-device copy (no network). */
+    fun loadLocal() {
+        val snap = runCatching { snapshot?.readText()?.let { backend.json.decodeFromString(app.zura.account.ContactsSnapshot.serializer(), it) } }.getOrNull() ?: return
+        (snap.contacts.map { it.profile } + listOfNotNull(snap.me)).forEach { p -> profiles.putIfAbsent(p.id, p) }
+        if (_me.value == null) _me.value = snap.me
+        if (_contacts.value.isEmpty()) _contacts.value = snap.contacts
+        if (snap.contacts.isNotEmpty() || snap.me != null) _loaded.value = true
+    }
+
+    private fun saveLocal() {
+        runCatching {
+            snapshot?.writeText(backend.json.encodeToString(app.zura.account.ContactsSnapshot.serializer(), app.zura.account.ContactsSnapshot(_me.value, _contacts.value)))
+        }
+    }
+
     fun start() {
+        runCatching { loadLocal() }
         scope.launch { changes.debounce(250).collect { runCatching { refresh() } } }
         scope.launch {
             runCatching { refresh() }
@@ -124,6 +146,8 @@ class ContactsRepository(
         _me.value = profiles[me]
         _contacts.value = contactRows.mapNotNull { r -> profiles[r.peerId]?.let { Contact(it, r.blocked) } }
             .sortedBy { it.profile.displayName.lowercase() }
+        _loaded.value = true
+        saveLocal()
         _invites.value = inviteRows.mapNotNull { r ->
             val other = if (r.fromId == me) r.toId else r.fromId
             profiles[other]?.let { Invite(r.id, incoming = r.toId == me, profile = it, message = r.message, createdAt = r.createdAt) }
@@ -142,6 +166,9 @@ class ContactsRepository(
     /** The contact's E2EE public key, with trust-on-first-use pinning. */
     suspend fun peerKey(uid: String): PublicKey? {
         keys[uid]?.let { return it }
+        // Pinned on this phone already (trust-on-first-use store): no network needed — this is
+        // what lets a call push be decrypted the instant a killed app wakes up.
+        runCatching { loadPins()[uid]?.let { E2EE.decodePublic(it) } }.getOrNull()?.let { keys[uid] = it; return it }
         // Not cached yet (or an earlier attempt failed): refetch that profile and decode again.
         runCatching { withContext(Dispatchers.IO) { fetchProfiles(listOf(uid)) } }
             .onFailure { app.zura.DiagLog.record("peerKey fetch ${uid.take(8)}", it) }

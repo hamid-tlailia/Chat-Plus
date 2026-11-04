@@ -66,10 +66,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private val SWATCHES = listOf(
-    0xFF8B7CFF, 0xFF6D5DF6, 0xFF4F8BFF, 0xFF0EA5E9, 0xFF14B8A6, 0xFF10B981, 0xFF84CC16, 0xFFFBBF24,
-    0xFFF97316, 0xFFF43F5E, 0xFFDB2777, 0xFFA855F7, 0xFFE8C77E, 0xFF52525B, 0xFF111114, 0xFFFFFFFF,
-    0xFF1C1C26, 0xFFF0F0F4, 0xFF13283A, 0xFF2A1E21,
+/** Curated, harmonious choices (fine-tune any of them with the hue slider). */
+private val MINE_SWATCHES = listOf(0xFF6D5DF6, 0xFF4F8BFF, 0xFF0EA5E9, 0xFF14B8A6, 0xFF10B981, 0xFFF59E0B, 0xFFF97316, 0xFFF43F5E, 0xFFDB2777, 0xFF111114)
+private val THEIR_SWATCHES = listOf(0xFFF0F0F4, 0xFFE4F1FB, 0xFFF0EBFE, 0xFFE3F6EE, 0xFFFDF0DC, 0xFF1C1C26, 0xFF13283A, 0xFF241B3A, 0xFF12302A, 0xFF2A1E21)
+
+private class Preset(val mineA: Long, val mineB: Long, val theirs: Long)
+private val PRESETS = listOf(
+    Preset(0xFF6D5DF6, 0xFF4F8BFF, 0xFF1C1C26), Preset(0xFF0EA5E9, 0xFF2563EB, 0xFFE4F1FB), Preset(0xFF10B981, 0xFF047857, 0xFFE3F6EE),
+    Preset(0xFFF43F5E, 0xFFDB2777, 0xFF2A1E21), Preset(0xFFFBBF24, 0xFFF97316, 0xFFFDF0DC), Preset(0xFF52525B, 0xFF27272A, 0xFFF0F0F4),
 )
 
 /** Design your own theme: colours, bubble shape, font and wallpaper — then apply or share it. */
@@ -82,7 +86,9 @@ fun ThemeStudioScreen(onBack: () -> Unit) {
     val saved by g.settings.customTheme.collectAsStateWithLifecycle()
     val files by g.settings.themeFiles.collectAsStateWithLifecycle()
     var t by remember { mutableStateOf(saved ?: CustomTheme()) }
-    val p = t.palette()
+    // A chat style: previewed on the app's current light / dark theme.
+    val p = t.applyTo(Zura.colors)
+    var open by remember { mutableStateOf<String?>(null) } // which colour row is expanded
     val font = remember(files) { CustomTheme.fontFamily(ctx) }
     val wall by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, files) {
         value = withContext(Dispatchers.IO) { CustomTheme.wallFile(ctx).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() } }
@@ -147,20 +153,28 @@ fun ThemeStudioScreen(onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(p.surfaceHigh).padding(14.dp),
             )
 
-            Label(stringResource(R.string.theme_base), p)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip(stringResource(R.string.theme_dark), t.dark, p) {
-                    t = t.copy(dark = true, theirs = if (Color(t.theirs).let { it.red + it.green + it.blue } > 2.2f) 0xFF1C1C26 else t.theirs)
-                }
-                Chip(stringResource(R.string.theme_light), !t.dark, p) {
-                    t = t.copy(dark = false, theirs = if (Color(t.theirs).let { it.red + it.green + it.blue } < 0.8f) 0xFFF0F0F4 else t.theirs)
+            Label(stringResource(R.string.quick_styles), p)
+            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(PRESETS) { pr ->
+                    val sel = pr.mineA == t.mineA && pr.mineB == t.mineB && pr.theirs == t.theirs
+                    Column(
+                        Modifier.size(70.dp, 62.dp).clip(RoundedCornerShape(16.dp)).background(p.surfaceHigh)
+                            .border(if (sel) 2.dp else 0.dp, p.accent, RoundedCornerShape(16.dp))
+                            .clickable { t = t.copy(mineA = pr.mineA, mineB = pr.mineB, theirs = pr.theirs) }.padding(9.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(Modifier.size(36.dp, 14.dp).clip(CircleShape).background(Color(pr.theirs)))
+                        Box(Modifier.align(Alignment.End).size(40.dp, 14.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Color(pr.mineA), Color(pr.mineB)))))
+                    }
                 }
             }
 
-            ColorRow(stringResource(R.string.theme_accent), t.accent, p) { t = t.copy(accent = it) }
-            ColorRow(stringResource(R.string.theme_mine_a), t.mineA, p) { t = t.copy(mineA = it) }
-            ColorRow(stringResource(R.string.theme_mine_b), t.mineB, p) { t = t.copy(mineB = it) }
-            ColorRow(stringResource(R.string.theme_theirs), t.theirs, p) { t = t.copy(theirs = it) }
+            Label(stringResource(R.string.theme_colors), p)
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(p.surfaceHigh)) {
+                ColorRow("mineA", stringResource(R.string.theme_mine_a), t.mineA, MINE_SWATCHES, open, p, { open = if (open == it) null else it }) { t = t.copy(mineA = it) }
+                ColorRow("mineB", stringResource(R.string.theme_mine_b), t.mineB, MINE_SWATCHES, open, p, { open = if (open == it) null else it }) { t = t.copy(mineB = it) }
+                ColorRow("theirs", stringResource(R.string.theme_theirs), t.theirs, THEIR_SWATCHES, open, p, { open = if (open == it) null else it }) { t = t.copy(theirs = it) }
+            }
 
             Label(stringResource(R.string.theme_radius) + " · ${t.radius}", p)
             Slider(t.radius.toFloat(), { t = t.copy(radius = it.toInt()) }, valueRange = 4f..28f, colors = sliderColors(p))
@@ -239,29 +253,33 @@ private fun Chip(text: String, on: Boolean, p: ZuraPalette, onClick: () -> Unit)
 @Composable
 private fun sliderColors(p: ZuraPalette) = SliderDefaults.colors(thumbColor = p.accent, activeTrackColor = p.accent, inactiveTrackColor = p.text.copy(alpha = 0.15f))
 
-/** Preset swatches + a hue / brightness fine-tune for one colour. */
+/** One colour: a compact row; tap to open 10 curated swatches + a hue slider (one row open at a time). */
 @Composable
-private fun ColorRow(title: String, value: Long, p: ZuraPalette, onChange: (Long) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(top = 16.dp).clickable { open = !open }, verticalAlignment = Alignment.CenterVertically) {
-        Text(title, style = Zura.type.label, color = p.textMuted, modifier = Modifier.weight(1f))
-        Box(Modifier.size(26.dp).clip(CircleShape).background(Color(value)).border(1.dp, p.text.copy(alpha = 0.2f), CircleShape))
+private fun ColorRow(id: String, title: String, value: Long, swatches: List<Long>, open: String?, p: ZuraPalette, onToggle: (String) -> Unit, onChange: (Long) -> Unit) {
+    val expanded = open == id
+    Row(Modifier.fillMaxWidth().clickable { onToggle(id) }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = Zura.type.label, color = p.text, modifier = Modifier.weight(1f))
+        Box(Modifier.size(28.dp).clip(CircleShape).background(Color(value)).border(1.dp, p.text.copy(alpha = 0.2f), CircleShape))
+        Text(if (expanded) "  ▲" else "  ▼", style = Zura.type.caption, color = p.textMuted)
     }
-    Spacer(Modifier.height(8.dp))
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(SWATCHES) { s ->
-            Box(
-                Modifier.size(34.dp).clip(CircleShape).background(Color(s))
-                    .border(if (s == value) 3.dp else 1.dp, if (s == value) p.accent else p.text.copy(alpha = 0.15f), CircleShape)
-                    .clickable { onChange(s) },
+    androidx.compose.animation.AnimatedVisibility(expanded) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
+            swatches.chunked(5).forEach { row ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    row.forEach { sw ->
+                        Box(
+                            Modifier.size(40.dp).clip(CircleShape).background(Color(sw))
+                                .border(if (sw == value) 3.dp else 1.dp, if (sw == value) p.accent else p.text.copy(alpha = 0.15f), CircleShape)
+                                .clickable { onChange(sw) },
+                        )
+                    }
+                }
+            }
+            val hsv = remember(value) { FloatArray(3).also { android.graphics.Color.colorToHSV(value.toInt(), it) } }
+            Slider(
+                hsv[0], { h -> onChange(android.graphics.Color.HSVToColor(floatArrayOf(h, hsv[1], hsv[2])).toLong() and 0xFFFFFFFFL) },
+                valueRange = 0f..360f, colors = SliderDefaults.colors(thumbColor = Color(value), activeTrackColor = Color(value), inactiveTrackColor = p.text.copy(alpha = 0.12f)),
             )
         }
-    }
-    if (open) {
-        val hsv = remember(value) { FloatArray(3).also { android.graphics.Color.colorToHSV(value.toInt(), it) } }
-        fun emit(h: Float = hsv[0], s: Float = hsv[1], v: Float = hsv[2]) = onChange(android.graphics.Color.HSVToColor(floatArrayOf(h, s, v)).toLong() and 0xFFFFFFFFL)
-        Slider(hsv[0], { emit(h = it) }, valueRange = 0f..360f, colors = SliderDefaults.colors(thumbColor = Color(value), activeTrackColor = Color(value)))
-        Slider(hsv[1], { emit(s = it) }, valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = Color(value), activeTrackColor = Color(value)))
-        Slider(hsv[2], { emit(v = it) }, valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = Color(value), activeTrackColor = Color(value)))
     }
 }

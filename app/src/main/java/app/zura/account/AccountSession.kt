@@ -59,7 +59,7 @@ class AccountSession(
 
     val vault = VaultStore(ZuraPaths(dir, File(app.noBackupFilesDir, short), File(app.cacheDir, short)), keys)
     val identity = Identity(dir, keys)
-    val contacts = ContactsRepository(backend, uid, vault, SecureFile(File(dir, "pins.zs"), keys, "zpins"), scope)
+    val contacts = ContactsRepository(backend, uid, vault, SecureFile(File(dir, "pins.zs"), keys, "zpins"), scope, SecureFile(File(dir, "contacts.zs"), keys, "zcontacts"))
     val transport = SupabaseTransport(backend, uid, identity, contacts::peerKey, scope)
     /** Stealth mode for this account (read receipts, typing, last seen; per-contact ghost). */
     val privacy = Privacy(app.getSharedPreferences("zura_priv_$short", android.content.Context.MODE_PRIVATE))

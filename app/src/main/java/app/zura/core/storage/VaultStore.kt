@@ -6,6 +6,8 @@ import app.zura.core.crypto.SegmentedCipher
 import app.zura.core.model.ChatMeta
 import app.zura.core.model.MediaRef
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
@@ -22,11 +24,38 @@ import java.util.concurrent.ConcurrentHashMap
 class VaultStore(val paths: ZuraPaths, private val wrapper: KeyWrapper) {
 
     private val open = ConcurrentHashMap<String, ChatStore>()
+
+    /**
+     * Chat-list index: every chat's meta (title, preview, time, unread…) in ONE small encrypted
+     * file. The list renders from it instantly instead of decrypting every chat's whole history
+     * at start-up; a chat's log is opened only when the chat itself is needed.
+     * Keyed "zc_…": like chat content, it needs an unlocked phone.
+     */
+    private val indexFile = app.zura.core.crypto.SecureFile(java.io.File(paths.root, "index.zs"), wrapper, "zc_index")
+    private val indexJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+    private val indexSer = MapSerializer(String.serializer(), ChatMeta.serializer())
+    /** False if the index exists but couldn't be read yet (phone locked): never overwrite it blindly. */
+    @Volatile private var indexRead = false
+    private fun readIndex(): Map<String, ChatMeta>? = runCatching {
+        (indexFile.readText()?.let { indexJson.decodeFromString(indexSer, it) } ?: emptyMap()).also { indexRead = true }
+    }.getOrNull()
+    private val _index = kotlinx.coroutines.flow.MutableStateFlow(readIndex().orEmpty())
+    val metaIndex: kotlinx.coroutines.flow.StateFlow<Map<String, ChatMeta>> = _index
+
+    private fun noteMeta(chatId: String, meta: ChatMeta) {
+        if (_index.value[chatId] == meta) return
+        synchronized(_index) {
+            // First successful read after an unreadable start: merge what's on disk before writing.
+            if (!indexRead) readIndex()?.let { disk -> _index.value = disk + _index.value }
+            _index.value = _index.value + (chatId to meta)
+            if (indexRead) runCatching { indexFile.writeText(indexJson.encodeToString(indexSer, _index.value)) }
+        }
+    }
     private val _chatIds = MutableStateFlow(scanChatIds())
     val chatIds: StateFlow<Set<String>> = _chatIds.asStateFlow()
 
     fun chat(chatId: String): ChatStore = open.getOrPut(ZuraPaths.safe(chatId)) {
-        ChatStore(chatId, paths.chatDir(chatId), wrapper).also { _chatIds.value = _chatIds.value + chatId }
+        ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }.also { _chatIds.value = _chatIds.value + chatId }
     }
 
     fun exists(chatId: String) = File(paths.chatDir(chatId), "log.zl").exists()
@@ -43,6 +72,11 @@ class VaultStore(val paths: ZuraPaths, private val wrapper: KeyWrapper) {
         store?.destroyKeys()
         val freed = SecureEraser.eraseTree(paths.chatDir(chatId))
         _chatIds.value = _chatIds.value - chatId
+        synchronized(_index) {
+            if (!indexRead) readIndex()?.let { disk -> _index.value = disk + _index.value }
+            _index.value = _index.value - chatId
+            if (indexRead) runCatching { indexFile.writeText(indexJson.encodeToString(indexSer, _index.value)) }
+        }
         return freed
     }
 

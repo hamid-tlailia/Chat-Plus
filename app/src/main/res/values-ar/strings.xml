@@ -302,7 +302,7 @@
     <string name="already_your_language">الرسالة بلغتك أصلاً</string>
     <string name="cant_translate">لا يمكن ترجمة هذه اللغة على الهاتف</string>
     <string name="translate_failed">فشلت الترجمة — تحقق من الاتصال للتحميل الأول</string>
-    <string name="theme_studio">استوديو الثيمات</string>
+    <string name="theme_studio">استوديو نمط المحادثة</string>
     <string name="theme_custom">استوديو</string>
     <string name="preview_theirs">مرحباً! أعجبني الشكل الجديد 👀</string>
     <string name="preview_mine">صممته بنفسي ✨</string>
@@ -328,7 +328,7 @@
     <string name="theme_apply_short">تطبيق</string>
     <string name="theme_applied">تم تطبيق الثيم</string>
     <string name="theme_bad_file">تعذّرت قراءة ملف الثيم</string>
-    <string name="edit_studio">فتح استوديو الثيمات</string>
+    <string name="edit_studio">صمّم نمط محادثتك</string>
     <string name="share_screen">مشاركة الشاشة</string>
     <string name="stop_sharing">إيقاف المشاركة</string>
     <string name="you_are_sharing">أنت تشارك شاشتك</string>
@@ -359,4 +359,6 @@
     <string name="translate_to">الترجمة إلى</string>
     <string name="detect_auto">اكتشاف تلقائي</string>
     <string name="detected">%1$s (مكتشفة)</string>
+    <string name="quick_styles">أنماط جاهزة</string>
+    <string name="theme_colors">الألوان</string>
 </resources>

@@ -144,6 +144,8 @@ private fun typeFor(rtl: Boolean, font: androidx.compose.ui.text.font.FontFamily
 
 val LocalZura = staticCompositionLocalOf { ZuraPalettes.Midnight }
 val LocalZuraType = staticCompositionLocalOf { typeFor(false) }
+/** Font for message text only (Theme Studio) — the rest of the app keeps the system font. */
+val LocalChatFont = staticCompositionLocalOf<androidx.compose.ui.text.font.FontFamily?> { null }
 /** Bubble corner radius (Theme Studio). */
 val LocalBubbleRadius = staticCompositionLocalOf { 20 }
 /** Chat wallpaper (Theme Studio) and how much it is dimmed (0–60 %). */
@@ -164,7 +166,8 @@ fun ZuraTheme(
     wallpaper: androidx.compose.ui.graphics.ImageBitmap? = null,
     content: @Composable () -> Unit,
 ) {
-    val t = custom?.palette() ?: bubbles.applyTo(ZuraPalettes.of(id))
+    val base = ZuraPalettes.of(id)
+    val t = custom?.applyTo(base) ?: bubbles.applyTo(base)
     @Composable fun a(c: Color) = animateColorAsState(c, tween(450), label = "theme").value
     val p = ZuraPalette(
         t.isDark, a(t.bg), a(t.bgAccent), a(t.surface), a(t.surfaceHigh), a(t.glass), a(t.glassStroke),
@@ -178,7 +181,8 @@ fun ZuraTheme(
         lightColorScheme(primary = p.accent, onPrimary = p.onAccent, background = p.bg, surface = p.surface, onSurface = p.text, onBackground = p.text, error = p.danger)
     }
     CompositionLocalProvider(
-        LocalZura provides p, LocalZuraType provides typeFor(rtl, if (custom != null) font else null),
+        LocalZura provides p, LocalZuraType provides typeFor(rtl),
+        LocalChatFont provides if (custom != null) font else null,
         LocalBubbleRadius provides (custom?.radius ?: 20),
         LocalWallpaper provides if (custom != null && wallpaper != null) wallpaper to custom.wallDim else null,
     ) {

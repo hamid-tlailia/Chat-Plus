@@ -302,7 +302,7 @@
     <string name="already_your_language">Already in your language</string>
     <string name="cant_translate">This language can\'t be translated on the phone</string>
     <string name="translate_failed">Translation failed — check the connection for the first download</string>
-    <string name="theme_studio">Theme Studio</string>
+    <string name="theme_studio">Chat Style Studio</string>
     <string name="theme_custom">Studio</string>
     <string name="preview_theirs">Hey! Love the new look 👀</string>
     <string name="preview_mine">Made it myself ✨</string>
@@ -328,7 +328,7 @@
     <string name="theme_apply_short">Apply</string>
     <string name="theme_applied">Theme applied</string>
     <string name="theme_bad_file">Couldn\'t read this theme file</string>
-    <string name="edit_studio">Open Theme Studio</string>
+    <string name="edit_studio">Design my own chat style</string>
     <string name="share_screen">Share screen</string>
     <string name="stop_sharing">Stop sharing</string>
     <string name="you_are_sharing">You\'re sharing your screen</string>
@@ -359,4 +359,6 @@
     <string name="translate_to">Translate to</string>
     <string name="detect_auto">Detect automatically</string>
     <string name="detected">%1$s (detected)</string>
+    <string name="quick_styles">Quick styles</string>
+    <string name="theme_colors">Colours</string>
 </resources>

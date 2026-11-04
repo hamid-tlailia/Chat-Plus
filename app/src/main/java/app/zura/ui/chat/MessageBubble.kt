@@ -235,7 +235,7 @@ private fun Bubble(
                 Text(
                     annotated,
                     // Content-based direction: an Arabic line in an English UI (and vice versa) aligns correctly.
-                    style = Zura.type.body.copy(textDirection = TextDirection.Content),
+                    style = Zura.type.body.copy(textDirection = TextDirection.Content, fontFamily = app.zura.ui.theme.LocalChatFont.current ?: Zura.type.body.fontFamily),
                     color = onFill,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (isVisual) 6.dp else 9.dp),
                 )

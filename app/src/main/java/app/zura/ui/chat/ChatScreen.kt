@@ -157,7 +157,11 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
             Box(Modifier.fillMaxSize().background(Zura.colors.bg.copy(alpha = dim / 100f)))
         }
         // First visit / empty chat: a calm welcome with what privacy this chat has.
-        if (items.isEmpty()) {
+        val historyLoaded by vm.loaded.collectAsStateWithLifecycle()
+        if (!historyLoaded) app.zura.ui.components.SkeletonBubbles(
+            app.zura.ui.components.shimmerBrush(), Modifier.align(Alignment.BottomCenter).padding(bottom = 110.dp),
+        )
+        else if (items.isEmpty()) {
             val notes = meta?.peerIds.isNullOrEmpty()
             Column(
                 Modifier.align(Alignment.Center).padding(horizontal = 32.dp).padding(bottom = 80.dp)
