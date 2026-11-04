@@ -50,8 +50,21 @@ object Telecom {
     @Volatile var appContext: Context? = null
         private set
 
+    /** Opt-in (Settings): some phones mishandle self-managed calls (ringing without UI, instant "missed"). */
+    fun enabled(c: Context) = c.getSharedPreferences("zura", Context.MODE_PRIVATE).getBoolean(PREF, false)
+    fun setEnabled(c: Context, on: Boolean) {
+        c.getSharedPreferences("zura", Context.MODE_PRIVATE).edit().putBoolean(PREF, on).apply()
+        if (on) register(c) else runCatching { tm(c).unregisterPhoneAccount(handle(c)); registered = false }
+    }
+    private const val PREF = "use_telecom"
+
     fun register(c: Context) {
         appContext = c.applicationContext
+        if (!enabled(c)) {
+            // Off (the default): also drop a registration left by 0.9.6.
+            if (!registered) runCatching { tm(c).unregisterPhoneAccount(handle(c)) }
+            return
+        }
         if (registered) return
         runCatching {
             val account = PhoneAccount.builder(handle(c), c.getString(R.string.app_name))
@@ -148,8 +161,8 @@ class ZuraConnection : Connection() {
     override fun onReject(rejectReason: Int) { Telecom.calls()?.decline() }
     override fun onDisconnect() { Telecom.calls()?.let { if (it.ui.value.phase == CallPhase.INCOMING) it.decline() else it.hangup() } }
     override fun onAbort() { Telecom.calls()?.hangup() }
-    // Another call took over the line (e.g. a cellular call was answered): end ours cleanly.
-    override fun onHold() { Telecom.calls()?.hangup() }
+    // Held by the system (e.g. a cellular call answered): keep the Zura call; never end it from here.
+    override fun onHold() = Unit
 }
 
 class ZuraConnectionService : ConnectionService() {

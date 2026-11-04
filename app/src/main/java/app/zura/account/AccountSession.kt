@@ -216,19 +216,24 @@ class AccountSession(
 
     fun onForeground() {
         calls.onAppForeground() // a video call resumes the camera
+        chats.startPresence { contactIds() } // "online" again (also after a quick app switch)
         if (foreground) return
         foreground = true
         transport.start()
-        chats.startPresence { contactIds() }
         scope.launch { contacts.clearServerLastSeen() }
     }
+
+    /**
+     * The app left the screen: announce "offline" NOW (not after the 30 s grace), so contacts
+     * send wake-up pushes from the first message — even if the app is swiped away right after.
+     */
+    fun onHidden() { chats.stopPresence(contactIds()) }
 
     fun onBackground() {
         // In a call: everything keeps running (audio, connection); only the camera pauses.
         if (calls.ui.value.inCall) { calls.onAppBackground(); return }
         if (!foreground) return
         foreground = false
-        chats.stopPresence(contactIds())
         chats.lockedRevealed.value = false // locked chats close again
         transport.stop()
         playback.release()

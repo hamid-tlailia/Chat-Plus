@@ -289,6 +289,10 @@ class ContactsRepository(
         if (!vault.exists(id)) {
             vault.createChat(ChatMeta(id, p.displayName, listOf(p.id), System.currentTimeMillis(), avatarHue = hue, avatarPath = p.avatarPath))
         } else {
+            // Compare with the index first: opening the chat (decrypting its whole history) only
+            // when the name / photo really changed — this ran for every contact on every start.
+            val known = vault.metaIndex.value[id]
+            if (known != null && known.title == p.displayName && known.avatarPath == p.avatarPath) return
             val s = vault.chat(id)
             val m = s.meta.value ?: return
             if (m.title != p.displayName || m.avatarPath != p.avatarPath) s.writeMeta(m.copy(title = p.displayName, avatarPath = p.avatarPath))

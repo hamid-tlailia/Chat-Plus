@@ -25,20 +25,29 @@ class VaultStore(val paths: ZuraPaths, private val wrapper: KeyWrapper) {
 
     private val open = ConcurrentHashMap<String, ChatStore>()
 
+
     /**
      * Chat-list index: every chat's meta (title, preview, time, unread…) in ONE small encrypted
      * file. The list renders from it instantly instead of decrypting every chat's whole history
      * at start-up; a chat's log is opened only when the chat itself is needed.
      * Keyed "zc_…": like chat content, it needs an unlocked phone.
      */
-    private val indexFile = app.zura.core.crypto.SecureFile(java.io.File(paths.root, "index.zs"), wrapper, "zc_index")
+    private val indexFile = app.zura.core.crypto.SecureFile(java.io.File(paths.root, "index.zs"), wrapper, INDEX_ALIAS)
     private val indexJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
     private val indexSer = MapSerializer(String.serializer(), ChatMeta.serializer())
     /** False if the index exists but couldn't be read yet (phone locked): never overwrite it blindly. */
     @Volatile private var indexRead = false
-    private fun readIndex(): Map<String, ChatMeta>? = runCatching {
-        (indexFile.readText()?.let { indexJson.decodeFromString(indexSer, it) } ?: emptyMap()).also { indexRead = true }
-    }.getOrNull()
+    private fun readIndex(): Map<String, ChatMeta>? {
+        if (!indexFile.exists()) return emptyMap<String, ChatMeta>().also { indexRead = true }
+        val text = indexFile.readText()
+        if (text == null) {
+            // Its key is gone (e.g. destroyed by an older janitor): unrecoverable → start a fresh
+            // index. Key still there but unusable (phone locked) → try again later, never overwrite.
+            if (INDEX_ALIAS !in wrapper.aliases()) { SecureEraser.erase(java.io.File(paths.root, "index.zs")); indexRead = true; return emptyMap() }
+            return null
+        }
+        return runCatching { indexJson.decodeFromString(indexSer, text) }.getOrNull().also { indexRead = true } ?: emptyMap()
+    }
     private val _index = kotlinx.coroutines.flow.MutableStateFlow(readIndex().orEmpty())
     val metaIndex: kotlinx.coroutines.flow.StateFlow<Map<String, ChatMeta>> = _index
 
@@ -130,7 +139,9 @@ class VaultStore(val paths: ZuraPaths, private val wrapper: KeyWrapper) {
     private fun scanChatIds(): Set<String> =
         paths.chats.listFiles()?.filter { File(it, "log.zl").exists() }?.mapTo(HashSet()) { it.name } ?: emptySet()
 
-    private companion object {
-        val B64: Base64.Encoder = Base64.getEncoder()
+    companion object {
+        /** Keystore alias of the chat-list index (protected from the janitor's key sweep). */
+        const val INDEX_ALIAS = "zc_index"
+        private val B64: Base64.Encoder = Base64.getEncoder()
     }
 }

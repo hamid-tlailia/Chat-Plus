@@ -361,4 +361,6 @@
     <string name="detected">%1$s (مكتشفة)</string>
     <string name="quick_styles">أنماط جاهزة</string>
     <string name="theme_colors">الألوان</string>
+    <string name="use_telecom">استخدام نظام المكالمات في أندرويد (تجريبي)</string>
+    <string name="use_telecom_hint">أزرار السماعة والسيارة ترد على مكالمات Zura. بعض الهواتف تتعامل معه بشكل سيئ — أوقفه إذا تصرفت المكالمات بغرابة.</string>
 </resources>

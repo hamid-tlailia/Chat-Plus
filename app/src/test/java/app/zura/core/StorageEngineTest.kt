@@ -104,6 +104,25 @@ class StorageEngineTest {
         assertEquals(setOf("c1"), v3.metaIndex.value.keys)
     }
 
+    @Test fun janitorNeverDestroysTheChatListIndexKey() = runBlocking {
+        val (v, w) = vault()
+        v.createChat(ChatMeta("c1", "Sara", listOf("u2"), 1L))
+        StorageJanitor(v, w).sweep() // used to delete "zc_index" → index unreadable on every next start
+        val (v2, _) = vault(w)
+        assertEquals("Sara", v2.metaIndex.value["c1"]?.title)
+    }
+
+    @Test fun indexWithDestroyedKeyIsRebuiltNotStuck() = runBlocking {
+        val (v, w) = vault()
+        v.createChat(ChatMeta("c1", "Sara", listOf("u2"), 1L))
+        w.destroy(VaultStore.INDEX_ALIAS)
+        val (v2, _) = vault(w)
+        assertEquals(emptyMap<String, ChatMeta>(), v2.metaIndex.value)
+        v2.chat("c1") // opening the chat refills and REWRITES the index under a fresh key
+        val (v3, _) = vault(w)
+        assertEquals("Sara", v3.metaIndex.value["c1"]?.title)
+    }
+
     @Test fun purgeRotatesKeyDeletesMediaAndOldKeyIsDestroyed() = runBlocking {
         val (v, w) = vault()
         val store = v.chat("c1")

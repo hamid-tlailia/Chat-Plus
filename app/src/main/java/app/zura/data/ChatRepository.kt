@@ -66,8 +66,12 @@ class ChatRepository(
         scope.launch(Dispatchers.IO) {
             val missing = (vault.chatIds.value - MomentsRepository.STORE).filter { it !in vault.metaIndex.value }
             if (missing.isNotEmpty()) {
-                chatsLoaded.value = vault.metaIndex.value.isNotEmpty()
-                missing.forEach { id -> runCatching { vault.chat(id) } }
+                chatsLoaded.value = false
+                // Several at once; newest chats first so the top of the list fills in quickly.
+                val ordered = missing.sortedByDescending { java.io.File(vault.paths.chatDir(it), "log.zl").lastModified() }
+                kotlinx.coroutines.coroutineScope {
+                    ordered.chunked(4).forEach { batch -> batch.map { id -> launch { runCatching { vault.chat(id) } } }.forEach { it.join() } }
+                }
                 chatsLoaded.value = true
             }
         }
@@ -127,7 +131,7 @@ class ChatRepository(
         heartbeat = scope.launch {
             while (isActive) {
                 contacts().filter { privacy?.lastSeenTo(it) != false }.forEach { transport.signal(it, Frame.Presence(me, true, System.currentTimeMillis())) }
-                delay(45_000)
+                delay(30_000)
             }
         }
     }
@@ -331,7 +335,9 @@ class ChatRepository(
         // end-to-end for that peer (FCM/Google see only ciphertext): their phone decrypts and
         // shows it at once, without first reconnecting and downloading the inbox. Bigger
         // messages (media, link cards) stay content-free; the phone then pulls the inbox.
-        if (ok) peersOf(wire.chatId).forEach { peer ->
+        // Only to peers not in the app right now: a high-priority push that ends without a visible
+        // notification (they already got it live) makes Android / FCM deprioritise ours.
+        if (ok) peersOf(wire.chatId).filterNot { isOnline(it) }.forEach { peer ->
             scope.launch {
                 val sealed = if (frame.kind == MsgKind.TEXT && frame.link == null) transport.sealFor(peer, frame)?.takeIf { it.length <= 2_600 } else null
                 backend.push(peer, "msg", if (sealed != null) mapOf("e" to sealed) else emptyMap())
@@ -453,7 +459,7 @@ class ChatRepository(
                 m + (f.chatId to if (f.active) users + (from to now() + 6_000) else users - from)
             }
             is Frame.Presence -> if (f.userId == from) {
-                presence.update { it + (from to if (f.online) now() + 100_000 else 0L) }
+                presence.update { it + (from to if (f.online) now() + 70_000 else 0L) }
                 val at = if (f.online) now() else f.lastSeen.coerceAtMost(now())
                 noteLastSeen(from, at)
                 if (!f.online) {

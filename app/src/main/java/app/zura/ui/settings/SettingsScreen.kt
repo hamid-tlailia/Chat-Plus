@@ -135,6 +135,10 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}, onVault: () -
             )
             Spacer(Modifier.height(12.dp))
             app.zura.push.CallReadinessList()
+            var telecom by remember { androidx.compose.runtime.mutableStateOf(app.zura.call.Telecom.enabled(ctx)) }
+            app.zura.ui.components.SettingSwitch(stringResource(R.string.use_telecom), stringResource(R.string.use_telecom_hint), telecom, Modifier.padding(top = 8.dp)) {
+                telecom = it; app.zura.call.Telecom.setEnabled(ctx, it)
+            }
         }
 
         Section(R.string.sounds) {

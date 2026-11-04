@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -115,9 +118,29 @@ class CallManager(
     private var degraded = false
 
     init {
+        // Watch every call that enters "Connecting"; renegotiate the moment the live channel returns.
+        scope.launch {
+            _ui.map { it.callId to it.phase }.distinctUntilChanged().collect { (id, ph) ->
+                if (!previewing && id != null && ph == CallPhase.CONNECTING) watchConnecting(id)
+            }
+        }
+        scope.launch {
+            transport.online.drop(1).collect { up ->
+                val s = _ui.value
+                if (up && !previewing && (s.phase == CallPhase.CONNECTING || s.phase == CallPhase.RECONNECTING)) requestRestart()
+            }
+        }
         // Android's call system (self-managed ConnectionService) mirrors every Zura call.
         Telecom.register(context)
-        scope.launch { _ui.collect { if (!previewing) runCatching { Telecom.sync(context, it) } } }
+        scope.launch {
+            var last: CallPhase? = null
+            _ui.collect { ui ->
+                if (previewing) return@collect
+                // Call timeline for "Connection check" (phases + end reason), to diagnose on real phones.
+                if (ui.phase != last) { app.zura.DiagLog.record("call", detail = "${ui.phase}${ui.endReason?.let { " ($it)" } ?: ""} ${if (ui.outgoing) "out" else "in"} net=${ui.net}"); last = ui.phase }
+                runCatching { Telecom.sync(context, ui) }
+            }
+        }
         scope.launch { network.type.collect { t -> if (!previewing) _ui.update { it.copy(net = t) } } }
         scope.launch {
             network.handover.collect {
@@ -211,7 +234,7 @@ class CallManager(
         }
         val answer = pc!!.awaitCreate(offer = false, iceRestart = false)
         pc!!.awaitSetLocal(answer)
-        transport.signal(offer.from, Frame.CallAnswer(offer.callId, me, answer.description))
+        signalReliably(offer.from, Frame.CallAnswer(offer.callId, me, answer.description))
         pendingOffer = null
     }
 
@@ -304,7 +327,7 @@ class CallManager(
                         applyRemote(SessionDescription(SessionDescription.Type.OFFER, f.sdp))
                         val answer = pc!!.awaitCreate(offer = false, iceRestart = false)
                         pc!!.awaitSetLocal(answer)
-                        transport.signal(from, Frame.CallAnswer(f.callId, me, answer.description))
+                        signalReliably(from, Frame.CallAnswer(f.callId, me, answer.description))
                     }
                     return@withContext
                 }
@@ -335,7 +358,11 @@ class CallManager(
             is Frame.CallAnswer -> if (f.callId == s.callId && from == s.peerId) {
                 audio.stopTones()
                 if (s.phase == CallPhase.OUTGOING || s.phase == CallPhase.RINGING) _ui.update { it.copy(phase = CallPhase.CONNECTING) }
-                applyRemote(SessionDescription(SessionDescription.Type.ANSWER, f.sdp))
+                // Only an answer we're waiting for: the same answer can also arrive via the inbox fallback.
+                if (pc?.signalingState() == PeerConnection.SignalingState.HAVE_LOCAL_OFFER) {
+                    runCatching { applyRemote(SessionDescription(SessionDescription.Type.ANSWER, f.sdp)) }
+                        .onFailure { app.zura.DiagLog.record("apply answer", it) }
+                }
             }
             is Frame.CallIce -> if (f.callId == s.callId && from == s.peerId) {
                 val c = IceCandidate(f.mid, f.index, f.candidate)
@@ -482,6 +509,36 @@ class CallManager(
     }
 
     /** The caller owns the offer, so the caller restarts; the callee asks the caller to. */
+    /**
+     * Call-setup messages that must not be lost. Live delivery can silently miss a phone whose
+     * realtime socket is down for a moment (typical right after the app goes to the background),
+     * so they ALSO go through the durable E2EE inbox, which that phone drains as soon as it
+     * reconnects. The duplicate is ignored on arrival.
+     */
+    private suspend fun signalReliably(peer: String, frame: Frame) {
+        transport.signal(peer, frame)
+        scope.launch { runCatching { transport.send(peer, frame) } }
+    }
+
+    /**
+     * A call stuck on "Connecting" (the answer or the network candidates were lost while the
+     * app was in the background) is renegotiated automatically every 7 s, up to 5 times —
+     * instead of waiting forever until the user calls again.
+     */
+    private var connectWatch: Job? = null
+    private fun watchConnecting(callId: String) {
+        connectWatch?.cancel()
+        connectWatch = scope.launch(rtc) {
+            repeat(5) {
+                delay(7_000)
+                val s = _ui.value
+                if (s.callId != callId || s.phase != CallPhase.CONNECTING) return@launch
+                app.zura.DiagLog.record("call", detail = "stuck connecting → renegotiate (${it + 1})")
+                requestRestart()
+            }
+        }
+    }
+
     private fun requestRestart() = scope.launch(rtc) {
         val s = _ui.value
         if (s.outgoing) restartIce()
@@ -494,7 +551,7 @@ class CallManager(
         val peer = s.peerId ?: return
         val offer = runCatching { p.awaitCreate(offer = true, iceRestart = true) }.getOrNull() ?: return
         runCatching { p.awaitSetLocal(offer) }.getOrNull() ?: return
-        transport.signal(peer, Frame.CallOffer(s.callId!!, me, s.video, offer.description, restart = true))
+        signalReliably(peer, Frame.CallOffer(s.callId!!, me, s.video, offer.description, restart = true))
     }
 
     private var lastLost = 0L

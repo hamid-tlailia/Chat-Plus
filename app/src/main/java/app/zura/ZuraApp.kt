@@ -34,6 +34,7 @@ open class ZuraApp : Application() {
             override fun onStart(owner: LifecycleOwner) { pending?.cancel(); graph.appLock.onForeground(); graph.session.value?.onForeground() }
             override fun onStop(owner: LifecycleOwner) {
                 graph.appLock.onBackground()
+                graph.session.value?.onHidden()
                 // In a video call the camera pauses right away (the call itself keeps running).
                 graph.session.value?.calls?.let { c -> if (c.ui.value.inCall) c.onAppBackground() }
                 pending = graph.scope.launch { delay(30_000); graph.session.value?.onBackground() }

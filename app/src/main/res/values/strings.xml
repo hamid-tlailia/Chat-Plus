@@ -361,4 +361,6 @@
     <string name="detected">%1$s (detected)</string>
     <string name="quick_styles">Quick styles</string>
     <string name="theme_colors">Colours</string>
+    <string name="use_telecom">Use Android\'s phone-call system (beta)</string>
+    <string name="use_telecom_hint">Headset / car buttons answer Zura calls. Some phones handle it badly — turn off if calls behave oddly.</string>
 </resources>

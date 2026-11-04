@@ -148,7 +148,6 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
                 }
             }
             // One-time index build after an update: elegant placeholders instead of an empty list.
-            if (!chatsLoaded && chats.isEmpty()) items(6, key = { "sk$it" }) { app.zura.ui.components.SkeletonRow(skeleton) }
             items(chats.filter { !it.locked || revealed }, key = { it.id }, contentType = { "chat" }) { c ->
                 ChatRow(
                     c, fmt, typing = c.id in typing,
@@ -158,6 +157,9 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
                     modifier = Modifier.animateItem(),
                 )
             }
+            // Index still being built (first start after an update): placeholders BELOW what's known,
+            // so a lone "Saved notes" never looks like the whole list.
+            if (!chatsLoaded) items(5, key = { "sk$it" }) { app.zura.ui.components.SkeletonRow(skeleton) }
         }
 
         // Floating glass top bar
