@@ -50,6 +50,10 @@ import app.zura.ui.theme.ZuraPalettes
 import app.zura.ui.theme.ZuraTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 sealed interface Route {
     data object Chats : Route
@@ -79,6 +83,7 @@ class MainActivity : ComponentActivity() {
 
     override fun attachBaseContext(newBase: Context) = super.attachBaseContext(LocaleEngine.wrap(newBase))
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         val g = graph
         val dark = ZuraPalettes.of(g.settings.theme.value).isDark
@@ -98,6 +103,14 @@ class MainActivity : ComponentActivity() {
                 if (flag) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 if (android.os.Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!lock && !secure)
             }
+        }
+
+        // Show above the keyguard and wake the screen ONLY while a call is ringing / in progress —
+        // never for chats (a static manifest flag exposed the whole app over the lock screen).
+        lifecycleScope.launch {
+            g.accounts.state.flatMapLatest { a ->
+                (a as? AuthState.SignedIn)?.session?.calls?.ui?.map { it.phase != app.zura.call.CallPhase.IDLE } ?: flowOf(false)
+            }.distinctUntilChanged().collect { showOverLock(it) }
         }
 
         setContent {
@@ -132,10 +145,19 @@ class MainActivity : ComponentActivity() {
             if (locked) app.zura.security.LockScreen(graph.appLock)
             else {
                 NavHost(nav)
-                app.zura.push.PushPermissionPrompts()
+                app.zura.push.CallReadinessPrompt()
             }
             // Calls ring and can be answered above the lock (like WhatsApp).
             CallScreen(session.calls)
+        }
+    }
+
+    private fun showOverLock(on: Boolean) {
+        if (android.os.Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(on); setTurnScreenOn(on) }
+        else {
+            @Suppress("DEPRECATION")
+            val f = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            if (on) window.addFlags(f) else window.clearFlags(f)
         }
     }
 

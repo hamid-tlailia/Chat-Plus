@@ -210,4 +210,14 @@
     <string name="saved">تم الحفظ</string>
     <string name="profile">الملف الشخصي</string>
     <string name="my_profile">ملفي الشخصي</string>
+    <string name="done">تم</string>
+    <string name="ready_intro">لكي ترنّ المكالمات وتوقظ هاتفك كمكالمة عادية حتى والتطبيق مغلق أو الشاشة مقفلة، اسمح بما يلي:</string>
+    <string name="ready_notifications">الإشعارات</string>
+    <string name="ready_notifications_hint">رنين المكالمات وإظهار الرسائل الجديدة</string>
+    <string name="ready_fullscreen">المكالمات بملء الشاشة</string>
+    <string name="ready_fullscreen_hint">إظهار شاشة المكالمة فوق شاشة القفل</string>
+    <string name="ready_battery">الإيقاظ للمكالمات</string>
+    <string name="ready_battery_hint">السماح لـ Zura بالعمل في الخلفية كي لا تتأخر المكالمات</string>
+    <string name="ready_on">مفعّل</string>
+    <string name="ready_more">المزيد (التشغيل التلقائي، شاشة القفل) في إعدادات التطبيق</string>
 </resources>

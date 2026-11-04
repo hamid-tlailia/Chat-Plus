@@ -132,7 +132,9 @@ class CallManager(
         _ui.value = CallUi(
             phase = CallPhase.OUTGOING, callId = callId, peerId = peerId, peerName = p?.displayName ?: "",
             peerAvatar = p?.avatarPath, peerHue = (peerId.hashCode() and 0xFFFF) % 360f, outgoing = true,
-            video = video, cameraOn = video, speaker = video, net = network.type.value,
+            // The callee's camera starts ON in a video call — don't wait for a CallMedia frame to show
+            // it (the remote video stayed hidden until the callee toggled their camera).
+            video = video, cameraOn = video, speaker = video, remoteVideoOn = video, net = network.type.value,
         )
         CallService.start(context, _ui.value)
         audio.startCallMode(speaker = video)
@@ -161,6 +163,9 @@ class CallManager(
 
     fun accept() = scope.launch(rtc) {
         if (_ui.value.phase != CallPhase.INCOMING) return@launch
+        // Tell the caller right away (a tiny frame, sent in parallel): their screen flips from
+        // "Ringing" to "Connecting" instantly instead of waiting for TURN + camera + SDP answer.
+        scope.launch(rtc) { announceMedia() }
         val offer = pendingOffer
         if (offer == null) {
             // Woken by push and the caller's offer hasn't arrived yet: answer as soon as it does.
@@ -305,7 +310,21 @@ class CallManager(
                 if (remoteSet) pc?.addIceCandidate(c) else pendingIce += c
             }
             is Frame.CallRestartRequest -> if (f.callId == s.callId && s.outgoing) restartIce()
-            is Frame.CallMedia -> if (f.callId == s.callId) _ui.update { it.copy(remoteVideoOn = f.videoOn, remoteMuted = f.muted) }
+            is Frame.CallMedia -> if (f.callId == s.callId && from == s.peerId) {
+                // Sent by the callee the moment they tap Accept.
+                if (s.phase == CallPhase.OUTGOING || s.phase == CallPhase.RINGING) {
+                    audio.stopTones()
+                    // Accepted but media never came up → don't sit on "Connecting" forever.
+                    val id = s.callId
+                    timers += scope.launch(rtc) { delay(30_000); if (_ui.value.callId == id && _ui.value.phase == CallPhase.CONNECTING) end("failed", notify = true) }
+                }
+                _ui.update {
+                    it.copy(
+                        remoteVideoOn = f.videoOn, remoteMuted = f.muted,
+                        phase = if (it.phase == CallPhase.OUTGOING || it.phase == CallPhase.RINGING) CallPhase.CONNECTING else it.phase,
+                    )
+                }
+            }
             is Frame.CallEnd -> if (f.callId == s.callId && from == s.peerId) end(f.reason, notify = false)
             else -> Unit
         }
@@ -375,6 +394,8 @@ class CallManager(
                         audio.proximity(!_ui.value.video && !_ui.value.speaker)
                         CallService.start(context, _ui.value)
                         startStats()
+                        // Tell the other side our real camera/mic state as soon as media flows.
+                        announceMedia()
                     }
                     PeerConnection.PeerConnectionState.DISCONNECTED -> onLinkLost(immediate = false)
                     PeerConnection.PeerConnectionState.FAILED -> onLinkLost(immediate = true)

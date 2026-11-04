@@ -122,6 +122,16 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}) {
             Text(stringResource(R.string.about_privacy), style = Zura.type.caption, color = c.textMuted)
         }
 
+        // Calls & messages when the app is closed: push, full-screen calls, wake-up (battery).
+        Section(R.string.push_status) {
+            Text(
+                stringResource(if (app.zura.push.Push.enabled) R.string.push_on else R.string.push_off),
+                style = Zura.type.caption, color = if (app.zura.push.Push.enabled) c.textMuted else c.danger,
+            )
+            Spacer(Modifier.height(12.dp))
+            app.zura.push.CallReadinessList()
+        }
+
         Section(R.string.privacy) {
             val secure by g.settings.secureScreen.collectAsStateWithLifecycle()
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { haptics.tick(); g.settings.setSecureScreen(!secure) }, verticalAlignment = Alignment.CenterVertically) {
@@ -132,18 +142,6 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}) {
                 androidx.compose.material3.Switch(
                     secure, { g.settings.setSecureScreen(it) },
                     colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = c.accent, checkedThumbColor = c.onAccent),
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(stringResource(R.string.push_status), style = Zura.type.label, color = c.text)
-            Text(
-                stringResource(if (app.zura.push.Push.enabled) R.string.push_on else R.string.push_off),
-                style = Zura.type.caption, color = if (app.zura.push.Push.enabled) c.textMuted else c.danger,
-            )
-            if (!app.zura.push.PushPermissions.fullScreenAllowed(ctx)) {
-                Text(
-                    stringResource(R.string.fullscreen_calls) + " →", style = Zura.type.label, color = c.accent,
-                    modifier = Modifier.padding(top = 6.dp).clickable { app.zura.push.PushPermissions.openFullScreenSettings(ctx) },
                 )
             }
             Spacer(Modifier.height(12.dp))

@@ -210,4 +210,14 @@
     <string name="saved">Saved</string>
     <string name="profile">Profile</string>
     <string name="my_profile">My profile</string>
+    <string name="done">Done</string>
+    <string name="ready_intro">So calls ring and wake your phone like a normal call even when Zura is closed or the screen is locked, allow these:</string>
+    <string name="ready_notifications">Notifications</string>
+    <string name="ready_notifications_hint">Ring for calls and show new messages</string>
+    <string name="ready_fullscreen">Full-screen calls</string>
+    <string name="ready_fullscreen_hint">Show the call screen over the lock screen</string>
+    <string name="ready_battery">Wake up for calls</string>
+    <string name="ready_battery_hint">Let Zura run in the background so calls are never delayed</string>
+    <string name="ready_on">On</string>
+    <string name="ready_more">More (autostart, lock screen) in app settings</string>
 </resources>

@@ -80,6 +80,8 @@ import org.webrtc.VideoTrack
 import kotlin.math.roundToInt
 
 private val LocalCallFg = androidx.compose.runtime.staticCompositionLocalOf { Color.White }
+/** True while the UI floats over live video: chrome turns dark-tinted so white text stays readable on any theme. */
+private val LocalOverVideo = androidx.compose.runtime.staticCompositionLocalOf { false }
 
 /** Full-screen call UI, drawn above everything while a call is in progress. */
 @Composable
@@ -95,10 +97,14 @@ fun CallScreen(calls: CallManager) {
 
     // Foreground follows the theme (dark text on the light theme); over live video it is always white.
     val fg = if (showRemoteVideo) Color.White else Zura.colors.text
-    androidx.compose.runtime.CompositionLocalProvider(LocalCallFg provides fg) {
-    Box(Modifier.fillMaxSize().background(Zura.colors.bg)) {
-        if (showRemoteVideo) Video(calls, remote!!, mirror = false, Modifier.fillMaxSize())
-        else Backdrop(s)
+    androidx.compose.runtime.CompositionLocalProvider(LocalCallFg provides fg, LocalOverVideo provides showRemoteVideo) {
+    Box(Modifier.fillMaxSize().background(if (showRemoteVideo) Color.Black else Zura.colors.bg)) {
+        if (showRemoteVideo) {
+            Video(calls, remote!!, mirror = false, Modifier.fillMaxSize())
+            // Soft dark scrims top and bottom: the name, timer and buttons stay legible over bright video.
+            Box(Modifier.fillMaxWidth().height(200.dp).align(Alignment.TopCenter).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent))))
+            Box(Modifier.fillMaxWidth().height(220.dp).align(Alignment.BottomCenter).background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))))
+        } else Backdrop(s)
 
         // Top: network + status
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -132,6 +138,11 @@ fun CallScreen(calls: CallManager) {
     }
     }
 }
+
+/** Theme glass normally; a dark smoked glass over video (light-theme glass made white icons invisible). */
+@Composable
+private fun Modifier.callGlass(shape: androidx.compose.ui.graphics.Shape): Modifier =
+    if (LocalOverVideo.current) clip(shape).background(Color.Black.copy(alpha = 0.42f)) else glass(shape)
 
 @Composable
 private fun Backdrop(s: CallUi) {
@@ -185,7 +196,7 @@ private fun NetworkChip(s: CallUi) {
     }
     val bars = when (s.quality) { NetQuality.GOOD -> 3; NetQuality.FAIR -> 2; NetQuality.POOR -> 1; NetQuality.UNKNOWN -> 0 }
     Row(
-        Modifier.glass(CircleShape).padding(horizontal = 12.dp, vertical = 6.dp),
+        Modifier.callGlass(CircleShape).padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text("🔒", style = Zura.type.caption)
@@ -205,7 +216,7 @@ private fun NetworkChip(s: CallUi) {
 private fun ActiveControls(calls: CallManager, s: CallUi) {
     val haptics = rememberHaptics()
     Row(
-        Modifier.glass(RoundedCornerShape(32.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
+        Modifier.callGlass(RoundedCornerShape(32.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
         if (s.video) {
@@ -241,7 +252,7 @@ private fun RoundButton(icon: ImageVector, label: String, active: Boolean, dange
                 .background(when { danger -> Color(0xFFE5484D); active -> LocalCallFg.current; else -> LocalCallFg.current.copy(alpha = 0.12f) })
                 .clickable(src, null, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, label, tint = when { danger -> Color.White; active -> Zura.colors.bg; else -> LocalCallFg.current }, modifier = Modifier.size(26.dp)) }
+        ) { Icon(icon, label, tint = when { danger -> Color.White; active -> if (LocalOverVideo.current) Color.Black else Zura.colors.bg; else -> LocalCallFg.current }, modifier = Modifier.size(26.dp)) }
         // Icons only — the label stays available to screen readers via contentDescription.
     }
 }
