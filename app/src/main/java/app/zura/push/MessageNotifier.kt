@@ -23,24 +23,31 @@ class MessageNotifier(private val context: Context) {
     private val nm = context.getSystemService(NotificationManager::class.java)
     private val lines = HashMap<String, ArrayList<NotificationCompat.MessagingStyle.Message>>()
 
-    fun show(meta: ChatMeta, m: Message) {
-        if (Push.appVisible && Push.openChatId == meta.id) return
-        ensureChannel()
-        val sender = Person.Builder().setName(meta.title).setKey(m.senderId).build()
-        val me = Person.Builder().setName(context.getString(R.string.app_name)).build()
-        // App lock on → never reveal who wrote what in the notification shade.
-        if ((context.applicationContext as app.zura.ZuraApp).graph.appLock.enabled.value || meta.locked) {
-            val n = NotificationCompat.Builder(context, channelFor(meta.id)).setSmallIcon(R.drawable.ic_stat_zura)
-                .setContentTitle(context.getString(R.string.app_name)).setContentText(context.getString(R.string.new_message))
-                .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setContentIntent(openChat(meta.id))
-                .build()
-            ensureChannel()
-            runCatching { NotificationManagerCompat.from(context).notify(LOCKED_ID, n) }
-            return
-        }
-        val text = if (m.kind == MsgKind.EVENT) app.zura.ui.chat.eventText(context, m.text, false) else m.text?.takeIf { it.isNotBlank() && m.kind != MsgKind.CALL } ?: context.getString(
-            when (m.kind) {
+    /** Message ids already notified (push-decrypted first, stored later → never twice). */
+    private val notified = LinkedHashSet<String>()
+    private val prefs = context.getSharedPreferences("zura_notif", Context.MODE_PRIVATE)
+
+    /**
+     * Locked chats, remembered outside the encrypted index (only chat ids — no content), so a
+     * notification decrypted from a push on a LOCKED phone still hides who / what for them.
+     */
+    fun rememberLocked(ids: Set<String>) { prefs.edit().putStringSet("locked", ids).apply() }
+    private fun isLockedChat(chatId: String) = chatId in prefs.getStringSet("locked", emptySet()).orEmpty()
+
+    fun show(meta: ChatMeta, m: Message) =
+        post(meta.id, meta.title, m.senderId, m.id, textOf(m.kind, m.text, m.moment != null), m.sentAt, meta.locked)
+
+    /**
+     * Phone locked: the message came INSIDE the push (end-to-end encrypted; the identity key works
+     * while locked) — show it right away like any message, without touching chat storage. When
+     * it's stored after unlock, the same notification is reused (same id; no second alert).
+     */
+    fun showFromPush(chatId: String, title: String, f: app.zura.core.sync.Frame.Msg) =
+        post(chatId, title, f.from, f.id, textOf(f.kind, f.text, f.moment != null), f.sentAt, isLockedChat(chatId))
+
+    private fun textOf(kind: MsgKind, text: String?, moment: Boolean): String {
+        val t = if (kind == MsgKind.EVENT) app.zura.ui.chat.eventText(context, text, false) else text?.takeIf { it.isNotBlank() && kind != MsgKind.CALL } ?: context.getString(
+            when (kind) {
                 MsgKind.IMAGE -> R.string.photo
                 MsgKind.VIDEO -> R.string.video
                 MsgKind.VOICE -> R.string.voice_message
@@ -50,29 +57,46 @@ class MessageNotifier(private val context: Context) {
                 MsgKind.TEXT -> R.string.message_hint
             },
         )
-        val shown = if (m.moment != null) context.getString(R.string.moment_notif, text) else text
-        val list = synchronized(lines) { lines.getOrPut(meta.id) { ArrayList() }.apply { add(NotificationCompat.MessagingStyle.Message(shown, m.sentAt, sender)); while (size > 6) removeAt(0) }.toList() }
+        return if (moment) context.getString(R.string.moment_notif, t) else t
+    }
+
+    private fun post(chatId: String, title: String, senderId: String, msgId: String, shown: String, sentAt: Long, lockedChat: Boolean) {
+        if (Push.appVisible && Push.openChatId == chatId) return
+        val duplicate = synchronized(notified) {
+            val d = !notified.add(msgId)
+            while (notified.size > 500) notified.remove(notified.first())
+            d
+        }
+        if (duplicate) return // already on screen (from the push) — don't add it or ring again
+        ensureChannel()
+        val sender = Person.Builder().setName(title).setKey(senderId).build()
+        val me = Person.Builder().setName(context.getString(R.string.app_name)).build()
+        // App lock on / locked chat → never reveal who wrote what in the notification shade.
+        if ((context.applicationContext as app.zura.ZuraApp).graph.appLock.enabled.value || lockedChat) {
+            val n = NotificationCompat.Builder(context, channelFor(chatId)).setSmallIcon(R.drawable.ic_stat_zura)
+                .setContentTitle(context.getString(R.string.app_name)).setContentText(context.getString(R.string.new_message))
+                .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setContentIntent(openChat(chatId))
+                .build()
+            runCatching { NotificationManagerCompat.from(context).notify(LOCKED_ID, n) }
+            return
+        }
+        val list = synchronized(lines) { lines.getOrPut(chatId) { ArrayList() }.apply { add(NotificationCompat.MessagingStyle.Message(shown, sentAt, sender)); while (size > 6) removeAt(0) }.toList() }
         val style = NotificationCompat.MessagingStyle(me).also { s -> list.forEach(s::addMessage) }
-        val open = PendingIntent.getActivity(
-            context, meta.id.hashCode(),
-            Intent(context, MainActivity::class.java).setAction(Intent.ACTION_VIEW).putExtra(MainActivity.EXTRA_CHAT, meta.id)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val public = NotificationCompat.Builder(context, channelFor(meta.id)).setSmallIcon(R.drawable.ic_stat_zura)
+        val public = NotificationCompat.Builder(context, channelFor(chatId)).setSmallIcon(R.drawable.ic_stat_zura)
             .setContentTitle(context.getString(R.string.app_name)).setContentText(context.getString(R.string.new_message)).build()
-        val n = NotificationCompat.Builder(context, channelFor(meta.id))
+        val n = NotificationCompat.Builder(context, channelFor(chatId))
             .setSmallIcon(R.drawable.ic_stat_zura)
             .setStyle(style)
-            .setShortcutId(meta.id)
+            .setShortcutId(chatId)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
-            .setContentIntent(open)
+            .setContentIntent(openChat(chatId))
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(public)
             .setGroup("zura-messages")
             .build()
-        runCatching { NotificationManagerCompat.from(context).notify(meta.id.hashCode(), n) }
+        runCatching { NotificationManagerCompat.from(context).notify(chatId.hashCode(), n) }
     }
 
     /** A message arrived but stays encrypted until the phone is unlocked. */
@@ -109,7 +133,7 @@ class MessageNotifier(private val context: Context) {
             .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setContentIntent(openChat(chatId))
             .build()
-        runCatching { NotificationManagerCompat.from(context).notify(LOCKED_ID, n) }
+        runCatching { NotificationManagerCompat.from(context).notify(chatId?.hashCode() ?: LOCKED_ID, n) }
     }
 
     fun clear(chatId: String) {

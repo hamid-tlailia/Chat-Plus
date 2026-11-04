@@ -49,7 +49,9 @@ fun LockScreen(lock: AppLock) {
     // Ask only once the screen is really in front (RESUMED): a prompt requested earlier — during
     // cold start — is silently dropped on some devices.
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
-        ask()
+        // During a call the call screen is usable without unlocking the app (like other
+        // messengers): don't throw the fingerprint prompt over it.
+        if ((activity.applicationContext as app.zura.ZuraApp).graph.session.value?.calls?.ui?.value?.inCall != true) ask()
         onPauseOrDispose { }
     }
     val src = remember { MutableInteractionSource() }

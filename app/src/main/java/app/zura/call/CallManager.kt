@@ -245,8 +245,8 @@ class CallManager(
         }
         val answer = pc!!.awaitCreate(offer = false, iceRestart = false)
         pc!!.awaitSetLocal(answer)
-        signalReliably(offer.from, Frame.CallAnswer(offer.callId, me, withRoutes(answer.description)))
-        stage("answer sent (live + durable)")
+        sendFastThenDurable(offer.from, answer.description) { sdp -> Frame.CallAnswer(offer.callId, me, sdp) }
+        stage("answer sent (live now, durable with routes next)")
         pendingOffer = null
     }
 
@@ -280,6 +280,7 @@ class CallManager(
         )
         CallService.start(context, _ui.value)
         stage("incoming via push → ringing (${if (p == null) "name pending" else "known contact"})")
+        prefetchIce()
         if (app.zura.push.Push.appVisible) audio.startRingtone(inv.from) // in background the notification itself rings
         transport.start()
         // Don't wait for the socket: pull the caller's durable offer over HTTPS now.
@@ -345,7 +346,7 @@ class CallManager(
                         applyRemote(SessionDescription(SessionDescription.Type.OFFER, f.sdp))
                         val answer = pc!!.awaitCreate(offer = false, iceRestart = false)
                         pc!!.awaitSetLocal(answer)
-                        signalReliably(from, Frame.CallAnswer(f.callId, me, withRoutes(answer.description)))
+                        sendFastThenDurable(from, answer.description) { sdp -> Frame.CallAnswer(f.callId, me, sdp) }
                     }
                     return@withContext
                 }
@@ -376,6 +377,7 @@ class CallManager(
                 )
                 CallService.start(context, _ui.value)
                 audio.startRingtone(from)
+                prefetchIce()
                 transport.signal(from, Frame.CallRinging(f.callId, me))
                 timers += scope.launch(rtc) { delay(45_000); if (_ui.value.phase == CallPhase.INCOMING) end("timeout", notify = false) }
             }
@@ -543,17 +545,6 @@ class CallManager(
 
     /** The caller owns the offer, so the caller restarts; the callee asks the caller to. */
     /**
-     * Call-setup messages that must not be lost. Live delivery can silently miss a phone whose
-     * realtime socket is down for a moment (typical right after the app goes to the background),
-     * so they ALSO go through the durable E2EE inbox, which that phone drains as soon as it
-     * reconnects. The duplicate is ignored on arrival.
-     */
-    private suspend fun signalReliably(peer: String, frame: Frame) {
-        transport.signal(peer, frame)
-        scope.launch { runCatching { transport.send(peer, frame) } }
-    }
-
-    /**
      * A call stuck on "Connecting" (the answer or the network candidates were lost while the
      * app was in the background) is renegotiated automatically every 7 s, up to 5 times —
      * instead of waiting forever until the user calls again.
@@ -605,7 +596,17 @@ class CallManager(
         val peer = s.peerId ?: return
         val offer = runCatching { p.awaitCreate(offer = true, iceRestart = true) }.getOrNull() ?: return
         runCatching { p.awaitSetLocal(offer) }.getOrNull() ?: return
-        signalReliably(peer, Frame.CallOffer(s.callId!!, me, s.video, withRoutes(offer.description), restart = true))
+        sendFastThenDurable(peer, offer.description) { sdp -> Frame.CallOffer(s.callId!!, me, s.video, sdp, restart = true, at = System.currentTimeMillis()) }
+    }
+
+    /**
+     * Latency first: the frame goes out LIVE at once (routes keep trickling), and a durable copy
+     * carrying every gathered route follows through the inbox — for a phone whose socket missed
+     * the live one. The receiver applies whichever arrives first and ignores the other.
+     */
+    private suspend fun sendFastThenDurable(peer: String, sdp: String, frame: (String) -> Frame) {
+        transport.signal(peer, frame(sdp))
+        scope.launch(rtc) { runCatching { transport.send(peer, frame(withRoutes(sdp))) } }
     }
 
     /**
@@ -841,7 +842,17 @@ class CallManager(
 
     // ================================================================= ICE servers (TURN)
 
+    @Volatile private var iceCache: Pair<Long, List<PeerConnection.IceServer>>? = null
+
+    /** Fetch TURN credentials while the phone is still ringing, so answering doesn't wait for them. */
+    private fun prefetchIce() = scope.launch { runCatching { iceServers() } }
+
     private suspend fun iceServers(): List<PeerConnection.IceServer> {
+        iceCache?.let { (at, list) -> if (System.currentTimeMillis() - at < 10 * 60_000) return list }
+        return fetchIceServers().also { if (it.size > 1 || it.firstOrNull()?.urls?.any { u -> u.startsWith("turn") } == true) iceCache = System.currentTimeMillis() to it }
+    }
+
+    private suspend fun fetchIceServers(): List<PeerConnection.IceServer> {
         val fallback = listOf(PeerConnection.IceServer.builder(listOf("stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302")).createIceServer())
         val res = withTimeoutOrNull(3_000) { runCatching { backend.function("turn-credentials") }.getOrNull() } ?: return fallback
         return runCatching {

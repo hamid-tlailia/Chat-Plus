@@ -38,7 +38,7 @@ class CallService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val session = activeSession()
         when (intent?.action) {
-            ACTION_PRE_RING -> if (session?.calls?.ui?.value?.inCall != true) { preRing(); return START_NOT_STICKY }
+            ACTION_PRE_RING -> if (session?.calls?.ui?.value?.inCall != true) { preRing(intent.getStringExtra(EXTRA_NAME)); return START_NOT_STICKY }
             ACTION_CANCEL_PRE -> if (session?.calls?.ui?.value?.inCall != true) {
                 preRingUntil = 0
                 runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
@@ -128,9 +128,9 @@ class CallService : Service() {
      * only shortly after the push — opening the account and decrypting the invite come after.
      * Replaced by the real call notification within a second; gone after 20 s if no call shows up.
      */
-    private fun preRing() {
+    private fun preRing(name: String?) {
         preRingUntil = System.currentTimeMillis() + 20_000
-        val n = build(this, CallUi(phase = CallPhase.INCOMING, peerName = "Zura"))
+        val n = build(this, CallUi(phase = CallPhase.INCOMING, peerName = name ?: "Zura"))
         runCatching {
             if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL else 0)
             else startForeground(ID, n)
@@ -150,6 +150,7 @@ class CallService : Service() {
         private const val ID = 7001
         const val ACTION_PRE_RING = "zura.call.PRE_RING"
         const val EXTRA_CALL_ID = "zura.call_id"
+        const val EXTRA_NAME = "zura.caller_name"
         const val ACTION_CANCEL_PRE = "zura.call.CANCEL_PRE"
 
         /** The pushed call turned out invalid (blocked, expired, undecryptable): stop the provisional ring. */
@@ -160,8 +161,14 @@ class CallService : Service() {
         /** While a provisional ring is up, "no call yet" is expected — don't clear it. */
         @Volatile var preRingUntil = 0L
 
-        fun preRing(context: Context) {
-            runCatching { ContextCompat.startForegroundService(context, Intent(context, CallService::class.java).setAction(ACTION_PRE_RING)) }
+        /** Caller names cached outside the account (uid → name): the provisional ring shows who calls. */
+        fun rememberNames(context: Context, names: Map<String, String>) {
+            context.getSharedPreferences("zura_callers", Context.MODE_PRIVATE).edit().apply { clear(); names.forEach { (k, v) -> putString(k, v) } }.apply()
+        }
+
+        fun preRing(context: Context, from: String? = null) {
+            val name = from?.let { context.getSharedPreferences("zura_callers", Context.MODE_PRIVATE).getString(it, null) }
+            runCatching { ContextCompat.startForegroundService(context, Intent(context, CallService::class.java).setAction(ACTION_PRE_RING).putExtra(EXTRA_NAME, name)) }
                 .onFailure { app.zura.DiagLog.record("pre-ring start", it) }
         }
         /** Set once the service runs with the mediaProjection type (required before screen capture). */
@@ -223,6 +230,9 @@ class CallService : Service() {
                 .setContentText(c.getString(if (ui.video) R.string.video_call else R.string.voice_call))
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setOngoing(true)
+                // The provisional ring is replaced by the real call notification: alert ONCE (the
+                // replacement used to ring a second time).
+                .setOnlyAlertOnce(true)
                 .setContentIntent(open)
                 .apply {
                     if (incoming) { setFullScreenIntent(open, true); priority = NotificationCompat.PRIORITY_MAX }

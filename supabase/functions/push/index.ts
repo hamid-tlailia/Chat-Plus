@@ -1,8 +1,8 @@
 // Wakes a contact's phone through Firebase Cloud Messaging (HTTP v1).
 //
-// Privacy: the push never contains message content. "msg" is a bare wake-up — the phone then pulls
-// its end-to-end-encrypted inbox from Supabase and decrypts locally. "call" carries only an E2EE
-// sealed call invite (opaque to Google and to us).
+// Privacy: no readable content ever. "msg" may carry the message SEALED end-to-end for the
+// recipient (opaque to Google and to us) so a sleeping phone can show it at once; otherwise it is a
+// bare wake-up and the phone pulls its E2EE inbox. "call" carries only an E2EE sealed call invite.
 //
 // Abuse protection: caller must be signed in (verify_jwt) and an accepted, non-blocked contact
 // of the recipient — the same rule the database enforces for messages.
@@ -72,7 +72,7 @@ Deno.serve(async (req: Request) => {
   const me = auth?.user?.id;
   if (!me) return json({ error: "unauthorized" }, 401);
 
-  let body: { to?: string; kind?: string; data?: Record<string, string> };
+  let body: { to?: string; kind?: string; data?: Record<string, string>; priority?: string };
   try { body = await req.json(); } catch { return json({ error: "bad json" }, 400); }
   const { to, kind } = body;
   const data = body.data ?? {};
@@ -103,9 +103,13 @@ Deno.serve(async (req: Request) => {
           token,
           data: { ...data, t: kind, f: me },
           android: {
-            priority: "HIGH",                       // bypasses Doze; required to ring a sleeping phone
-            ttl: isCall ? "40s" : "86400s",         // a call invite is useless after it stops ringing
-            ...(isCall ? {} : { collapse_key: `msg-${me}` }),
+            // HIGH bypasses Doze (calls always; messages for recipients who look offline).
+            // NORMAL for recipients who look online: delivered promptly on an awake phone, and not
+            // counted against the app when it ends without a notification (they got it live).
+            priority: isCall || body.priority !== "normal" ? "HIGH" : "NORMAL",
+            // A call invite is useless after it stops ringing. Messages are NOT collapsed: each push
+            // may carry its own sealed message, shown on a locked phone right away.
+            ttl: isCall ? "40s" : "86400s",
           },
         },
       }),

@@ -4,6 +4,7 @@ import android.app.Application
 import app.zura.BuildConfig
 import app.zura.DiagLog
 import app.zura.call.CallManager
+import app.zura.call.CallService
 import app.zura.call.Walkie
 import app.zura.security.DeviceLock
 import app.zura.call.Telecom
@@ -193,6 +194,8 @@ class AccountSession(
 
     /** First run after sign-in: publish E2EE identity, start social graph sync. */
     fun bootstrap(notesTitle: String) {
+        // Chat-list index + work deferred while the phone was locked (persisted across kills / reboots).
+        scope.launch(Dispatchers.IO) { runCatching { chats.onUnlocked() } }
         scope.launch {
             runCatching { contacts.publishIdentity(identity.publicB64) }
             chats.ensureNotesChat(notesTitle)
@@ -202,6 +205,10 @@ class AccountSession(
         chats.onEvict = { ref -> runCatching { images.evict(ref) } }
         chats.startExpiry()
         chats.onReaction = { meta, m, emoji -> notifier.showReaction(meta, m, emoji) }
+        // Contact names for the instant ring of a call push (before the account is even open).
+        scope.launch { contacts.contacts.collect { cs -> if (cs.isNotEmpty()) CallService.rememberNames(app, cs.associate { it.profile.id to it.profile.displayName }) } }
+        // Locked-chat ids for notifications decrypted while the phone (and the index) is locked.
+        scope.launch { chats.chats.collect { list -> if (list.isNotEmpty()) notifier.rememberLocked(list.filter { it.locked }.map { it.id }.toSet()) } }
         contacts.start()
         scope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(4_000)

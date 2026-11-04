@@ -62,7 +62,8 @@ class ChatRepository(
     /** False only during the one-time build of the index (first start after the update) → skeletons. */
     val chatsLoaded = MutableStateFlow(true)
 
-    init { scope.launch(Dispatchers.IO) { onUnlocked() } } // also replays work persisted before a kill / reboot
+    // (Start-up replay is triggered by AccountSession.bootstrap, AFTER construction: launching it
+    //  from init raced the constructor — the lock it uses wasn't initialised yet → NPE every start.)
 
     /**
      * Chats missing from the index (older install, or the phone was locked at start): open them
@@ -152,7 +153,8 @@ class ChatRepository(
     // ------------------------------------------------------------------ lifecycle
 
     init {
-        scope.launch { transport.online.filter { it }.collect { resendPending() } }
+        // Guarded: one failure (e.g. phone locked) must not end this collector for the session.
+        scope.launch { transport.online.filter { it }.collect { if (!vault.isLocked()) runCatching { resendPending() } } }
         scope.launch {
             while (isActive) {
                 delay(1_000)
@@ -223,6 +225,7 @@ class ChatRepository(
     suspend fun onUnlocked() = unlockLock.withLock {
         if (vault.isLocked()) return@withLock
         ensureIndex()
+        if (transport.online.value) runCatching { resendPending() } // messages queued while locked
         vault.deferredWork().forEach { d ->
             runCatching {
                 if (d.kind == "call") send(d.chatId, MsgKind.CALL, d.text, null, null, id = d.id)
@@ -364,12 +367,14 @@ class ChatRepository(
         // end-to-end for that peer (FCM/Google see only ciphertext): their phone decrypts and
         // shows it at once, without first reconnecting and downloading the inbox. Bigger
         // messages (media, link cards) stay content-free; the phone then pulls the inbox.
-        // Only to peers not in the app right now: a high-priority push that ends without a visible
-        // notification (they already got it live) makes Android / FCM deprioritise ours.
-        if (ok) peersOf(wire.chatId).filterNot { isOnline(it) }.forEach { peer ->
+        // Always a wake-up push ("online" can be stale: an app swiped away may not get its "offline"
+        // out). Peers who look online get NORMAL priority — prompt on an awake phone and not held
+        // against us if they already had it live; everyone else HIGH (bypasses Doze).
+        if (ok) peersOf(wire.chatId).forEach { peer ->
+            val online = isOnline(peer)
             scope.launch {
                 val sealed = if (frame.kind == MsgKind.TEXT && frame.link == null) transport.sealFor(peer, frame)?.takeIf { it.length <= 2_600 } else null
-                backend.push(peer, "msg", if (sealed != null) mapOf("e" to sealed) else emptyMap())
+                backend.push(peer, "msg", if (sealed != null) mapOf("e" to sealed) else emptyMap(), normalPriority = online)
             }
         }
     }

@@ -157,10 +157,11 @@ class Backend {
     // ---------------------------------------------------------------- push wake-ups (FCM via edge function)
 
     /** Fire-and-forget wake-up for a contact's devices. Never carries message content. */
-    suspend fun push(to: String, kind: String, data: Map<String, String> = emptyMap()) {
+    suspend fun push(to: String, kind: String, data: Map<String, String> = emptyMap(), normalPriority: Boolean = false) {
         runCatching {
             function("push", buildJsonObject {
                 put("to", to); put("kind", kind)
+                if (normalPriority) put("priority", "normal")
                 put("data", buildJsonObject { data.forEach { (k, v) -> put(k, v) } })
             })
         }

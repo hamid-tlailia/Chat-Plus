@@ -229,11 +229,11 @@ private fun ActiveControls(calls: CallManager, s: CallUi) {
     val haptics = rememberHaptics()
     Row(
         Modifier.callGlass(RoundedCornerShape(32.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
+        // At most 4 buttons (flip camera lives on the self-view) — no crowding on any phone.
         if (s.video) {
             RoundButton(ZuraIcons.VideoCam, stringResource(R.string.camera), active = !s.cameraOn) { haptics.tick(); calls.toggleCamera() }
-            RoundButton(Icons.Default.Refresh, stringResource(R.string.flip), active = false) { haptics.tick(); calls.switchCamera() }
         } else {
             RoundButton(ZuraIcons.Speaker, stringResource(R.string.speaker), active = s.speaker) { haptics.tick(); calls.toggleSpeaker() }
         }
@@ -270,7 +270,7 @@ private fun RoundButton(icon: ImageVector, label: String, active: Boolean, dange
     val src = remember { MutableInteractionSource() }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            Modifier.size(58.dp).pressScale(src, 0.9f).clip(CircleShape)
+            Modifier.size(56.dp).pressScale(src, 0.9f).clip(CircleShape)
                 .background(when { danger -> Color(0xFFE5484D); active -> LocalCallFg.current; else -> LocalCallFg.current.copy(alpha = 0.12f) })
                 .clickable(src, null, onClick = onClick),
             contentAlignment = Alignment.Center,
@@ -354,6 +354,14 @@ private fun SelfView(calls: CallManager, track: VideoTrack, front: Boolean) {
                         scope.launch { x.snapTo(x.value + d.x); y.snapTo(y.value + d.y) }
                     }
                 },
-        ) { Video(calls, track, mirror = front, Modifier.fillMaxSize(), overlay = true) }
+        ) {
+            Video(calls, track, mirror = front, Modifier.fillMaxSize(), overlay = true)
+            // Flip camera, on the self-view itself (keeps the control bar uncluttered).
+            Box(
+                Modifier.align(Alignment.BottomEnd).padding(6.dp).size(34.dp).clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.45f)).clickable { calls.switchCamera() },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Default.Refresh, stringResource(R.string.flip), tint = Color.White, modifier = Modifier.size(18.dp)) }
+        }
     }
 }

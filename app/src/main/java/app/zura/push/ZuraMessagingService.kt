@@ -37,7 +37,7 @@ class ZuraMessagingService : FirebaseMessagingService() {
             (if (msg.priority != msg.originalPriority) " (DOWNGRADED from ${prioName(msg.originalPriority)})" else "") +
             ", locked=${!app.zura.security.DeviceLock.chatKeysUsable(this)}")
         // A call: start ringing immediately — before opening the account or touching the network.
-        if (kind == "call") app.zura.call.CallService.preRing(this)
+        if (kind == "call") app.zura.call.CallService.preRing(this, from)
         try { runBlocking {
             // Cold start: AccountManager resumes the remembered account on its own; wait for it.
             val session = withTimeoutOrNull(7_000) {
@@ -48,8 +48,18 @@ class ZuraMessagingService : FirebaseMessagingService() {
                     // Phone locked: chat keys refuse to work → don't touch chat storage. Show a
                     // content-free notification; the message stays on the server until unlock.
                     if (!app.zura.security.DeviceLock.chatKeysUsable(this@ZuraMessagingService)) {
-                        session.notifier.showPending(session.contacts.profile(from)?.displayName, ContactsRepository.dmChatId(session.uid, from))
-                        app.zura.DiagLog.record("push", detail = "msg: locked → pending notification shown")
+                        val chatId = ContactsRepository.dmChatId(session.uid, from)
+                        val name = session.contacts.profile(from)?.displayName ?: getString(app.zura.R.string.app_name)
+                        // The text travels E2EE inside the push; the identity key works while locked:
+                        // show the real message now (stored after unlock, same notification reused).
+                        val f = data["e"]?.let { sealed -> withTimeoutOrNull(4_000) { runCatching { session.transport.openFrom(from, sealed) }.getOrNull() } } as? Frame.Msg
+                        if (f != null && f.from == from) {
+                            session.notifier.showFromPush(chatId, name, f)
+                            app.zura.DiagLog.record("push", detail = "msg: locked → shown from push payload")
+                        } else {
+                            session.notifier.showPending(name, chatId)
+                            app.zura.DiagLog.record("push", detail = "msg: locked, no payload → 'new message' shown")
+                        }
                         return@runBlocking
                     }
                     // Message carried in the push (E2EE): store + notify right away, no network.

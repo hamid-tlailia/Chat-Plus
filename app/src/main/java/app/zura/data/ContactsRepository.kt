@@ -284,6 +284,7 @@ class ContactsRepository(
 
     /** Every accepted contact has exactly one conversation; both phones derive the same id. */
     private suspend fun ensureChat(p: Profile) {
+        if (vault.isLocked()) return // done on the next refresh after unlock
         val id = dmChatId(me, p.id)
         val hue = (p.id.hashCode() and 0xFFFF) % 360f
         if (!vault.exists(id)) {
