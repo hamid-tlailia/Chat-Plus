@@ -1,7 +1,11 @@
 package app.zura.account
 
 import android.app.Application
+import app.zura.BuildConfig
+import app.zura.DiagLog
 import app.zura.call.CallManager
+import app.zura.core.crypto.E2EE
+import app.zura.core.model.ChatMeta
 import app.zura.push.MessageNotifier
 import app.zura.push.Push
 import app.zura.core.crypto.SecureFile
@@ -26,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.serialization.json.put
@@ -53,7 +58,7 @@ class AccountSession(
     val contacts = ContactsRepository(backend, uid, vault, SecureFile(File(dir, "pins.zs"), keys, "zpins"), scope)
     val transport = SupabaseTransport(backend, uid, identity, contacts::peerKey, scope)
     val chats = ChatRepository(vault, transport, backend, uid, scope)
-    val moments = MomentsRepository(vault, chats, transport, backend, uid, { contactIds() }, scope)
+    val moments = MomentsRepository(vault, chats, transport, backend, uid, { contactIds() }, scope, nameOf = { contacts.profile(it)?.displayName })
     val calls by lazy { CallManager(app, transport, contacts, chats, backend, uid, scope) }
 
     val images by lazy { VaultImages(vault) }
@@ -101,6 +106,59 @@ class AccountSession(
         runCatching {
             backend.client.postgrest.rpc("unregister_device", kotlinx.serialization.json.buildJsonObject { put("p_token", t) })
         }
+    }
+
+    /**
+     * On-device health check: everything a message needs to reach a contact, step by step.
+     * The report has no content and no keys — safe to copy and send to the developer.
+     */
+    suspend fun selfTest(): String = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val out = StringBuilder()
+        suspend fun step(name: String, block: suspend () -> String?) {
+            val r = runCatching { block() }
+            out.append(if (r.isSuccess && r.getOrNull() == null) "✓ " else "✗ ").append(name)
+            r.exceptionOrNull()?.let { out.append(" — ").append(it.javaClass.simpleName).append(": ").append(it.message?.take(200)) }
+            r.getOrNull()?.let { out.append(" — ").append(it) }
+            out.append('\n')
+        }
+        out.append("Zura ").append(BuildConfig.VERSION_NAME).append(" · Android ").append(android.os.Build.VERSION.SDK_INT)
+            .append(" · ").append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append("\n\n")
+        step("Signed in") { if (backend.client.auth.currentSessionOrNull()?.user?.id == uid) null else "session missing or for another user" }
+        step("Profile & identity key published") {
+            contacts.refresh()
+            val mine = contacts.myProfile.value?.identityKey
+            when {
+                mine == null -> { contacts.publishIdentity(identity.publicB64); "was missing — republished" }
+                mine != identity.publicB64 -> { contacts.publishIdentity(identity.publicB64); "did not match this phone — republished" }
+                else -> null
+            }
+        }
+        step("End-to-end encryption on this phone") {
+            val b = "zura-selftest".encodeToByteArray()
+            val back = E2EE.open(identity.keyPair, identity.keyPair.public,
+                E2EE.seal(identity.keyPair, identity.keyPair.public, b))
+            if (back.contentEquals(b)) null else "mismatch"
+        }
+        step("Secure storage (hardware keys)") {
+            val probe = "zdiag" + System.nanoTime().toString().takeLast(6)
+            vault.chat(probe).writeMeta(ChatMeta(probe, probe, emptyList(), System.currentTimeMillis()))
+            vault.deleteChat(probe); null
+        }
+        val cs = contacts.contacts.value
+        step("Contacts") { "${cs.size} contact(s)" }
+        for (c in cs) {
+            val n = c.profile.username
+            step("@$n: encryption key") { if (contacts.peerKey(c.profile.id) != null) null else "not available (hasKey=${c.profile.identityKey != null})" }
+            step("@$n: send test packet") { if (transport.send(c.profile.id, Frame.Ping)) null else "refused — see log below" }
+            step("@$n: conversation on this phone") {
+                if (vault.exists(ContactsRepository.dmChatId(uid, c.profile.id))) null else "missing"
+            }
+        }
+        step("Live connection (realtime)") { if (transport.online.value) null else "offline — messages arrive on sync/push only" }
+        step("Push (wake when closed)") { if (Push.token() != null) null else "no Firebase token" }
+        val log = DiagLog.read().lines().takeLast(20).joinToString("\n")
+        if (log.isNotBlank()) out.append("\nRecent issues:\n").append(log)
+        out.toString()
     }
 
     fun contactIds(): List<String> = contacts.contacts.value.filterNot { it.blocked }.map { it.profile.id }

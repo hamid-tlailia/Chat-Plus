@@ -19,7 +19,7 @@ class CallAudio(private val context: Context) {
     private val am = context.getSystemService(AudioManager::class.java)
     private var focus: AudioFocusRequest? = null
     private var ringtone: Ringtone? = null
-    private var ringback: ToneGenerator? = null
+    private var ringback: android.media.AudioTrack? = null
     private var proximity: PowerManager.WakeLock? = null
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= 31)
         context.getSystemService(VibratorManager::class.java)?.defaultVibrator
@@ -60,6 +60,7 @@ class CallAudio(private val context: Context) {
     }
 
     fun startRingtone() {
+        if (ringtone?.isPlaying == true) return // never stack a second ringtone
         stopTones()
         if (am.ringerMode == AudioManager.RINGER_MODE_NORMAL) {
             ringtone = RingtoneManager.getRingtone(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))?.apply {
@@ -72,10 +73,39 @@ class CallAudio(private val context: Context) {
         }
     }
 
-    /** "Ringing…" tone the caller hears while waiting. */
+    /**
+     * "Ringing…" heard by the caller: ONE soft 425 Hz tone (1 s, faded in/out) then 3 s of silence,
+     * looping — synthesised once into a static AudioTrack, so it can never play twice or overlap.
+     */
     fun startRingback() {
+        if (ringback != null) return
         stopTones()
-        ringback = runCatching { ToneGenerator(AudioManager.STREAM_VOICE_CALL, 70).apply { startTone(ToneGenerator.TONE_SUP_RINGTONE) } }.getOrNull()
+        ringback = runCatching {
+            val rate = 16_000
+            val total = rate * 4 // 1 s tone + 3 s silence
+            val pcm = ShortArray(total)
+            val fade = rate / 20 // 50 ms
+            for (i in 0 until rate) {
+                val env = minOf(1f, i / fade.toFloat(), (rate - i) / fade.toFloat())
+                pcm[i] = (Math.sin(2.0 * Math.PI * 425.0 * i / rate) * 0.28 * env * Short.MAX_VALUE).toInt().toShort()
+            }
+            val track = android.media.AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build(),
+                )
+                .setAudioFormat(
+                    android.media.AudioFormat.Builder().setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(rate).setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build(),
+                )
+                .setBufferSizeInBytes(total * 2)
+                .setTransferMode(android.media.AudioTrack.MODE_STATIC)
+                .build()
+            track.write(pcm, 0, total)
+            track.setLoopPoints(0, total, -1)
+            track.play()
+            track
+        }.getOrNull()
     }
 
     fun beepEnd() {
@@ -84,7 +114,7 @@ class CallAudio(private val context: Context) {
 
     fun stopTones() {
         ringtone?.stop(); ringtone = null
-        ringback?.run { stopTone(); release() }; ringback = null
+        ringback?.run { runCatching { stop() }; release() }; ringback = null
         vibrator?.cancel()
     }
 

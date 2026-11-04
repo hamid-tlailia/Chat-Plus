@@ -53,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
@@ -75,7 +76,7 @@ import app.zura.ui.theme.Zura
 import kotlinx.coroutines.launch
 
 @Composable
-fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit) {
+fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit, onOpenProfile: (String) -> Unit = {}) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val vm = viewModel(key = chatId) { ChatViewModel(g, chatId) }
@@ -106,13 +107,16 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
 
     val byId = remember(items) { items.filterIsInstance<ChatItem.Bubble>().associateBy({ it.m.id }, { it.m }) }
 
+    // Real frosted glass: the message list is blurred live behind the header and the composer.
+    val haze = remember { dev.chrisbanes.haze.HazeState() }
+    androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             LazyColumn(
                 state = list,
                 reverseLayout = true, // newest at the bottom, anchored; no scroll jumps on insert
                 contentPadding = PaddingValues(top = top + 72.dp, bottom = 8.dp),
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.weight(1f).fillMaxWidth().then(Modifier.hazeSourceCompat(haze)),
             ) {
                 items(items, key = { it.key }, contentType = { if (it is ChatItem.Day) 0 else (it as ChatItem.Bubble).m.kind.ordinal + 1 }) { item ->
                     when (item) {
@@ -143,11 +147,11 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
         var showSafety by remember { mutableStateOf(false) }
         Column(Modifier.fillMaxWidth()) {
             Row(
-                Modifier.fillMaxWidth().glass(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp), solid = 0.88f).padding(top = top).height(64.dp).padding(end = 4.dp),
+                Modifier.fillMaxWidth().glass(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp)).padding(top = top).height(64.dp).padding(end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Zura.colors.text) }
-                Box(Modifier.clickable(enabled = vm.peerId != null) { showSafety = true }) {
+                Box(Modifier.clickable(enabled = vm.peerId != null) { vm.peerId?.let(onOpenProfile) }) {
                     app.zura.ui.components.UserAvatar(meta?.title ?: "", meta?.avatarHue ?: 0f, meta?.avatarPath, 40.dp)
                     if (peerOnline) Box(
                         Modifier.align(Alignment.BottomEnd).size(12.dp).clip(CircleShape).background(Zura.colors.bg).padding(2.dp)
@@ -155,7 +159,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f).clickable(enabled = vm.peerId != null) { showSafety = true }) {
+                Column(Modifier.weight(1f).clickable(enabled = vm.peerId != null) { vm.peerId?.let(onOpenProfile) }) {
                     Text(meta?.title ?: "", style = Zura.type.headline, color = Zura.colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     AnimatedContent(
                         typing,
@@ -235,6 +239,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
             )
         }
     }
+    }
 }
 
 @Composable
@@ -264,3 +269,5 @@ private fun copy(ctx: Context, m: Message) {
     val cm = ctx.getSystemService(ClipboardManager::class.java)
     cm.setPrimaryClip(ClipData.newPlainText("zura", m.text.orEmpty()))
 }
+
+private fun Modifier.hazeSourceCompat(state: dev.chrisbanes.haze.HazeState): Modifier = this.then(Modifier.hazeSource(state))

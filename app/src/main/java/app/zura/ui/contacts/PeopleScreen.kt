@@ -67,12 +67,32 @@ import app.zura.ui.theme.Zura
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** Set by PeopleScreen: tapping any person's photo opens their profile. */
+private var openProfile: (String) -> Unit = {}
+
+/** Buttons whose action is in flight (spinner + no double taps). */
+private val busy = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
+
+/** Runs [block] with [key] marked busy; shows the error if it fails. */
+private fun kotlinx.coroutines.CoroutineScope.act(ctx: android.content.Context, key: String, block: suspend () -> Result<Unit>) {
+    if (busy[key] == true) return
+    busy[key] = true
+    launch {
+        try {
+            block().onFailure {
+                android.widget.Toast.makeText(ctx, it.message ?: ctx.getString(R.string.err_generic), android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } finally { busy.remove(key) }
+    }
+}
+
 /**
  * People hub: find users by @username and invite them; accept / decline received invitations;
  * cancel sent ones; manage contacts. Chatting is only possible with accepted contacts.
  */
 @Composable
-fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvites: Boolean = false) {
+fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvites: Boolean = false, onOpenProfile: (String) -> Unit = {}) {
+    openProfile = onOpenProfile
     val g = LocalContext.current.graph
     val repo = g.s.contacts
     val c = Zura.colors
@@ -151,10 +171,10 @@ fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvite
                         when (hit.relation) {
                             "contact" -> Pill(stringResource(R.string.open_chat), filled = true) { onOpenChat(ContactsRepository.dmChatId(repo.me, hit.id)) }
                             "pending_out" -> Pill(stringResource(R.string.invited), filled = false) {}
-                            "pending_in" -> Pill(stringResource(R.string.accept), filled = true) {
-                                invites.firstOrNull { it.incoming && it.profile.id == hit.id }?.let { inv -> scope.launch { haptics.confirm(); repo.respond(inv.id, true) } }
+                            "pending_in" -> Pill(stringResource(R.string.accept), filled = true, busyKey = "accept-" + hit.id) {
+                                invites.firstOrNull { it.incoming && it.profile.id == hit.id }?.let { inv -> haptics.confirm(); scope.act(ctx, "accept-" + inv.profile.id) { repo.respond(inv.id, true) } }
                             }
-                            else -> Pill(stringResource(R.string.invite), filled = true) { inviteTarget = hit }
+                            else -> Pill(stringResource(R.string.invite), filled = true, busyKey = "invite-" + hit.id) { inviteTarget = hit }
                         }
                     }
                 }
@@ -181,7 +201,7 @@ fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvite
         }
 
         if (tab == 0) ContactsList(contacts, onOpenChat, onInvite = { inviteTarget = it }, onAccept = { hit ->
-            invites.firstOrNull { it.incoming && it.profile.id == hit.id }?.let { inv -> scope.launch { haptics.confirm(); repo.respond(inv.id, true) } }
+            invites.firstOrNull { it.incoming && it.profile.id == hit.id }?.let { inv -> haptics.confirm(); scope.act(ctx, "accept-" + inv.profile.id) { repo.respond(inv.id, true) } }
         }, refreshKey = invites.size + contacts.size)
         else InvitesList(invites)
     }
@@ -201,9 +221,19 @@ fun PeopleScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit, startOnInvite
             },
             confirmButton = {
                 TextButton(onClick = {
-                    inviteTarget = null; haptics.confirm()
-                    scope.launch { repo.sendInvite(hit.id, note.ifBlank { null }); results = runCatching { repo.search(query.trim()) }.getOrNull() }
-                }) { Text(stringResource(R.string.send_invite), color = c.accent) }
+                    haptics.confirm()
+                    scope.act(ctx, "invite-" + hit.id) {
+                        repo.sendInvite(hit.id, note.ifBlank { null }).also {
+                            if (it.isSuccess) {
+                                inviteTarget = null
+                                if (query.isNotBlank()) results = runCatching { repo.search(query.trim()) }.getOrNull()
+                            }
+                        }
+                    }
+                }, enabled = busy["invite-" + hit.id] != true) {
+                    if (busy["invite-" + hit.id] == true) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = c.accent, strokeWidth = 2.dp)
+                    else Text(stringResource(R.string.send_invite), color = c.accent)
+                }
             },
             dismissButton = { TextButton(onClick = { inviteTarget = null }) { Text(stringResource(R.string.cancel), color = c.text) } },
         )
@@ -253,8 +283,8 @@ private fun ContactsList(
             PersonRow(hit.displayName, app.zura.i18n.handle(hit.username), hit.avatarPath, hit.id) {
                 when (hit.relation) {
                     "pending_out" -> Pill(stringResource(R.string.invited), filled = false) {}
-                    "pending_in" -> Pill(stringResource(R.string.accept), filled = true) { onAccept(hit) }
-                    else -> Pill(stringResource(R.string.invite), filled = true) { onInvite(hit) }
+                    "pending_in" -> Pill(stringResource(R.string.accept), filled = true, busyKey = "accept-" + hit.id) { onAccept(hit) }
+                    else -> Pill(stringResource(R.string.invite), filled = true, busyKey = "invite-" + hit.id) { onInvite(hit) }
                 }
             }
         }
@@ -263,6 +293,7 @@ private fun ContactsList(
 
 @Composable
 private fun InvitesList(invites: List<Invite>) {
+    val ctx = LocalContext.current
     val g = LocalContext.current.graph
     val repo = g.s.contacts
     val c = Zura.colors
@@ -280,15 +311,19 @@ private fun InvitesList(invites: List<Invite>) {
                     Text("“$it”", style = Zura.type.label, color = c.textMuted, modifier = Modifier.padding(start = 86.dp, end = 20.dp, bottom = 6.dp))
                 }
                 Row(Modifier.padding(start = 86.dp, end = 20.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Pill(stringResource(R.string.accept), filled = true, modifier = Modifier.weight(1f)) { haptics.confirm(); scope.launch { repo.respond(inv.id, true) } }
-                    Pill(stringResource(R.string.reject), filled = false, modifier = Modifier.weight(1f)) { haptics.reject(); scope.launch { repo.respond(inv.id, false) } }
+                    Pill(stringResource(R.string.accept), filled = true, modifier = Modifier.weight(1f), busyKey = "accept-" + inv.profile.id) {
+                        haptics.confirm(); scope.act(ctx, "accept-" + inv.profile.id) { repo.respond(inv.id, true) }
+                    }
+                    Pill(stringResource(R.string.reject), filled = false, modifier = Modifier.weight(1f), busyKey = "reject-" + inv.id) {
+                        haptics.reject(); scope.act(ctx, "reject-" + inv.id) { repo.respond(inv.id, false) }
+                    }
                 }
             }
         }
         if (sent.isNotEmpty()) item { Header(stringResource(R.string.sent)) }
         items(sent, key = { it.id }) { inv ->
             PersonRow(inv.profile.displayName, app.zura.i18n.handle(inv.profile.username), inv.profile.avatarPath, inv.profile.id, modifier = Modifier.animateItem()) {
-                Pill(stringResource(R.string.cancel_invite), filled = false) { scope.launch { repo.cancel(inv.id) } }
+                Pill(stringResource(R.string.cancel_invite), filled = false, busyKey = "cancel-" + inv.id) { scope.act(ctx, "cancel-" + inv.id) { repo.cancel(inv.id) } }
             }
         }
     }
@@ -298,7 +333,7 @@ private fun InvitesList(invites: List<Invite>) {
 private fun PersonRow(name: String, sub: String, avatarPath: String?, id: String, modifier: Modifier = Modifier, trailing: @Composable () -> Unit) {
     val c = Zura.colors
     Row(modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        UserAvatar(name, (id.hashCode() and 0xFFFF) % 360f, avatarPath, 52.dp)
+        Box(Modifier.clip(CircleShape).clickable { openProfile(id) }) { UserAvatar(name, (id.hashCode() and 0xFFFF) % 360f, avatarPath, 52.dp) }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(name, style = Zura.type.headline, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -309,12 +344,18 @@ private fun PersonRow(name: String, sub: String, avatarPath: String?, id: String
 }
 
 @Composable
-private fun Pill(text: String, filled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun Pill(text: String, filled: Boolean, modifier: Modifier = Modifier, busyKey: String? = null, onClick: () -> Unit) {
     val c = Zura.colors
+    val loading = busyKey != null && busy[busyKey] == true
     Box(
-        modifier.clip(CircleShape).background(if (filled) c.accent else c.surfaceHigh).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 9.dp),
+        modifier.clip(CircleShape).background(if (filled) c.accent else c.surfaceHigh)
+            .clickable(enabled = !loading, onClick = onClick).padding(horizontal = 16.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(text, style = Zura.type.label, color = if (filled) c.onAccent else c.text) }
+    ) {
+        // Keep the label's size while loading so the row doesn't jump.
+        Text(text, style = Zura.type.label, color = (if (filled) c.onAccent else c.text).copy(alpha = if (loading) 0f else 1f))
+        if (loading) androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), color = if (filled) c.onAccent else c.accent, strokeWidth = 2.dp)
+    }
 }
 
 @Composable

@@ -147,7 +147,7 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
         }
 
         Row(verticalAlignment = Alignment.Bottom) {
-            Box(Modifier.weight(1f).glass(RoundedCornerShape(26.dp), solid = 0.6f).heightIn(min = 52.dp), contentAlignment = Alignment.CenterStart) {
+            Box(Modifier.weight(1f).glass(RoundedCornerShape(26.dp)).heightIn(min = 52.dp), contentAlignment = Alignment.CenterStart) {
                 AnimatedContent(live.recording, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "rec") { recording ->
                     if (recording) RecordingStrip(live.elapsedMs, live.levels, cancelDrag, locked, onDelete = { haptics.reject(); locked = false; vm.cancelRecording() }, fmt)
                     else Row(verticalAlignment = Alignment.CenterVertically) {

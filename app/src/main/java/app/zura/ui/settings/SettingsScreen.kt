@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -57,7 +58,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val c = Zura.colors
@@ -158,7 +159,15 @@ fun SettingsScreen(onBack: () -> Unit) {
             Text(stringResource(R.string.security_details), style = Zura.type.label, color = c.textMuted)
         }
 
-        Section(R.string.account) { AccountCard() }
+        Section(R.string.account) {
+            Text(
+                stringResource(R.string.my_profile) + " →", style = Zura.type.label, color = c.accent,
+                modifier = Modifier.padding(bottom = 12.dp).clickable(onClick = onProfile),
+            )
+            AccountCard()
+        }
+
+        Section(R.string.diagnostics) { DiagnosticsSection() }
 
         app.zura.CrashLog.read(ctx)?.let { crash ->
             Section(R.string.crash_report) {
@@ -354,5 +363,50 @@ private fun AppLockSection() {
                 ) { Text(stringResource(label), style = Zura.type.caption, color = if (sel) c.onAccent else c.text, maxLines = 1) }
             }
         }
+    }
+}
+
+/** "Connection check": runs the on-device self-test and shows a copyable report. */
+@Composable
+private fun DiagnosticsSection() {
+    val ctx = LocalContext.current
+    val g = ctx.graph
+    val c = Zura.colors
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var running by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var report by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    Text(stringResource(R.string.diagnostics_hint), style = Zura.type.caption, color = c.textMuted)
+    Spacer(Modifier.height(10.dp))
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.accent.copy(alpha = 0.14f))
+            .clickable(enabled = !running) {
+                running = true
+                scope.launch { report = runCatching { g.s.selfTest() }.getOrElse { "✗ ${it.message}" }; running = false }
+            }.padding(14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (running) androidx.compose.material3.CircularProgressIndicator(Modifier.size(20.dp), color = c.accent, strokeWidth = 2.dp)
+        else Text(stringResource(R.string.run_check), style = Zura.type.label, color = c.accent)
+    }
+    report?.let { r ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { report = null },
+            containerColor = c.surfaceHigh,
+            title = { Text(stringResource(R.string.diagnostics), color = c.text) },
+            text = {
+                Text(
+                    r, color = c.text,
+                    style = Zura.type.caption.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, textDirection = androidx.compose.ui.text.style.TextDirection.Ltr),
+                    modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    ctx.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("zura-diagnostics", r))
+                    android.widget.Toast.makeText(ctx, R.string.copied, android.widget.Toast.LENGTH_SHORT).show()
+                }) { Text(stringResource(R.string.action_copy), color = c.accent) }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { report = null }) { Text(stringResource(R.string.cancel), color = c.text) } },
+        )
     }
 }

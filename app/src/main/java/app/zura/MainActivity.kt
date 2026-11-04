@@ -58,6 +58,7 @@ sealed interface Route {
     data class Moments(val startOwner: String) : Route
     data class Media(val chatId: String, val messageId: String) : Route
     data object People : Route
+    data class Profile(val userId: String) : Route
 }
 
 /** 30-line back stack instead of navigation-compose: no reflection, no serialization, ~0 KB. */
@@ -158,6 +159,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 internal fun NavHost(nav: Navigator) {
+    val ctxGraph = androidx.compose.ui.platform.LocalContext.current.graph
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     AnimatedContent(
         targetState = nav.top,
@@ -172,10 +174,16 @@ internal fun NavHost(nav: Navigator) {
                 onSettings = { nav.push(Route.Settings) },
                 onMoments = { nav.push(Route.Moments(it)) },
                 onPeople = { nav.push(Route.People) },
+                onProfile = { nav.push(Route.Profile(it)) },
             )
-            Route.People -> PeopleScreen(onBack = { nav.pop() }, onOpenChat = { nav.pop(); nav.push(Route.Chat(it)) })
-            is Route.Chat -> ChatScreen(route.id, onBack = { nav.pop() }, onOpenMedia = { nav.push(Route.Media(route.id, it)) })
-            Route.Settings -> SettingsScreen(onBack = { nav.pop() })
+            Route.People -> PeopleScreen(onBack = { nav.pop() }, onOpenChat = { nav.pop(); nav.push(Route.Chat(it)) }, onOpenProfile = { nav.push(Route.Profile(it)) })
+            is Route.Profile -> app.zura.ui.profile.ProfileScreen(route.userId, onBack = { nav.pop() }, onOpenChat = { chatId ->
+                // Came from that chat → just go back to it; otherwise open it.
+                val below = nav.stack.getOrNull(nav.stack.lastIndex - 1)
+                nav.pop(); if (below != Route.Chat(chatId)) nav.push(Route.Chat(chatId))
+            })
+            is Route.Chat -> ChatScreen(route.id, onBack = { nav.pop() }, onOpenMedia = { nav.push(Route.Media(route.id, it)) }, onOpenProfile = { nav.push(Route.Profile(it)) })
+            Route.Settings -> SettingsScreen(onBack = { nav.pop() }, onProfile = { ctxGraph.session.value?.let { nav.push(Route.Profile(it.uid)) } })
             is Route.Moments -> MomentViewer(route.startOwner, onClose = { nav.pop() })
             is Route.Media -> MediaViewer(route.chatId, route.messageId, onClose = { nav.pop() })
         }

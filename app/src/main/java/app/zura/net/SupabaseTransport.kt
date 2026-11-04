@@ -121,17 +121,19 @@ class SupabaseTransport(
 
     /** Durable, E2EE. Returns true once the server has accepted (stored) the envelope. */
     suspend fun send(to: String, frame: Frame): Boolean {
-        val key = peerKey(to) ?: return false
-        val payload = seal(key, frame)
+        val key = peerKey(to) ?: run { app.zura.DiagLog.record("send ${frame.javaClass.simpleName}", detail = "no key for ${to.take(8)}"); return false }
+        val payload = runCatching { seal(key, frame) }.getOrElse { app.zura.DiagLog.record("seal", it); return false }
         return runCatching {
             backend.client.from("inbox").insert(buildJsonObject { put("recipient_id", to); put("payload", payload) })
-        }.isSuccess
+        }.onFailure { app.zura.DiagLog.record("inbox insert → ${to.take(8)}", it) }.isSuccess
     }
 
     /** Ephemeral, E2EE, best-effort (typing, presence, call signalling). */
     suspend fun signal(to: String, frame: Frame): Boolean {
         val key = peerKey(to) ?: return false
-        return runCatching { backend.broadcast(to, EVENT, buildJsonObject { put("f", me); put("p", seal(key, frame)) }) }.getOrDefault(false) == true
+        return runCatching { backend.broadcast(to, EVENT, buildJsonObject { put("f", me); put("p", seal(key, frame)) }) }
+            .onFailure { app.zura.DiagLog.record("broadcast ${frame.javaClass.simpleName}", it) }
+            .getOrDefault(false) == true
     }
 
     /** E2EE-seal a frame for [to] (used for FCM call invites). */

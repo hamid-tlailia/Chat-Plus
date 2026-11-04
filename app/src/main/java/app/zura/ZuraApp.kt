@@ -16,6 +16,7 @@ open class ZuraApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
+        DiagLog.init(this)
         // Decrypted copies handed to other apps are short-lived: wipe any left from last time.
         Thread { runCatching { app.zura.core.storage.SecureEraser.eraseTree(java.io.File(cacheDir, "export")) } }.start()
         graph = AppGraph(this)

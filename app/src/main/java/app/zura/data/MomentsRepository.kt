@@ -43,6 +43,8 @@ class MomentsRepository(
     private val me: String,
     private val contacts: () -> List<String>,
     private val scope: CoroutineScope,
+    /** Display name for a user id (contacts and me), so a moment never shows a raw id. */
+    private val nameOf: (String) -> String? = { null },
 ) {
     private val store by lazy {
         vault.chat(STORE).also { s ->
@@ -57,7 +59,7 @@ class MomentsRepository(
             val list = ms.filter { now - it.sentAt < TTL_MS }.groupBy { it.senderId }.map { (owner, items) ->
                 val meta = metas.firstOrNull { it.peerIds == listOf(owner) }
                 MomentGroup(
-                    ownerId = owner, name = meta?.title ?: owner.take(8), hue = meta?.avatarHue ?: 200f,
+                    ownerId = owner, name = meta?.title ?: nameOf(owner) ?: "…", hue = meta?.avatarHue ?: (owner.hashCode() and 0xFFFF) % 360f,
                     items = items.sortedBy { it.sentAt }, allSeen = owner == me || items.all { it.status == MsgStatus.READ },
                     mine = owner == me,
                 )

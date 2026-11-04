@@ -203,4 +203,11 @@
     <string name="no_results_hint">لم يُعثر على أحد. جرّب اسم المستخدم أو الاسم أو البريد الإلكتروني كاملاً.</string>
     <string name="search_failed">تعذّر البحث الآن. تحقق من الاتصال وأعد المحاولة.</string>
     <string name="people_on_zura">أشخاص على زورا</string>
+    <string name="diagnostics">فحص الاتصال</string>
+    <string name="diagnostics_hint">يختبر على هذا الهاتف كل ما تحتاجه الرسالة لتصل إلى جهات اتصالك. التقرير لا يحتوي أي رسائل أو مفاتيح.</string>
+    <string name="run_check">تشغيل الفحص</string>
+    <string name="save">حفظ</string>
+    <string name="saved">تم الحفظ</string>
+    <string name="profile">الملف الشخصي</string>
+    <string name="my_profile">ملفي الشخصي</string>
 </resources>

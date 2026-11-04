@@ -113,7 +113,8 @@ class ContactsRepository(
             val other = if (r.fromId == me) r.toId else r.fromId
             profiles[other]?.let { Invite(r.id, incoming = r.toId == me, profile = it, message = r.message, createdAt = r.createdAt) }
         }.sortedByDescending { it.createdAt }
-        _contacts.value.forEach { ensureChat(it.profile) }
+        // One failing conversation must never block the others.
+        _contacts.value.forEach { c -> runCatching { ensureChat(c.profile) }.onFailure { app.zura.DiagLog.record("ensureChat ${c.profile.id.take(8)}", it) } }
     }
 
     private suspend fun fetchProfiles(ids: List<String>) {
@@ -125,13 +126,20 @@ class ContactsRepository(
     /** The contact's E2EE public key, with trust-on-first-use pinning. */
     suspend fun peerKey(uid: String): PublicKey? {
         keys[uid]?.let { return it }
-        if (!profiles.containsKey(uid)) runCatching { withContext(Dispatchers.IO) { fetchProfiles(listOf(uid)) } }
+        // Not cached yet (or an earlier attempt failed): refetch that profile and decode again.
+        runCatching { withContext(Dispatchers.IO) { fetchProfiles(listOf(uid)) } }
+            .onFailure { app.zura.DiagLog.record("peerKey fetch ${uid.take(8)}", it) }
+        if (keys[uid] == null) app.zura.DiagLog.record("peerKey missing ${uid.take(8)}", detail = "profile=${profiles.containsKey(uid)} hasKey=${profiles[uid]?.identityKey != null}")
         return keys[uid]
     }
 
     private fun acceptKey(uid: String, b64: String) {
-        val key = runCatching { E2EE.decodePublic(b64) }.getOrNull() ?: return
-        val pinned = loadPins()
+        val key = runCatching { E2EE.decodePublic(b64) }
+            .onFailure { app.zura.DiagLog.record("decodeKey ${uid.take(8)}", it, "len=${b64.length}") }
+            .getOrNull() ?: return
+        // Cache first: the contact must be reachable even if persisting the pin fails.
+        keys[uid] = key
+        val pinned = runCatching { loadPins() }.getOrDefault(emptyMap())
         val old = pinned[uid]
         if (old != null && old != b64) {
             // Identity changed (reinstall / new phone / or an attack). Use the new key but tell the user.
@@ -140,8 +148,7 @@ class ContactsRepository(
                 if (vault.exists(chatId)) vault.chat(chatId).let { s -> s.meta.value?.let { s.writeMeta(it.copy(keyChanged = true)) } }
             }
         }
-        if (old != b64) savePins(pinned + (uid to b64))
-        keys[uid] = key
+        if (old != b64) runCatching { savePins(pinned + (uid to b64)) }.onFailure { app.zura.DiagLog.record("savePins", it) }
     }
 
     fun safetyNumber(uid: String, mine: PublicKey): String? = keys[uid]?.let { E2EE.safetyNumber(mine, it) }
@@ -194,6 +201,20 @@ class ContactsRepository(
     suspend fun setDisplayName(name: String) = withContext(Dispatchers.IO) {
         backend.client.from("profiles").update({ set("display_name", name.trim().take(48)) }) { filter { eq("id", me) } }
         fetchProfiles(listOf(me)); _me.value = profiles[me]
+    }
+
+    /** Change my @username (unique; letters, digits and _ only, 3–24). */
+    suspend fun setUsername(name: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            backend.client.from("profiles").update({ set("username", name.trim()) }) { filter { eq("id", me) } }
+            fetchProfiles(listOf(me)); _me.value = profiles[me]
+            Unit
+        }
+    }
+
+    /** Make sure a profile is loaded (e.g. opening someone's profile from a moment). */
+    suspend fun loadProfile(uid: String): Profile? = withContext(Dispatchers.IO) {
+        profiles[uid] ?: runCatching { fetchProfiles(listOf(uid)); profiles[uid] }.getOrNull()
     }
 
     suspend fun touchLastSeen() = withContext(Dispatchers.IO) {

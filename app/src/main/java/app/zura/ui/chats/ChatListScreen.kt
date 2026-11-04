@@ -8,6 +8,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
@@ -71,7 +73,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: (String) -> Unit, onPeople: () -> Unit = {}) {
+fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: (String) -> Unit, onPeople: () -> Unit = {}, onProfile: (String) -> Unit = {}) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val chats by g.chats.chats.collectAsStateWithLifecycle()
@@ -101,11 +103,13 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
     val collapsed by remember { derivedStateOf { list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 40 } }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
+    val haze = remember { dev.chrisbanes.haze.HazeState() }
+    androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze) {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = list,
             contentPadding = PaddingValues(top = top + 64.dp, bottom = 120.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().hazeSource(haze),
         ) {
             item(key = "title") {
                 Text(
@@ -126,6 +130,7 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
                     c, fmt,
                     onClick = { onOpen(c.id) },
                     onLongClick = { haptics.heavy(); confirmDelete = c },
+                    onAvatar = c.peerIds.singleOrNull()?.let { peer -> { onProfile(peer) } },
                     modifier = Modifier.animateItem(),
                 )
             }
@@ -133,10 +138,14 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
 
         // Floating glass top bar
         Row(
-            Modifier.fillMaxWidth().glass(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp), solid = 0.88f)
+            Modifier.fillMaxWidth().glass(RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp))
                 .padding(top = top).height(56.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            val me by g.s.contacts.myProfile.collectAsStateWithLifecycle()
+            Box(Modifier.padding(start = 8.dp).clip(CircleShape).clickable { onProfile(g.s.uid) }) {
+                app.zura.ui.components.UserAvatar(me?.displayName ?: "", (g.s.uid.hashCode() and 0xFFFF) % 360f, me?.avatarPath, 36.dp)
+            }
             Text(
                 stringResource(R.string.app_name), style = Zura.type.headline, color = Zura.colors.text,
                 modifier = Modifier.padding(start = 12.dp).weight(1f),
@@ -165,6 +174,7 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
             ) { Icon(Icons.Default.Add, null, tint = Zura.colors.onAccent) }
         }
     }
+    }
 
     confirmDelete?.let { c ->
         AlertDialog(
@@ -186,7 +196,7 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
+private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier, onAvatar: (() -> Unit)? = null) {
     val src = remember { MutableInteractionSource() }
     val col = Zura.colors
     Row(
@@ -196,7 +206,9 @@ private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, onClick: () -> Unit, onLongCli
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        app.zura.ui.components.UserAvatar(c.title, c.avatarHue, c.avatarPath)
+        Box(Modifier.clip(CircleShape).then(if (onAvatar != null) Modifier.clickable(onClick = onAvatar) else Modifier)) {
+            app.zura.ui.components.UserAvatar(c.title, c.avatarHue, c.avatarPath)
+        }
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(c.title, style = Zura.type.headline, color = col.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))

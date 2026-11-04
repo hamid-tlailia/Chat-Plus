@@ -203,4 +203,11 @@
     <string name="no_results_hint">No one found. Try their username, their name, or their exact email.</string>
     <string name="search_failed">Couldn\'t search right now. Check your connection and try again.</string>
     <string name="people_on_zura">People on Zura</string>
+    <string name="diagnostics">Connection check</string>
+    <string name="diagnostics_hint">Tests on this phone everything a message needs to reach your contacts. The report contains no messages and no keys.</string>
+    <string name="run_check">Run check</string>
+    <string name="save">Save</string>
+    <string name="saved">Saved</string>
+    <string name="profile">Profile</string>
+    <string name="my_profile">My profile</string>
 </resources>

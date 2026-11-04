@@ -20,6 +20,25 @@ class E2EETest {
     private val bob = E2EE.generateIdentity()
     private val mallory = E2EE.generateIdentity()
 
+    @Test fun keyWireFormatIsTheRawSec1PointAndMatchesAlreadyPublishedKeys() {
+        // Keys already published by v0.3 were the last 65 bytes of the X.509 encoding.
+        val wire = java.util.Base64.getDecoder().decode(E2EE.encodePublic(alice.public))
+        assertEquals(65, wire.size)
+        assertEquals(4.toByte(), wire[0])
+        val enc = alice.public.encoded
+        assertArrayEquals(enc.copyOfRange(enc.size - 65, enc.size), wire)
+        // And many random keys round-trip (covers coordinates with leading zero bytes).
+        repeat(200) {
+            val k = E2EE.generateIdentity().public
+            assertArrayEquals(k.encoded, E2EE.decodePublic(E2EE.encodePublic(k)).encoded)
+        }
+    }
+
+    @Test(expected = Exception::class) fun pointNotOnCurveIsRejected() {
+        val bad = ByteArray(65).also { it[0] = 4; it[64] = 1 }
+        E2EE.decodePublic(java.util.Base64.getEncoder().encodeToString(bad))
+    }
+
     @Test fun roundTrip() {
         val msg = "مرحبا Bob 👋".encodeToByteArray()
         val env = E2EE.seal(alice, bob.public, msg)

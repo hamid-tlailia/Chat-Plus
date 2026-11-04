@@ -79,6 +79,8 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 import kotlin.math.roundToInt
 
+private val LocalCallFg = androidx.compose.runtime.staticCompositionLocalOf { Color.White }
+
 /** Full-screen call UI, drawn above everything while a call is in progress. */
 @Composable
 fun CallScreen(calls: CallManager) {
@@ -91,7 +93,10 @@ fun CallScreen(calls: CallManager) {
 
     LaunchedEffect(s.phase) { if (s.phase == CallPhase.ENDED) { haptics.reject(); delay(1_600); calls.dismiss() } }
 
-    Box(Modifier.fillMaxSize().background(Color(0xFF07070B))) {
+    // Foreground follows the theme (dark text on the light theme); over live video it is always white.
+    val fg = if (showRemoteVideo) Color.White else Zura.colors.text
+    androidx.compose.runtime.CompositionLocalProvider(LocalCallFg provides fg) {
+    Box(Modifier.fillMaxSize().background(Zura.colors.bg)) {
         if (showRemoteVideo) Video(calls, remote!!, mirror = false, Modifier.fillMaxSize())
         else Backdrop(s)
 
@@ -100,7 +105,7 @@ fun CallScreen(calls: CallManager) {
             NetworkChip(s)
             if (showRemoteVideo) {
                 Spacer(Modifier.height(10.dp))
-                Text(s.peerName, style = Zura.type.headline, color = Color.White)
+                Text(s.peerName, style = Zura.type.headline, color = LocalCallFg.current)
                 StatusLine(s)
             }
         }
@@ -111,7 +116,7 @@ fun CallScreen(calls: CallManager) {
                     UserAvatar(s.peerName, s.peerHue, s.peerAvatar, 132.dp)
                 }
                 Spacer(Modifier.height(22.dp))
-                Text(s.peerName, style = Zura.type.title, color = Color.White)
+                Text(s.peerName, style = Zura.type.title, color = LocalCallFg.current)
                 Spacer(Modifier.height(6.dp))
                 StatusLine(s)
             }
@@ -125,6 +130,7 @@ fun CallScreen(calls: CallManager) {
             if (s.phase == CallPhase.INCOMING) IncomingControls(calls, s) else ActiveControls(calls, s)
         }
     }
+    }
 }
 
 @Composable
@@ -132,7 +138,13 @@ private fun Backdrop(s: CallUi) {
     val c = Zura.colors
     Box(
         Modifier.fillMaxSize().background(
-            Brush.verticalGradient(listOf(Color.hsv(s.peerHue % 360f, 0.45f, 0.22f), Color(0xFF07070B), Color(0xFF07070B))),
+            Brush.verticalGradient(
+                listOf(
+                    // A soft wash of the contact's colour, matched to the theme's brightness.
+                    Color.hsv(s.peerHue % 360f, if (Zura.colors.isDark) 0.45f else 0.18f, if (Zura.colors.isDark) 0.22f else 0.98f),
+                    Zura.colors.bg, Zura.colors.bg,
+                ),
+            ),
         ),
     ) { Box(Modifier.fillMaxSize().background(c.bg.copy(alpha = 0.25f))) }
 }
@@ -158,7 +170,7 @@ private fun StatusLine(s: CallUi) {
         }
         CallPhase.IDLE -> ""
     }
-    Text(text, style = Zura.type.label, color = if (s.phase == CallPhase.RECONNECTING) Color(0xFFFFC857) else Color.White.copy(alpha = 0.75f))
+    Text(text, style = Zura.type.label, color = if (s.phase == CallPhase.RECONNECTING) Color(0xFFE0A100) else LocalCallFg.current.copy(alpha = 0.75f))
 }
 
 /** Network type + live link quality ("Wi-Fi · ▂▄▆", "Weak connection", "No internet"). */
@@ -167,9 +179,9 @@ private fun NetworkChip(s: CallUi) {
     val (label, color) = when {
         s.net == NetType.OFFLINE -> stringResource(R.string.net_offline) to Color(0xFFFF5C7A)
         s.quality == NetQuality.POOR && s.phase == CallPhase.ACTIVE -> stringResource(R.string.weak_connection) to Color(0xFFFFC857)
-        s.net == NetType.WIFI -> stringResource(R.string.net_wifi) to Color.White
-        s.net == NetType.CELLULAR -> stringResource(R.string.net_mobile) to Color.White
-        else -> "" to Color.White
+        s.net == NetType.WIFI -> stringResource(R.string.net_wifi) to LocalCallFg.current
+        s.net == NetType.CELLULAR -> stringResource(R.string.net_mobile) to LocalCallFg.current
+        else -> "" to LocalCallFg.current
     }
     val bars = when (s.quality) { NetQuality.GOOD -> 3; NetQuality.FAIR -> 2; NetQuality.POOR -> 1; NetQuality.UNKNOWN -> 0 }
     Row(
@@ -181,10 +193,10 @@ private fun NetworkChip(s: CallUi) {
         if (s.phase == CallPhase.ACTIVE || s.phase == CallPhase.RECONNECTING) {
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 repeat(3) { i ->
-                    Box(Modifier.width(3.dp).height((5 + i * 4).dp).clip(CircleShape).background(if (i < bars) color else Color.White.copy(alpha = 0.25f)))
+                    Box(Modifier.width(3.dp).height((5 + i * 4).dp).clip(CircleShape).background(if (i < bars) color else LocalCallFg.current.copy(alpha = 0.25f)))
                 }
             }
-            s.rttMs?.let { Text("${it}ms", style = Zura.type.caption, color = Color.White.copy(alpha = 0.6f)) }
+            s.rttMs?.let { Text("${it}ms", style = Zura.type.caption, color = LocalCallFg.current.copy(alpha = 0.6f)) }
         }
     }
 }
@@ -226,12 +238,11 @@ private fun RoundButton(icon: ImageVector, label: String, active: Boolean, dange
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier.size(58.dp).pressScale(src, 0.9f).clip(CircleShape)
-                .background(when { danger -> Color(0xFFE5484D); active -> Color.White; else -> Color.White.copy(alpha = 0.14f) })
+                .background(when { danger -> Color(0xFFE5484D); active -> LocalCallFg.current; else -> LocalCallFg.current.copy(alpha = 0.12f) })
                 .clickable(src, null, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, label, tint = if (active && !danger) Color.Black else Color.White, modifier = Modifier.size(26.dp)) }
-        Spacer(Modifier.height(4.dp))
-        Text(label, style = Zura.type.caption, color = Color.White.copy(alpha = 0.8f))
+        ) { Icon(icon, label, tint = when { danger -> Color.White; active -> Zura.colors.bg; else -> LocalCallFg.current }, modifier = Modifier.size(26.dp)) }
+        // Icons only — the label stays available to screen readers via contentDescription.
     }
 }
 
@@ -245,8 +256,7 @@ private fun BigButton(icon: ImageVector, label: String, color: Color, bounce: Bo
             Modifier.size(76.dp).pressScale(src, 0.9f).clip(CircleShape).background(color).clickable(src, null, onClick = onClick),
             contentAlignment = Alignment.Center,
         ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(34.dp)) }
-        Spacer(Modifier.height(8.dp))
-        Text(label, style = Zura.type.label, color = Color.White)
+        // Icons only (label kept for accessibility).
     }
 }
 
@@ -258,7 +268,7 @@ private fun Pulse(active: Boolean, content: @Composable () -> Unit) {
     Box(contentAlignment = Alignment.Center) {
         if (active) repeat(2) { i ->
             val f = (p + i * 0.5f) % 1f
-            Box(Modifier.size(132.dp).graphicsLayer { scaleX = 1f + f * 0.7f; scaleY = scaleX; alpha = (1f - f) * 0.35f }.clip(CircleShape).background(Color.White))
+            Box(Modifier.size(132.dp).graphicsLayer { scaleX = 1f + f * 0.7f; scaleY = scaleX; alpha = (1f - f) * 0.35f }.clip(CircleShape).background(LocalCallFg.current))
         }
         content()
     }

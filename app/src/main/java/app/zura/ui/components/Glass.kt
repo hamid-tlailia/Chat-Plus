@@ -1,6 +1,10 @@
 package app.zura.ui.components
 
 import androidx.compose.foundation.background
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import androidx.compose.ui.platform.LocalContext
 import app.zura.account.rememberAvatar
 import app.zura.graph
@@ -26,17 +30,32 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.zura.ui.theme.Zura
 
+/** The scrolling content that glass surfaces on this screen blur (set by the screen). */
+val LocalHaze = androidx.compose.runtime.staticCompositionLocalOf<HazeState?> { null }
+
 /**
- * Glass surface: translucent tinted fill + 1 px top-lit hairline (light catching the edge) +
- * a faint inner gradient. Deliberately *not* a real-time backdrop blur: RenderEffect blur over a
- * scrolling list costs 2–4 ms/frame on mid-range GPUs and breaks the 8.3 ms budget at 120 Hz.
- * This reads as frosted glass at a fraction of the cost.
+ * Glass surface. With a [LocalHaze] source on screen (Android 12+), it is real frosted glass:
+ * the content scrolling underneath is blurred live (Haze, RenderEffect on the GPU), tinted with the
+ * theme's glass colour, with a hairline highlight on the edge. Without a source — or with [solid]
+ * > 0 for surfaces that must stay readable over anything — it falls back to a translucent fill.
  */
 @Composable
 fun Modifier.glass(shape: Shape = RoundedCornerShape(24.dp), solid: Float = 0f): Modifier {
     val c = Zura.colors
+    val haze = LocalHaze.current
     val sheen = remember(c.glassStroke) {
         Brush.verticalGradient(listOf(c.glassStroke.copy(alpha = c.glassStroke.alpha * 2.2f), c.glassStroke.copy(alpha = 0.02f)))
+    }
+    if (haze != null && solid == 0f) {
+        val style = remember(c) {
+            HazeStyle(
+                backgroundColor = c.bg,
+                tint = HazeTint(c.glass.copy(alpha = if (c.isDark) 0.55f else 0.62f)),
+                blurRadius = 24.dp,
+                noiseFactor = 0.05f,
+            )
+        }
+        return this.clip(shape).hazeEffect(state = haze, style = style).border(1.dp, sheen, shape)
     }
     return this
         .clip(shape)

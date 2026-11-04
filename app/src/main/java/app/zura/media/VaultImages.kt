@@ -49,5 +49,8 @@ class VaultImages(private val vault: VaultStore) {
 @Composable
 fun rememberVaultImage(images: VaultImages, chatId: String, ref: MediaRef, maxPx: Int): State<ImageBitmap?> =
     produceState(initialValue = images.cached(ref, maxPx), ref.fileName, maxPx) {
+        // produceState's state survives key changes: always replace the previous image, or a new
+        // moment/photo kept showing the old one.
+        value = images.cached(ref, maxPx)
         if (value == null) value = images.load(chatId, ref, maxPx)
     }

@@ -180,20 +180,33 @@ class ChatRepository(
         }
 
     private fun transmit(store: ChatStore, msg: Message) = scope.launch(Dispatchers.IO) {
+        try {
+            transmitOnce(store, msg)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            app.zura.DiagLog.record("transmit", e)
+            store.get(msg.id)?.takeIf { it.status == MsgStatus.PENDING }?.let { store.upsert(it.copy(status = MsgStatus.FAILED)) }
+        }
+    }
+
+    private suspend fun transmitOnce(store: ChatStore, msg: Message) {
         var wire = msg
         msg.media?.let { ref ->
             if (ref.remoteBlobId == null) {
                 // Upload the vault file as-is: it is already ciphertext under a per-file key.
                 val path = "$me/${UUID.randomUUID()}"
                 runCatching { backend.upload("blobs", path, vault.mediaFile(msg.chatId, ref)) }
-                    .onFailure { store.upsert(msg.copy(status = MsgStatus.FAILED)); return@launch }
+                    .onFailure { app.zura.DiagLog.record("blob upload", it); store.upsert(msg.copy(status = MsgStatus.FAILED)); return }
                 wire = msg.copy(media = ref.copy(remoteBlobId = path))
                 store.upsert(wire)
             }
         }
         val frame = Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text, wire.media, wire.replyTo)
         val ok = peersOf(wire.chatId).all { transport.send(it, frame) }
-        if (ok) store.get(wire.id)?.takeIf { it.status == MsgStatus.PENDING }?.let { store.upsert(it.copy(status = MsgStatus.SENT)) }
+        // Never leave a message on the clock forever: sent → ✓, otherwise → "failed, tap to retry"
+        // (also retried automatically on the next reconnect).
+        store.get(wire.id)?.takeIf { it.status == MsgStatus.PENDING || it.status == MsgStatus.FAILED }
+            ?.let { store.upsert(it.copy(status = if (ok) MsgStatus.SENT else MsgStatus.FAILED)) }
         // Peer not connected right now → wake their phone (content-free push; they pull + decrypt).
         if (ok) peersOf(wire.chatId).filterNot { isOnline(it) }.forEach { backend.push(it, "msg") }
     }
@@ -201,7 +214,7 @@ class ChatRepository(
     private suspend fun resendPending() = withContext(Dispatchers.IO) {
         vault.chatIds.value.filter { it != MomentsRepository.STORE }.forEach { id ->
             val store = vault.chat(id)
-            store.messages.value.filter { it.senderId == me && it.status == MsgStatus.PENDING && it.media?.isPlaceholder != true }
+            store.messages.value.filter { it.senderId == me && (it.status == MsgStatus.PENDING || it.status == MsgStatus.FAILED) && it.media?.isPlaceholder != true }
                 .forEach { transmit(store, it) }
         }
     }

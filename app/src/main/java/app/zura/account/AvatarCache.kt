@@ -45,4 +45,7 @@ class AvatarCache(private val backend: Backend, private val dir: File, private v
 
 @Composable
 fun rememberAvatar(cache: AvatarCache, path: String?): State<ImageBitmap?> =
-    produceState(cache.cached(path), path) { if (value == null && path != null) value = cache.load(path) }
+    produceState(cache.cached(path), path) {
+        value = cache.cached(path) // new path → never keep showing the previous photo
+        if (value == null && path != null) value = cache.load(path)
+    }

@@ -244,7 +244,7 @@ class DesignScreenshots {
     @Test fun s05_chat_velvet_ar() = shoot("05_chat_velvet_ar", true, ZuraThemeId.VELVET_GOLD) { ChatScreen(sara, {}, {}) }
     @Test fun s06_chat_light_en() = shoot("06_chat_light_en", false, ZuraThemeId.LIGHT) { ChatScreen(sara, {}, {}) }
     @Test fun s07_chat_oled_en() = shoot("07_chat_oled_en", false, ZuraThemeId.OLED) { ChatScreen(sara, {}, {}) }
-    @Test fun s08_settings_midnight_ar() = shoot("08_settings_midnight_ar", true, ZuraThemeId.MIDNIGHT) { SettingsScreen {} }
+    @Test fun s08_settings_midnight_ar() = shoot("08_settings_midnight_ar", true, ZuraThemeId.MIDNIGHT) { SettingsScreen(onBack = {}) }
     @Test fun s09_moment_viewer() = shoot("09_moment_midnight_en", false, ZuraThemeId.MIDNIGHT, manualClock = true) { MomentViewer(SARA) {} }
 
     @Test fun s10_auth_accounts() = shoot("10_auth_accounts_midnight_en", false, ZuraThemeId.MIDNIGHT, signedIn = false) { AuthScreen() }
@@ -298,6 +298,17 @@ class DesignScreenshots {
     @Test fun t2_close_en() = transition("t2_settings_close_en", false, false)
     @Test fun t3_open_ar() = transition("t3_settings_open_ar", true, true)
     @Test fun t4_close_ar() = transition("t4_settings_close_ar", true, false)
+
+    @Test fun s21_profile_me_light() = shoot("21_profile_me_light_en", false, ZuraThemeId.LIGHT) {
+        app.zura.ui.profile.ProfileScreen(ME, {}, {})
+    }
+    @Test fun s22_profile_other_ar() = shoot("22_profile_contact_midnight_ar", true, ZuraThemeId.MIDNIGHT) {
+        app.zura.ui.profile.ProfileScreen(SARA, {}, {})
+    }
+    @Test fun s23_call_light() = shoot("23_call_active_light_en", false, ZuraThemeId.LIGHT, manualClock = true,
+        setup = { it!!.calls.previewForTest(callUi(CallPhase.ACTIVE, video = false, ar = false, net = NetType.WIFI)) }) { CallScreen(rule.activity.graph.s.calls) }
+    @Test fun s24_call_incoming_light() = shoot("24_call_incoming_light_en", false, ZuraThemeId.LIGHT, manualClock = true,
+        setup = { it!!.calls.previewForTest(callUi(CallPhase.INCOMING, video = false, ar = false)) }) { CallScreen(rule.activity.graph.s.calls) }
 
     @Test fun s17_call_reconnecting() = shoot("17_call_reconnecting_en", false, ZuraThemeId.MIDNIGHT, manualClock = true,
         setup = { it!!.calls.previewForTest(callUi(CallPhase.RECONNECTING, video = false, ar = false, quality = NetQuality.POOR, net = NetType.CELLULAR)) }) { CallScreen(rule.activity.graph.s.calls) }
