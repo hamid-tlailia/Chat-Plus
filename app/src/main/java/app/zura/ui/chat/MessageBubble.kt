@@ -154,7 +154,9 @@ fun BubbleRow(
                 .graphicsLayer { alpha = (drag.value / threshold).coerceIn(0f, 1f); scaleX = alpha; scaleY = alpha },
         )
         Row(
-            Modifier.fillMaxWidth().offset { IntOffset(((if (rtl) -1 else 1) * drag.value).roundToInt(), 0) }
+            // offset{} already mirrors in RTL: + = toward the end edge (right in English, LEFT in Arabic),
+            // uncovering the reply arrow on the start side. (A manual flip here cancelled that out.)
+            Modifier.fillMaxWidth().offset { IntOffset(drag.value.roundToInt(), 0) }
                 .padding(horizontal = 10.dp),
             horizontalArrangement = if (item.mine) Arrangement.End else Arrangement.Start,
         ) {
@@ -238,7 +240,8 @@ private fun Bubble(
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (isVisual) 6.dp else 9.dp),
                 )
             }
-            LocalTranslations.current?.let { map -> map[m.id]?.let { t -> TranslationBlock(t, onFill) { map.remove(m.id) } } }
+            val retranslate = LocalRetranslate.current
+            LocalTranslations.current?.let { map -> map[m.id]?.let { t -> TranslationBlock(t, onFill, onHide = { map.remove(m.id) }, onRetry = { retranslate(m) }) } }
             Footer(m, item.mine, onFill, fmt, Modifier.align(Alignment.End).padding(start = 14.dp, end = 10.dp, bottom = 6.dp, top = 2.dp))
         }
         if (m.reactions.isNotEmpty()) Reactions(m, fmt)
@@ -279,6 +282,9 @@ private fun Footer(m: Message, mine: Boolean, onFill: Color, fmt: ZuraFormat, mo
 /** Multi-select: ids picked so far + toggle. Empty = normal mode. */
 class Selection(val ids: Set<String>, val toggle: (String) -> Unit)
 val LocalSelection = androidx.compose.runtime.staticCompositionLocalOf { Selection(emptySet()) {} }
+
+/** Re-run a message's translation (after the user changed the languages). */
+val LocalRetranslate = androidx.compose.runtime.staticCompositionLocalOf<(Message) -> Unit> { {} }
 
 /** Translations of this chat's messages (id → state); a tap on one hides it. */
 val LocalTranslations = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.snapshots.SnapshotStateMap<String, Translation>?> { null }
@@ -376,10 +382,12 @@ private fun VoiceContent(m: Message, mine: Boolean, fmt: ZuraFormat) {
 }
 
 @Composable
-private fun TranslationBlock(t: Translation, onFill: Color, onHide: () -> Unit) {
+private fun TranslationBlock(t: Translation, onFill: Color, onHide: () -> Unit, onRetry: () -> Unit) {
+    val ctx = LocalContext.current
+    var pick by remember { androidx.compose.runtime.mutableStateOf<String?>(null) } // "from" | "to"
     Column(
         Modifier.padding(start = 14.dp, end = 14.dp, top = 6.dp).widthIn(max = 270.dp)
-            .clip(RoundedCornerShape(12.dp)).background(onFill.copy(alpha = 0.08f)).clickable(onClick = onHide).padding(10.dp),
+            .clip(RoundedCornerShape(12.dp)).background(onFill.copy(alpha = 0.08f)).padding(10.dp),
     ) {
         when (t) {
             Translation.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -387,12 +395,40 @@ private fun TranslationBlock(t: Translation, onFill: Color, onHide: () -> Unit) 
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.translating), style = Zura.type.caption, color = onFill.copy(alpha = 0.75f))
             }
-            is Translation.Done -> {
-                Text("🌐 " + stringResource(R.string.translated), style = Zura.type.caption, color = onFill.copy(alpha = 0.6f))
-                Text(t.text, style = Zura.type.body.copy(textDirection = TextDirection.Content), color = onFill)
-            }
+            is Translation.Done -> Text(t.text, style = Zura.type.body.copy(textDirection = TextDirection.Content), color = onFill, modifier = Modifier.clickable(onClick = onHide))
             is Translation.Error -> Text(stringResource(t.res), style = Zura.type.caption, color = onFill.copy(alpha = 0.75f))
         }
+        if (t != Translation.Loading) {
+            // Language bar: "English (detected) → العربية" — tap either side to change; remembered.
+            val from = app.zura.i18n.Translator.from(ctx)
+            val fromLabel = when {
+                t is Translation.Done && t.detected -> stringResource(R.string.detected, app.zura.i18n.Translator.name(ctx, t.from))
+                from == app.zura.i18n.Translator.AUTO -> stringResource(R.string.detect_auto)
+                else -> app.zura.i18n.Translator.name(ctx, from)
+            }
+            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("🌐 $fromLabel", style = Zura.type.caption, color = onFill.copy(alpha = 0.7f), textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                    modifier = Modifier.clickable { pick = "from" })
+                Text("  →  ", style = Zura.type.caption, color = onFill.copy(alpha = 0.5f))
+                Text(app.zura.i18n.Translator.name(ctx, app.zura.i18n.Translator.to(ctx)), style = Zura.type.caption, color = onFill.copy(alpha = 0.7f),
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline, modifier = Modifier.clickable { pick = "to" })
+            }
+        }
+    }
+    pick?.let { which ->
+        val langs = remember { app.zura.i18n.Translator.languages(ctx) }
+        val options = if (which == "from") listOf(app.zura.i18n.Translator.AUTO to stringResource(R.string.detect_auto)) + langs else langs
+        app.zura.ui.components.PickerSheet(
+            title = stringResource(if (which == "from") R.string.translate_from else R.string.translate_to), hint = null,
+            options = options,
+            selected = if (which == "from") app.zura.i18n.Translator.from(ctx) else app.zura.i18n.Translator.to(ctx),
+            onPick = { code ->
+                pick = null
+                if (which == "from") app.zura.i18n.Translator.setFrom(ctx, code) else app.zura.i18n.Translator.setTo(ctx, code)
+                onRetry()
+            },
+            onDismiss = { pick = null },
+        )
     }
 }
 

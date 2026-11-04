@@ -123,10 +123,9 @@ fun ThemeStudioScreen(onBack: () -> Unit) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = p.text) }
             Text(stringResource(R.string.theme_studio), style = Zura.type.headline, color = p.text, modifier = Modifier.weight(1f))
         }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            // Live preview
+        // Live preview — pinned above the controls, so every change is visible while scrolling.
             Box(
-                Modifier.fillMaxWidth().height(230.dp).clip(RoundedCornerShape(24.dp))
+                Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(190.dp).clip(RoundedCornerShape(24.dp))
                     .background(Brush.linearGradient(listOf(p.bg, p.bgAccent, p.bg))),
             ) {
                 wall?.let {
@@ -138,6 +137,7 @@ fun ThemeStudioScreen(onBack: () -> Unit) {
                     PreviewBubble(stringResource(R.string.preview_mine), true, p, t.radius, font, Modifier.align(Alignment.End))
                 }
             }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             Spacer(Modifier.height(16.dp))
 
             Label(stringResource(R.string.theme_name), p)

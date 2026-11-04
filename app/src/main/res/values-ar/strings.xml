@@ -354,4 +354,9 @@
     <string name="moment_quote_mine">رددتَ على لحظته</string>
     <string name="moment_notif">على لحظتك: %1$s</string>
     <string name="walkie_draft">لم يُسمع مباشرة — إرساله كرسالة صوتية؟</string>
+    <string name="cant_detect">تعذّر معرفة لغة الرسالة — اخترها بالأسفل</string>
+    <string name="translate_from">الترجمة من</string>
+    <string name="translate_to">الترجمة إلى</string>
+    <string name="detect_auto">اكتشاف تلقائي</string>
+    <string name="detected">%1$s (مكتشفة)</string>
 </resources>

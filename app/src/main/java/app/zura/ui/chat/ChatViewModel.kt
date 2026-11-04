@@ -166,9 +166,9 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
         translations[m.id] = Translation.Loading
         viewModelScope.launch {
             translations[m.id] = when (val r = app.zura.i18n.Translator.translate(g.app, text)) {
-                is app.zura.i18n.Translator.Result.Ok -> Translation.Done(r.text)
-                app.zura.i18n.Translator.Result.Same -> Translation.Error(app.zura.R.string.already_your_language)
-                app.zura.i18n.Translator.Result.Unsupported -> Translation.Error(app.zura.R.string.cant_translate)
+                is app.zura.i18n.Translator.Result.Ok -> Translation.Done(r.text, r.from, r.detected)
+                is app.zura.i18n.Translator.Result.Same -> Translation.Error(app.zura.R.string.already_your_language)
+                app.zura.i18n.Translator.Result.Undetected -> Translation.Error(app.zura.R.string.cant_detect)
                 is app.zura.i18n.Translator.Result.Failed -> Translation.Error(app.zura.R.string.translate_failed)
             }
         }
@@ -229,6 +229,6 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
 /** Translation of one message, shown inside its bubble. */
 sealed interface Translation {
     data object Loading : Translation
-    data class Done(val text: String) : Translation
+    data class Done(val text: String, val from: String, val detected: Boolean) : Translation
     data class Error(val res: Int) : Translation
 }
