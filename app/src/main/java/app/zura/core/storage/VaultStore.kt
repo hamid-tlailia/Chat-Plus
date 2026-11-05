@@ -114,7 +114,25 @@ class VaultStore(
     private fun openChat(chatId: String): ChatStore {
         val k = ZuraPaths.safe(chatId)
         open[k]?.let { return it }
-        val created = ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }
+        val created = try {
+            ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }
+        } catch (e: IllegalStateException) {
+            if (e.message?.contains("destroyed") != true) throw e
+            // The log's key no longer exists (destroyed by a bug in 0.9.15): its history can never be
+            // decrypted again. Start the conversation afresh instead of crashing on every open —
+            // the contact, the chat and its settings stay; only this phone's old messages are gone.
+            // One reset only, even if several threads hit the broken log at once.
+            synchronized(recoverLock) {
+                open[k]?.let { return it }
+                onRecovered?.invoke(chatId)
+                SecureEraser.eraseTree(paths.chatDir(chatId))
+                val fresh = ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }
+                _index.value[chatId]?.let { m -> kotlinx.coroutines.runBlocking { fresh.writeMeta(m.copy(preview = null, unread = 0)) } }
+                open[k] = fresh
+                _chatIds.value = _chatIds.value + chatId
+                return fresh
+            }
+        }
         // Two threads may open the same chat at once: only the instance that is KEPT is announced
         // (maintenance on the discarded twin — e.g. a re-key — would break the kept one).
         return open.putIfAbsent(k, created) ?: created.also { _chatIds.value = _chatIds.value + chatId; onOpened?.invoke(it) }
@@ -122,6 +140,12 @@ class VaultStore(
 
     /** Told about every chat opened (background maintenance, e.g. moving its key off slow hardware). */
     var onOpened: ((ChatStore) -> Unit)? = null
+    private val recoverLock = Any()
+    /** Told when an unreadable chat log had to be started afresh. */
+    var onRecovered: ((String) -> Unit)? = null
+
+    /** Chats currently open (decrypted in memory). */
+    fun openStores(): Collection<ChatStore> = open.values.toList()
 
     fun exists(chatId: String) = File(paths.chatDir(chatId), "log.zl").exists()
 

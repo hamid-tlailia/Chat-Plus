@@ -175,7 +175,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
         // First visit / empty chat: a calm welcome with what privacy this chat has.
         val historyLoaded by vm.loaded.collectAsStateWithLifecycle()
         if (!historyLoaded) app.zura.ui.components.SkeletonBubbles(
-            app.zura.ui.components.shimmerBrush(), Modifier.align(Alignment.BottomCenter).padding(bottom = 110.dp),
+            app.zura.ui.components.shimmerBrush(), Modifier.fillMaxSize().statusBarsPadding().padding(top = 76.dp, bottom = 110.dp),
         )
         else if (items.isEmpty()) {
             val notes = meta?.peerIds.isNullOrEmpty()

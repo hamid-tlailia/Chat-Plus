@@ -115,12 +115,38 @@ class CallAudio(private val context: Context) {
         if (on) {
             if (proximity?.isHeld == true) return
             val pm = context.getSystemService(PowerManager::class.java)
-            if (pm.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) {
-                proximity = pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "zura:call").apply { acquire(4 * 60 * 60 * 1000L) }
+            val supported = pm.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)
+            if (supported) {
+                proximity = runCatching { pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "zura:call").apply { acquire(4 * 60 * 60 * 1000L) } }
+                    .onFailure { app.zura.DiagLog.record("proximity", it) }.getOrNull()
             }
+            listenNear(true)
+            app.zura.DiagLog.record("call", detail = "earpiece: proximity screen-off ${if (proximity?.isHeld == true) "on" else "NOT available (supported=$supported)"} + sensor guard")
         } else {
             proximity?.takeIf { it.isHeld }?.release(PowerManager.RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY)
             proximity = null
+            listenNear(false)
         }
+    }
+
+    /**
+     * Phone at the ear (sensor). Some phones don't switch the screen off for the wake lock above
+     * (or the system declines it): the call screen then goes fully black and ignores touches while
+     * this is true, so a cheek can't hang up or mute.
+     */
+    val near = kotlinx.coroutines.flow.MutableStateFlow(false)
+    private var nearListener: android.hardware.SensorEventListener? = null
+    private fun listenNear(on: Boolean) {
+        val sm = context.getSystemService(android.hardware.SensorManager::class.java) ?: return
+        if (!on) { nearListener?.let(sm::unregisterListener); nearListener = null; near.value = false; return }
+        if (nearListener != null) return
+        val sensor = sm.getDefaultSensor(android.hardware.Sensor.TYPE_PROXIMITY) ?: return
+        val l = object : android.hardware.SensorEventListener {
+            override fun onSensorChanged(e: android.hardware.SensorEvent) {
+                near.value = e.values[0] < minOf(5f, sensor.maximumRange)
+            }
+            override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) = Unit
+        }
+        if (sm.registerListener(l, sensor, android.hardware.SensorManager.SENSOR_DELAY_NORMAL)) nearListener = l
     }
 }

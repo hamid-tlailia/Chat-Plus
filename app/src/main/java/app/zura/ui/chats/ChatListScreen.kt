@@ -44,6 +44,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -149,13 +152,15 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
             }
             // One-time index build after an update: elegant placeholders instead of an empty list.
             items(chats.filter { !it.locked || revealed }, key = { it.id }, contentType = { "chat" }) { c ->
-                ChatRow(
-                    c, fmt, typing = c.id in typing,
-                    onClick = { onOpen(c.id) },
-                    onLongClick = { haptics.heavy(); confirmDelete = c },
-                    onAvatar = c.peerIds.singleOrNull()?.let { peer -> { onProfile(peer) } },
-                    modifier = Modifier.animateItem(),
-                )
+                SwipeToPin(c.pinned, onToggle = { haptics.confirm(); g.scope.launch { runCatching { g.chats.setPinned(c.id, !c.pinned) } } }, modifier = Modifier.animateItem()) {
+                    ChatRow(
+                        c, fmt, typing = c.id in typing,
+                        onClick = { onOpen(c.id) },
+                        onLongClick = { haptics.heavy(); confirmDelete = c },
+                        onAvatar = c.peerIds.singleOrNull()?.let { peer -> { onProfile(peer) } },
+                        modifier = Modifier,
+                    )
+                }
             }
             // Index still being built (first start after an update): placeholders BELOW what's known,
             // so a lone "Saved notes" never looks like the whole list.
@@ -217,6 +222,50 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
 
 }
 
+/**
+ * Swipe a chat to the LEFT to pin / unpin it: a pin badge appears on the right edge; past the
+ * threshold it ticks, and letting go toggles. Short drags spring back without doing anything.
+ */
+@Composable
+private fun SwipeToPin(pinned: Boolean, onToggle: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val haptics = rememberHaptics()
+    val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 84.dp.toPx() }
+    val drag = remember { androidx.compose.animation.core.Animatable(0f) } // ≤ 0 = dragged left
+    var armed by remember { mutableStateOf(false) }
+    val col = Zura.colors
+    Box(
+        modifier.fillMaxWidth().pointerInput(pinned) {
+            detectHorizontalDragGestures(
+                onDragEnd = {
+                    if (armed) onToggle()
+                    armed = false
+                    scope.launch { drag.animateTo(0f, app.zura.ui.components.ZuraMotion.Snappy) }
+                },
+                onDragCancel = { armed = false; scope.launch { drag.animateTo(0f, app.zura.ui.components.ZuraMotion.Snappy) } },
+            ) { change, dx ->
+                val next = (drag.value + dx * if (-drag.value > threshold) 0.35f else 1f).coerceIn(-threshold * 1.6f, 0f)
+                if (!armed && -next >= threshold) { armed = true; haptics.tick() }
+                if (armed && -next < threshold * 0.8f) armed = false
+                change.consume()
+                scope.launch { drag.snapTo(next) }
+            }
+        },
+    ) {
+        // The badge behind the row, on the physical right edge (swiping left uncovers it).
+        Box(Modifier.matchParentSize().padding(horizontal = 22.dp), contentAlignment = if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) Alignment.CenterStart else Alignment.CenterEnd) {
+            val p = (-drag.value / threshold).coerceIn(0f, 1f)
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.graphicsLayer { alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = scaleX }) {
+                Box(Modifier.size(40.dp).clip(CircleShape).background(if (armed) col.accent else col.surfaceHigh), contentAlignment = Alignment.Center) {
+                    Text("📌", style = Zura.type.label)
+                }
+                Text(stringResource(if (pinned) R.string.unpin_chat else R.string.pin_chat), style = Zura.type.caption, color = col.textMuted, modifier = Modifier.padding(top = 3.dp))
+            }
+        }
+        Box(Modifier.offset { androidx.compose.ui.unit.IntOffset(drag.value.toInt(), 0) }.background(col.bg.copy(alpha = if (drag.value != 0f) 0.92f else 0f))) { content() }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, typing: Boolean = false, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier, onAvatar: (() -> Unit)? = null) {
@@ -235,6 +284,7 @@ private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, typing: Boolean = false, onCli
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text((if (c.locked) "🔒 " else "") + c.title, style = Zura.type.headline, color = col.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (c.pinned && c.peerIds.isNotEmpty()) Text("📌 ", style = Zura.type.caption)
                 Text(fmt.listStamp(c.updatedAt), style = Zura.type.caption, color = if (c.unread > 0) col.accent else col.textMuted)
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {

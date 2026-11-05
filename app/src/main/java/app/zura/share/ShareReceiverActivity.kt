@@ -42,6 +42,7 @@ import app.zura.ui.components.glass
 import app.zura.ui.theme.Zura
 import app.zura.ui.theme.ZuraTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -68,8 +69,18 @@ class ShareReceiverActivity : ComponentActivity() {
         setContent {
             val g = graph
             val theme by g.settings.theme.collectAsStateWithLifecycle()
-            val chats by g.chats.chats.collectAsStateWithLifecycle()
+            // Shared from another app while Zura was closed: the account is still opening — wait
+            // for it (reading the chats right away crashed, so sharing seemed to do nothing).
+            val auth by g.accounts.state.collectAsStateWithLifecycle()
+            val session = (auth as? app.zura.account.AuthState.SignedIn)?.session
+            val chats by (session?.chats?.chats ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList())).collectAsStateWithLifecycle()
             val locked by g.appLock.locked.collectAsStateWithLifecycle()
+            androidx.compose.runtime.LaunchedEffect(auth) {
+                // Not signed in: open Zura itself (sign-in) instead of an empty sheet.
+                if (auth is app.zura.account.AuthState.SignedOut) {
+                    startActivity(Intent(this@ShareReceiverActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); finish()
+                }
+            }
             ZuraTheme(theme) {
                 if (locked) { app.zura.security.LockScreen(g.appLock); return@ZuraTheme }
                 Box(Modifier.fillMaxSize().clickable(onClick = ::finish), contentAlignment = Alignment.BottomCenter) {
@@ -84,6 +95,9 @@ class ShareReceiverActivity : ComponentActivity() {
                     ) {
                         Text(stringResource(R.string.share_to), style = Zura.type.headline, color = Zura.colors.text, modifier = Modifier.padding(horizontal = 22.dp))
                         Spacer(Modifier.width(8.dp))
+                        if (session == null) androidx.compose.material3.LinearProgressIndicator(
+                            Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 16.dp), color = Zura.colors.accent,
+                        )
                         LazyColumn(Modifier.heightIn(max = 420.dp).padding(top = 10.dp)) {
                             items(chats, key = { it.id }) { c ->
                                 Row(
@@ -130,20 +144,31 @@ class ShareReceiverActivity : ComponentActivity() {
         (if (Build.VERSION.SDK_INT >= 33) i.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java) else i.getParcelableArrayListExtra(Intent.EXTRA_STREAM))
             .orEmpty()
 
+    private var delivering = false
+
     private fun deliver(chatId: String, payload: Payload) {
+        if (delivering) return // one tap = one delivery
+        delivering = true
         val g = graph
         val cr = contentResolver
         lifecycleScope.launch {
+            // Direct Share from a closed app: wait for the account before touching its storage.
+            val session = kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                (g.accounts.state.first { it is app.zura.account.AuthState.SignedIn } as app.zura.account.AuthState.SignedIn).session
+            }
+            if (session == null) {
+                startActivity(Intent(this@ShareReceiverActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); finish(); return@launch
+            }
             // The sender's URI grant dies with this activity, so first copy the raw bytes into
             // our private no_backup/tmp (fast disk→disk), then compress/encrypt off the UI path.
             val staged = withContext(Dispatchers.IO) {
                 (payload as? Payload.Files)?.uris?.mapNotNull { uri ->
                     runCatching {
                         val mime = cr.getType(uri) ?: "application/octet-stream"
-                        val tmp = g.vault.paths.newTemp("in")
+                        val tmp = session.vault.paths.newTemp("in")
                         cr.openInputStream(uri)!!.use { input -> tmp.outputStream().use { input.copyTo(it) } }
                         Staged(tmp, mime, displayName(uri))
-                    }.getOrNull()
+                    }.onFailure { app.zura.DiagLog.record("share import", it) }.getOrNull()
                 }.orEmpty()
             }
             // Not sent yet: it waits in that chat's composer for an optional caption (or edit).

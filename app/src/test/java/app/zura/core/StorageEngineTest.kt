@@ -290,4 +290,34 @@ class StorageEngineTest {
         app.zura.core.crypto.SecureFile(f, w, "zsess").shred()
         assertTrue(base.aliases().none { it.startsWith("zsess") })
     }
+
+    @Test fun janitorNeverDestroysKeysOfExistingChats() = runBlocking {
+        // Regression (0.9.15): the janitor listed "live" keys, a chat re-keyed meanwhile, and the
+        // janitor destroyed the NEW key → that chat could never be opened again.
+        val (v, w) = vault()
+        v.chat("c1").upsert(msg("m1", "x"))
+        w.wrap("zc_c1_99", ByteArray(32)) // a newer generation created by a concurrent re-key
+        w.wrap("zc_gone_0", ByteArray(32)) // key of a chat whose folder no longer exists
+        StorageJanitor(v, w).sweep()
+        assertTrue("zc_c1_99" in w.aliases())
+        assertFalse("zc_gone_0" in w.aliases())
+    }
+
+    @Test fun chatWithDestroyedKeyStartsFreshInsteadOfCrashing() = runBlocking {
+        val (v, w) = vault()
+        val st = v.createChat(ChatMeta("c3", "Wissem", listOf("peer"), 1L))
+        st.upsert(msg("m1", "hello").copy(chatId = "c3"))
+        val alias = st.currentKeyAlias
+        // Next start, the log's key is gone.
+        w.destroy(alias)
+        val v2 = VaultStore(ZuraPaths(File(tmp.root, "files"), File(tmp.root, "nb"), File(tmp.root, "cache")), w)
+        var recovered: String? = null
+        v2.onRecovered = { recovered = it }
+        val again = v2.chat("c3")
+        assertEquals("c3", recovered)
+        assertTrue(again.messages.value.isEmpty())
+        assertEquals("Wissem", again.meta.value?.title) // contact & chat kept
+        again.upsert(msg("m2", "new").copy(chatId = "c3")) // and it works again
+        assertEquals(1, again.messages.value.size)
+    }
 }

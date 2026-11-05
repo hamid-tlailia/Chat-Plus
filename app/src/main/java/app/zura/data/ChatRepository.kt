@@ -62,6 +62,7 @@ class ChatRepository(
     init {
         // A chat whose key an older version put on slow hardware moves to a fast key, quietly,
         // a few seconds after it's opened (never on the path of showing it).
+        vault.onRecovered = { id -> app.zura.DiagLog.record("storage", detail = "chat ${id.take(8)}: log key missing → history reset on this phone") }
         vault.onOpened = { store ->
             scope.launch(Dispatchers.IO) {
                 kotlinx.coroutines.delay(4_000)
@@ -259,6 +260,12 @@ class ChatRepository(
 
     /** Locked chats stay hidden / closed until the user authenticates; re-locks when the app leaves the screen. */
     val lockedRevealed = MutableStateFlow(false)
+
+    /** Pinned chats stay at the top of the list. */
+    suspend fun setPinned(chatId: String, on: Boolean) = withContext(Dispatchers.IO) {
+        val store = vault.chat(chatId)
+        store.meta.value?.let { store.writeMeta(it.copy(pinned = on)) }
+    }
 
     suspend fun setLocked(chatId: String, on: Boolean) = withContext(Dispatchers.IO) {
         val store = vault.chat(chatId)

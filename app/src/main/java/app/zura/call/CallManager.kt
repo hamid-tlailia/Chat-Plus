@@ -78,6 +78,8 @@ class CallManager(
 ) {
     private val rtc = Executors.newSingleThreadExecutor { Thread(it, "zura-call") }.asCoroutineDispatcher()
     private val audio = CallAudio(context)
+    /** Phone held to the ear on the earpiece: the call screen blacks out and ignores touches. */
+    val nearEar: kotlinx.coroutines.flow.StateFlow<Boolean> get() = audio.near
     val network = NetworkMonitor(context)
 
     private val _ui = MutableStateFlow(CallUi())

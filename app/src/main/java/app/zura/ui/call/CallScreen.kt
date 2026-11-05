@@ -146,6 +146,21 @@ fun CallScreen(calls: CallManager) {
         Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)) {
             if (s.phase == CallPhase.INCOMING) IncomingControls(calls, s) else ActiveControls(calls, s)
         }
+            // At the ear on the earpiece: fully black and touch-proof (if the system didn't already
+        // switch the screen off), so a cheek can't mute or hang up.
+        val nearEar by calls.nearEar.collectAsStateWithLifecycle()
+        val atEar = nearEar && live && !s.video && !s.speaker
+        val act = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+        androidx.compose.runtime.DisposableEffect(atEar) {
+            // Backlight to minimum too (black pixels alone still light an LCD).
+            act?.window?.let { w -> w.attributes = w.attributes.apply { screenBrightness = if (atEar) 0.01f else android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } }
+            onDispose { act?.window?.let { w -> w.attributes = w.attributes.apply { screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE } } }
+        }
+        if (atEar) Box(
+            Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
+                awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } }
+            },
+        )
     }
     }
 }

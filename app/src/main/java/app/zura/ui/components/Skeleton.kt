@@ -1,5 +1,7 @@
 package app.zura.ui.components
 
+import androidx.compose.ui.draw.clipToBounds
+
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -55,8 +57,13 @@ fun SkeletonRow(brush: Brush) {
 /** Placeholder bubbles while a chat's messages are being opened. */
 @Composable
 fun SkeletonBubbles(brush: Brush, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        listOf(false to 180, true to 140, false to 220, true to 200, false to 120, true to 170).forEach { (mine, w) ->
+    // Enough rows to fill any screen, stacked from the bottom like the real chat (extra rows clip).
+    Column(
+        modifier.fillMaxWidth().clipToBounds().padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.Bottom),
+    ) {
+        val pattern = listOf(false to 180, true to 140, false to 220, true to 200, false to 120, true to 170, false to 240, true to 110)
+        (pattern + pattern.reversed() + pattern).forEach { (mine, w) ->
             Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
                 SkeletonBox(w.dp, 42.dp, brush, round = 18.dp)
             }
