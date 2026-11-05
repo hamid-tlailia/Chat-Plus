@@ -235,6 +235,20 @@ class DesignScreenshots {
         quality = quality, rttMs = if (quality == NetQuality.POOR) 640 else 48, lossPct = 0.4f, net = net,
     )
 
+    /** A reaction arriving while the chat is open must show at once (it used to need an app restart). */
+    @Test fun liveReactionShows() {
+        val s = signIn(false)
+        rule.setContent { ZuraTheme(ZuraThemeId.MIDNIGHT) { Box(Modifier.fillMaxSize().zuraBackground()) { ChatScreen(sara, {}, {}) } } }
+        settle()
+        val store = s.vault.chat(sara)
+        runBlocking { store.upsert(store.get("m8")!!.let { it.copy(reactions = it.reactions + (SARA to "🦄")) }) }
+        settle()
+        rule.onNodeWithText("🦄", substring = true).assertExists()
+        runBlocking { s.chats.react(sara, "m9", "🐙") }
+        settle()
+        rule.onNodeWithText("🐙", substring = true).assertExists()
+    }
+
     @Test fun s01_chats_midnight_en() = shoot("01_chats_midnight_en", false, ZuraThemeId.MIDNIGHT) { ChatListScreen({}, {}, {}, {}) }
     @Test fun s02_chat_midnight_en() = shoot("02_chat_midnight_en", false, ZuraThemeId.MIDNIGHT) { ChatScreen(sara, {}, {}) }
     @Test fun s03_actions_midnight_en() = shoot("03_actions_midnight_en", false, ZuraThemeId.MIDNIGHT, after = {
@@ -266,7 +280,7 @@ class DesignScreenshots {
         setup = { rule.activity.graph.settings.setBubbles(app.zura.ui.theme.BubbleStyle.OCEAN) },
         after = {
             rule.runOnUiThread {
-                val vm = androidx.lifecycle.ViewModelProvider(rule.activity.viewModelStore, androidx.lifecycle.ViewModelProvider.NewInstanceFactory())[sara, app.zura.ui.chat.ChatViewModel::class.java]
+                val vm = androidx.lifecycle.ViewModelProvider(rule.activity.viewModelStore, androidx.lifecycle.ViewModelProvider.NewInstanceFactory())["${System.identityHashCode(rule.activity.graph.s)}:$sara", app.zura.ui.chat.ChatViewModel::class.java]
                 vm.replyTo = rule.activity.graph.s.vault.chat(sara).get("m3")
             }
         }) {

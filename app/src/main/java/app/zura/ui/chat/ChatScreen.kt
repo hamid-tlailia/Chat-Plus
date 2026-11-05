@@ -83,7 +83,10 @@ import kotlinx.coroutines.launch
 fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit, onOpenProfile: (String) -> Unit = {}) {
     val ctx = LocalContext.current
     val g = ctx.graph
-    val vm = viewModel(key = chatId) { ChatViewModel(g, chatId) }
+    // Keyed by the account session too: the view model outlives screens (activity scope), and one
+    // made for a session that was since re-opened kept showing that closed session's storage —
+    // new reactions / messages appeared only after restarting the app.
+    val vm = viewModel(key = "${System.identityHashCode(g.s)}:$chatId") { ChatViewModel(g, chatId) }
     val items by vm.items.collectAsStateWithLifecycle()
     val meta by vm.meta.collectAsStateWithLifecycle()
     val typing by vm.peerTyping.collectAsStateWithLifecycle()
@@ -293,7 +296,7 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
         }
 
         if (showSafety) {
-            val number = remember { vm.safetyNumber() }
+            val number by androidx.compose.runtime.produceState<String?>(null) { value = vm.safetyNumber() }
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showSafety = false; vm.clearKeyChanged() },
                 containerColor = Zura.colors.surfaceHigh,

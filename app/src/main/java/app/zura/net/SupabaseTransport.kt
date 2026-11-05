@@ -65,10 +65,24 @@ class SupabaseTransport(
     private val seen = LinkedHashSet<Long>()
     private val drainLock = Mutex()
 
+    /** The previous stop()'s disconnect: a new start waits for it (it used to run AFTER a quick restart and cut the new connection). */
+    private var cleanup: Job? = null
+
     fun start() {
         if (job?.isActive == true) return
+        val previous = cleanup
         job = scope.launch {
+            previous?.join()
             val rt = backend.client.realtime
+            // Socket health first — the banner reflects the connection itself, not the (slower)
+            // channel joins below; every (re)connect drains anything that arrived while away.
+            launch {
+                rt.status.collect { st ->
+                    val up = st == Realtime.Status.CONNECTED
+                    if (up && !_online.value) launch { drainBacklog() }
+                    _online.value = up
+                }
+            }
             runCatching { rt.connect() }
             val inbox = backend.client.channel("inbox-$me")
             val inserts = inbox.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
@@ -83,8 +97,10 @@ class SupabaseTransport(
             val user = backend.client.channel("u:$me") { isPrivate = true }
             launch { user.broadcastFlow<JsonObject>(event = EVENT).collect { onSignal(it) } }
             inboxChannel = inbox; userChannel = user
-            runCatching { inbox.subscribe(blockUntilSubscribed = true) }
-            runCatching { user.subscribe(blockUntilSubscribed = true) }
+            // Never hang on a join (an expired token at a cold start, a flaky network): the backlog
+            // pull below covers the gap, and the library retries the join itself.
+            runCatching { kotlinx.coroutines.withTimeoutOrNull(10_000) { inbox.subscribe(blockUntilSubscribed = true) } }
+            runCatching { kotlinx.coroutines.withTimeoutOrNull(10_000) { user.subscribe(blockUntilSubscribed = true) } }
 
             // Safety net: the server's change stream can take a few seconds to warm up after idle,
             // and a message inserted in that window would otherwise wait for the next reconnect.
@@ -96,18 +112,20 @@ class SupabaseTransport(
                     delay(15_000)
                 }
             }
-            // Track socket health; every (re)connect drains anything that arrived while we were away.
-            rt.status.collect { st ->
-                val up = st == Realtime.Status.CONNECTED
-                if (up && !_online.value) launch { drainBacklog() }
-                _online.value = up
-            }
         }
+    }
+
+    /** The phone got a network back: reconnect now instead of waiting for the library's back-off. */
+    fun kick() {
+        if (job?.isActive != true || _online.value) return
+        val rt = backend.client.realtime
+        if (rt.status.value != Realtime.Status.DISCONNECTED) return // already (re)connecting
+        scope.launch { runCatching { rt.connect() } }
     }
 
     fun stop() {
         job?.cancel(); job = null
-        scope.launch {
+        cleanup = scope.launch {
             runCatching { inboxChannel?.unsubscribe() }
             runCatching { userChannel?.unsubscribe() }
             runCatching { backend.client.realtime.removeAllChannels() }
@@ -133,6 +151,15 @@ class SupabaseTransport(
         val key = peerKey(to) ?: return false
         return runCatching { backend.broadcast(to, EVENT, buildJsonObject { put("f", me); put("p", seal(key, frame)) }) }
             .onFailure { app.zura.DiagLog.record("broadcast ${frame.javaClass.simpleName}", it) }
+            .getOrDefault(false) == true
+    }
+
+    /** Several live frames in one request, in order (walkie-talkie audio). */
+    suspend fun signalAll(to: String, frames: List<Frame>): Boolean {
+        if (frames.isEmpty()) return true
+        val key = peerKey(to) ?: return false
+        return runCatching { backend.broadcastAll(to, EVENT, frames.map { f -> buildJsonObject { put("f", me); put("p", seal(key, f)) } }) }
+            .onFailure { app.zura.DiagLog.record("broadcast walkie x${frames.size}", it) }
             .getOrDefault(false) == true
     }
 

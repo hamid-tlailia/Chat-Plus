@@ -66,7 +66,7 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
 
     fun call(video: Boolean) { peerId?.let { g.s.calls.startCall(it, video) } }
     fun clearKeyChanged() = viewModelScope.launch { g.chats.clearKeyChanged(chatId) }
-    fun safetyNumber(): String? = peerId?.let { g.s.contacts.safetyNumber(it, g.s.identity.keyPair.public) }
+    suspend fun safetyNumber(): String? = peerId?.let { g.s.contacts.safetyNumber(it, g.s.identity.keyPair.public) }
 
     val meta = g.chats.meta(chatId).stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val peerTyping = g.chats.peerTyping(chatId).stateIn(viewModelScope, SharingStarted.Eagerly, false)

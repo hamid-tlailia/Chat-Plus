@@ -194,7 +194,8 @@ class ContactsRepository(
         if (old != b64) runCatching { savePins(pinned + (uid to b64)) }.onFailure { app.zura.DiagLog.record("savePins", it) }
     }
 
-    fun safetyNumber(uid: String, mine: PublicKey): String? = keys[uid]?.let { E2EE.safetyNumber(mine, it) }
+    /** Safety number with [uid] — loads their key (pinned on this phone, else from the server) if it isn't in memory yet. */
+    suspend fun safetyNumber(uid: String, mine: PublicKey): String? = peerKey(uid)?.let { withContext(Dispatchers.Default) { E2EE.safetyNumber(mine, it) } }
 
     // ---------------------------------------------------------------- invitations
 

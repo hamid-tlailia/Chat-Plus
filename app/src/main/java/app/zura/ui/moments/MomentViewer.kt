@@ -222,8 +222,10 @@ private fun MomentReplyBar(ownerId: String, item: app.zura.core.model.Message, m
             Text(e, fontSize = 64.sp, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 140.dp)
                 .graphicsLayer { translationY = -pop.value * 220f; alpha = 1f - pop.value; scaleX = 1f + pop.value; scaleY = scaleX })
         }
+        // Pinned to the bottom: the flying emoji above makes this box taller for a moment, and the
+        // bar used to ride up with it (and drop back) on every reaction.
         Column(
-            Modifier.fillMaxWidth()
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))))
                 .navigationBarsPadding().imePadding().padding(horizontal = 14.dp, vertical = 10.dp),
         ) {

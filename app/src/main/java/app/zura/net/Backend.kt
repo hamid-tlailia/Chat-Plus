@@ -137,16 +137,21 @@ class Backend {
      * realtime.messages only lets accepted contacts write there; only the owner can listen.
      * REST keeps us from having to *join* the peer's channel (which RLS forbids, by design).
      */
-    suspend fun broadcast(toUser: String, event: String, payload: JsonObject) = withContext(Dispatchers.IO) {
+    suspend fun broadcast(toUser: String, event: String, payload: JsonObject) = broadcastAll(toUser, event, listOf(payload))
+
+    /** Several events in ONE request, delivered in order (live audio catches up after a slow request). */
+    suspend fun broadcastAll(toUser: String, event: String, payloads: List<JsonObject>) = withContext(Dispatchers.IO) {
         ensureFresh()
         val body = buildJsonObject {
             put("messages", buildJsonArray {
-                add(buildJsonObject {
-                    put("topic", "u:$toUser")
-                    put("event", event)
-                    put("payload", payload)
-                    put("private", true)
-                })
+                payloads.forEach { payload ->
+                    add(buildJsonObject {
+                        put("topic", "u:$toUser")
+                        put("event", event)
+                        put("payload", payload)
+                        put("private", true)
+                    })
+                }
             })
         }
         val req = authed("/realtime/v1/api/broadcast")

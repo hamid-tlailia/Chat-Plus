@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Walkie-talkie: hold to talk, the other person hears you live (≈ ½ s behind) while both have
- * Zura open. Audio is 8 kHz G.711 μ-law in 250 ms chunks, each one sealed end-to-end like every
+ * Zura open. Audio is 8 kHz G.711 μ-law in 100 ms chunks, each one sealed end-to-end like every
  * other frame and sent over the realtime channel — no server keeps it, nothing is stored.
  */
 class Walkie(private val transport: SupabaseTransport, private val me: String, private val scope: CoroutineScope) {
@@ -59,6 +59,17 @@ class Walkie(private val transport: SupabaseTransport, private val me: String, p
         talkJob = scope.launch(Dispatchers.IO) {
             var seq = 0
             var failed = 0
+            // Recording never waits for the network: chunks queue up and a sender ships everything
+            // queued so far in ONE request — a slow request makes the next one bigger instead of
+            // making the voice fall further and further behind.
+            val queue = kotlinx.coroutines.channels.Channel<Frame.Walkie>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            val sender = if (live) launch {
+                for (first in queue) {
+                    val batch = mutableListOf(first)
+                    while (true) batch += queue.tryReceive().getOrNull() ?: break
+                    if (!transport.signalAll(peer, batch)) failed++
+                }
+            } else null
             val local = java.io.ByteArrayOutputStream()
             val buf = ShortArray(CHUNK / 2)
             try {
@@ -70,13 +81,13 @@ class Walkie(private val transport: SupabaseTransport, private val me: String, p
                     for (k in 0 until n) { local.write(buf[k].toInt() and 0xFF); local.write((buf[k].toInt() shr 8) and 0xFF) }
                     if (live) {
                         val bytes = ByteArray(n) { k -> MuLaw.encode(buf[k]) }
-                        if (!transport.signal(peer, Frame.Walkie(chatId, me, seq++, Base64.encodeToString(bytes, Base64.NO_WRAP)))) failed++
+                        queue.trySend(Frame.Walkie(chatId, me, seq++, Base64.encodeToString(bytes, Base64.NO_WRAP)))
                     }
                 }
             } finally {
                 runCatching { rec.stop() }; rec.release()
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                    if (live) runCatching { transport.signal(peer, Frame.Walkie(chatId, me, seq, "", end = true)) }
+                    if (live) { queue.trySend(Frame.Walkie(chatId, me, seq, "", end = true)); queue.close(); sender?.join() }
                     val pcm = local.toByteArray()
                     // Not heard live → keep it for "Send as voice note / Delete" (ignore accidental taps < 0.5 s).
                     if ((!live || failed > 0) && pcm.size >= RATE) _draft.value = makeDraft(chatId, pcm)
@@ -121,6 +132,7 @@ class Walkie(private val transport: SupabaseTransport, private val me: String, p
     private var idle: Job? = null
 
     fun onFrame(from: String, f: Frame.Walkie) {
+        val fresh = _talking.value != from
         _talking.value = from
         idle?.cancel()
         if (f.end) { _talking.value = null; return }
@@ -132,7 +144,10 @@ class Walkie(private val transport: SupabaseTransport, private val me: String, p
             .setBufferSizeInBytes(CHUNK * 8)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build().also { it.play(); track = it }
-        scope.launch(player) { runCatching { t.write(out, 0, out.size) } } // one thread → chunks stay in order
+        // Start of a burst: a short cushion (120 ms) so small network jitter between the 100 ms
+        // chunks doesn't make the voice stutter.
+        val cushion = if (fresh) ShortArray(RATE * 120 / 1000) else null
+        scope.launch(player) { runCatching { cushion?.let { t.write(it, 0, it.size) }; t.write(out, 0, out.size) } } // one thread → chunks stay in order
         // No "end" (connection dropped)? Clear the indicator after a short silence.
         idle = scope.launch { delay(1_500); _talking.value = null }
     }
@@ -146,8 +161,8 @@ class Walkie(private val transport: SupabaseTransport, private val me: String, p
 
     private companion object {
         const val RATE = 8_000
-        /** 250 ms of 16-bit mono at 8 kHz. */
-        const val CHUNK = RATE / 4 * 2
+        /** 100 ms of 16-bit mono at 8 kHz (smaller chunks = less delay before the first sound). */
+        const val CHUNK = RATE / 10 * 2
         /** At most 5 minutes kept locally. */
         const val MAX_BYTES = RATE * 2 * 300
     }

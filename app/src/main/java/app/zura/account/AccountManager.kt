@@ -245,7 +245,10 @@ class AccountManager(
     // ---------------------------------------------------------------- internals
 
     private suspend fun activate(uid: String, email: String, remember: Boolean, s: UserSession) {
-        (state.value as? AuthState.SignedIn)?.session?.close()
+        (state.value as? AuthState.SignedIn)?.session?.let { old ->
+            DiagLog.record("auth", detail = "account re-opened (previous session closed)")
+            old.close()
+        }
         // No network round-trip here (cold start may be offline); the profile collector below
         // refreshes name / username / avatar as soon as the server answers.
         val prev = store.get(uid)

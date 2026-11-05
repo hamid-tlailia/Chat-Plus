@@ -232,8 +232,11 @@ private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpe
     if (isContact) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ActionTile(ZuraIcons.Reply, stringResource(R.string.open_chat), Modifier.weight(1f)) { onOpenChat(chatId) }
-            ActionTile(Icons.Default.Call, stringResource(R.string.voice_call), Modifier.weight(1f)) { haptics.tick(); voice(ctx) }
-            ActionTile(ZuraIcons.VideoCam, stringResource(R.string.video_call), Modifier.weight(1f)) { haptics.tick(); video(ctx) }
+            // Blocked: no calls offered (same as inside the chat).
+            if (!blocked) {
+                ActionTile(Icons.Default.Call, stringResource(R.string.voice_call), Modifier.weight(1f)) { haptics.tick(); voice(ctx) }
+                ActionTile(ZuraIcons.VideoCam, stringResource(R.string.video_call), Modifier.weight(1f)) { haptics.tick(); video(ctx) }
+            }
         }
         Spacer(Modifier.height(16.dp))
     }
@@ -252,7 +255,7 @@ private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpe
             var pickTimer by remember { mutableStateOf(false) }
             Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))
             Row(Modifier.fillMaxWidth().clickable { pickTimer = true }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("⏱", style = Zura.type.headline)
+                Text("⏱", style = Zura.type.headline, color = c.text) // drawn as a glyph: must follow the theme (was black on dark)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.disappearing), style = Zura.type.label, color = c.text)
@@ -314,7 +317,8 @@ private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpe
     }
 
     if (showSafety) {
-        val number = remember { g.s.contacts.safetyNumber(p.id, g.s.identity.keyPair.public) }
+        // The key may not be in memory yet (it was shown as "—" until a message had been exchanged).
+        val number by androidx.compose.runtime.produceState<String?>(null, p.id) { value = g.s.contacts.safetyNumber(p.id, g.s.identity.keyPair.public) }
         AlertDialog(
             onDismissRequest = { showSafety = false },
             containerColor = c.surfaceHigh,
@@ -323,7 +327,7 @@ private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpe
             text = {
                 Column {
                     Text(
-                        number?.chunked(18)?.joinToString("\n") ?: "—",
+                        number?.chunked(18)?.joinToString("\n") ?: "…",
                         style = Zura.type.headline.copy(fontFamily = FontFamily.Monospace, textDirection = TextDirection.Ltr), color = c.text,
                     )
                     Spacer(Modifier.height(12.dp))

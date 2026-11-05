@@ -56,6 +56,13 @@ open class ZuraApp : Application() {
             addAction(android.content.Intent.ACTION_USER_UNLOCKED) // first unlock after boot
         })
 
+        // Network back (Wi-Fi ↔ mobile, out of a dead zone): reconnect at once, not after the back-off.
+        runCatching {
+            getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) { graph.session.value?.transport?.kick() }
+            })
+        }
+
         // A new sign-in while the app is visible connects immediately.
         graph.scope.launch {
             graph.accounts.session.collect { s ->

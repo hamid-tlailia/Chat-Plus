@@ -44,6 +44,7 @@ import app.zura.ui.auth.AuthScreen
 import app.zura.ui.call.CallScreen
 import app.zura.ui.contacts.PeopleScreen
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import app.zura.share.DirectShare
 import app.zura.ui.chat.ChatScreen
 import app.zura.ui.chats.ChatListScreen
@@ -217,8 +218,16 @@ class MainActivity : ComponentActivity() {
 
     /** Opened from a message notification: decrypt that chat now, while the lock / splash is showing. */
     private fun prewarm(chatId: String) {
-        val s = (graph.accounts.state.value as? AuthState.SignedIn)?.session ?: return
-        s.scope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { if (s.vault.exists(chatId)) s.vault.chat(chatId) } }
+        // Cold start (app was swiped away): the account is still opening — wait for it instead of
+        // giving up, so the chat's history is decrypted while the account / splash finishes.
+        graph.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val s = kotlinx.coroutines.withTimeoutOrNull(10_000) {
+                (graph.accounts.state.first { it is AuthState.SignedIn } as AuthState.SignedIn).session
+            } ?: return@launch
+            val t = android.os.SystemClock.elapsedRealtime()
+            runCatching { if (s.vault.exists(chatId)) s.vault.chat(chatId) }
+            DiagLog.record("open chat", detail = "history ready in ${android.os.SystemClock.elapsedRealtime() - t} ms (${s.vault.chat(chatId).messages.value.size} messages)")
+        }
     }
 
     private fun showOverLock(on: Boolean) {

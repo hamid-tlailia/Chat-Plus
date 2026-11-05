@@ -151,13 +151,17 @@ class ChatStore internal constructor(
             require(header.size == 3 && header[0] == "K1") { "Corrupt log header" }
             generation = header[1].toInt()
             key = wrapper.unwrap(alias(generation), B64D.decode(header[2]))
-            it.forEachRemaining { line ->
-                if (line.isBlank()) return@forEachRemaining
-                lineCount++
-                // A torn final line (power loss mid-append) fails GCM auth and is skipped.
-                val r = runCatching {
-                    json.decodeFromString(Record.serializer(), Crypto.open(key, B64D.decode(line), aad).decodeToString())
-                }.getOrNull() ?: return@forEachRemaining
+            val body = ArrayList<String>()
+            it.forEachRemaining { line -> if (line.isNotBlank()) body += line }
+            lineCount += body.size
+            val k = key
+            // Decrypt + parse on all cores (a long chat is thousands of lines), then apply IN ORDER:
+            // later lines win. A torn final line (power loss mid-append) fails GCM auth and is skipped.
+            val records = body.parallelStream().map { line ->
+                runCatching { json.decodeFromString(Record.serializer(), Crypto.open(k, B64D.decode(line), aad).decodeToString()) }.getOrNull()
+            }.collect(java.util.stream.Collectors.toList())
+            records.forEach { r ->
+                r ?: return@forEach
                 r.put?.let { m -> byId[m.id] = m }
                 r.meta?.let { m -> _meta.value = m }
             }
