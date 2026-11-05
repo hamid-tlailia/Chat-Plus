@@ -68,148 +68,166 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}, onVault: () -
     var used by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) { used = withContext(Dispatchers.IO) { g.vault.totalBytes() } }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState())) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = c.text) }
-            Text(stringResource(R.string.settings), style = Zura.type.title, color = c.text)
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().statusBarsPadding()) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = c.text) }
+                Text(stringResource(R.string.settings), style = Zura.type.title, color = c.text)
+            }
         }
-
-        Section(R.string.theme) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ZuraThemeId.entries.forEach { id ->
-                    val p = ZuraPalettes.of(id)
-                    val ring by animateDpAsState(if (id == theme) 2.dp else 0.dp, label = "ring")
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            Modifier.fillMaxWidth().aspectRatio(0.62f).clip(RoundedCornerShape(16.dp))
-                                .background(Brush.verticalGradient(listOf(p.bgAccent, p.bg)))
-                                .border(ring, c.accent, RoundedCornerShape(16.dp))
-                                .clickable { haptics.tick(); g.settings.setTheme(id) }
-                                .padding(8.dp),
-                        ) {
-                            // Mini chat preview inside each swatch
-                            Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.align(Alignment.BottomCenter)) {
-                                Box(Modifier.width(34.dp).height(10.dp).clip(CircleShape).background(p.bubbleTheirs))
-                                Box(Modifier.align(Alignment.End).width(40.dp).height(10.dp).clip(CircleShape).background(Brush.linearGradient(listOf(p.bubbleMine, p.bubbleMineAlt))))
+        item {
+            Section(R.string.theme) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ZuraThemeId.entries.forEach { id ->
+                        val p = ZuraPalettes.of(id)
+                        val ring by animateDpAsState(if (id == theme) 2.dp else 0.dp, label = "ring")
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                Modifier.fillMaxWidth().aspectRatio(0.62f).clip(RoundedCornerShape(16.dp))
+                                    .background(Brush.verticalGradient(listOf(p.bgAccent, p.bg)))
+                                    .border(ring, c.accent, RoundedCornerShape(16.dp))
+                                    .clickable { haptics.tick(); g.settings.setTheme(id) }
+                                    .padding(8.dp),
+                            ) {
+                                // Mini chat preview inside each swatch
+                                Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.align(Alignment.BottomCenter)) {
+                                    Box(Modifier.width(34.dp).height(10.dp).clip(CircleShape).background(p.bubbleTheirs))
+                                    Box(Modifier.align(Alignment.End).width(40.dp).height(10.dp).clip(CircleShape).background(Brush.linearGradient(listOf(p.bubbleMine, p.bubbleMineAlt))))
+                                }
                             }
+                            Text(stringResource(themeName(id)), style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(top = 6.dp))
                         }
-                        Text(stringResource(themeName(id)), style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(top = 6.dp))
+                    }
+                }
+
+            }
+        }
+        item {
+            Section(R.string.chat_colors) { BubblePicker(onStudio) }
+        }
+        item {
+            Section(R.string.language) {
+                val current = remember { LocaleEngine.current(ctx) }
+                Row(Modifier.fillMaxWidth().clip(CircleShape).background(c.surfaceHigh).padding(4.dp)) {
+                    LocaleEngine.Lang.entries.forEach { l ->
+                        val sel = l == current
+                        Box(
+                            Modifier.weight(1f).clip(CircleShape).background(if (sel) c.accent else c.surfaceHigh)
+                                .clickable(enabled = !sel) { haptics.tick(); LocaleEngine.set(ctx as Activity, l) }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(stringResource(if (l == LocaleEngine.Lang.EN) R.string.lang_en else R.string.lang_ar), color = if (sel) c.onAccent else c.text, style = Zura.type.label) }
                     }
                 }
             }
-
         }
-
-        Section(R.string.chat_colors) { BubblePicker(onStudio) }
-
-        Section(R.string.language) {
-            val current = LocaleEngine.current(ctx)
-            Row(Modifier.fillMaxWidth().clip(CircleShape).background(c.surfaceHigh).padding(4.dp)) {
-                LocaleEngine.Lang.entries.forEach { l ->
-                    val sel = l == current
-                    Box(
-                        Modifier.weight(1f).clip(CircleShape).background(if (sel) c.accent else c.surfaceHigh)
-                            .clickable(enabled = !sel) { haptics.tick(); LocaleEngine.set(ctx as Activity, l) }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) { Text(stringResource(if (l == LocaleEngine.Lang.EN) R.string.lang_en else R.string.lang_ar), color = if (sel) c.onAccent else c.text, style = Zura.type.label) }
-                }
-            }
-        }
-
-        Section(R.string.storage) {
-            Text(stringResource(R.string.storage_used, fmt.size(used)), style = Zura.type.label, color = c.text)
-            Text(
-                stringResource(R.string.manage_media) + " →", style = Zura.type.label, color = c.accent,
-                modifier = Modifier.padding(vertical = 8.dp).clickable(onClick = onVault),
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(stringResource(R.string.about_privacy), style = Zura.type.caption, color = c.textMuted)
-        }
-
-        // Calls & messages when the app is closed: push, full-screen calls, wake-up (battery).
-        Section(R.string.push_status) {
-            Text(
-                stringResource(if (app.zura.push.Push.enabled) R.string.push_on else R.string.push_off),
-                style = Zura.type.caption, color = if (app.zura.push.Push.enabled) c.textMuted else c.danger,
-            )
-            Spacer(Modifier.height(12.dp))
-            app.zura.push.CallReadinessList()
-            var telecom by remember { androidx.compose.runtime.mutableStateOf(app.zura.call.Telecom.enabled(ctx)) }
-            app.zura.ui.components.SettingSwitch(stringResource(R.string.use_telecom), stringResource(R.string.use_telecom_hint), telecom, Modifier.padding(top = 8.dp)) {
-                telecom = it; app.zura.call.Telecom.setEnabled(ctx, it)
-            }
-        }
-
-        Section(R.string.sounds) {
-            SoundRows(chatId = null, peerId = null)
-            val hap by g.sounds.haptics.collectAsStateWithLifecycle()
-            app.zura.ui.components.SettingSwitch(stringResource(R.string.inapp_haptics), stringResource(R.string.inapp_haptics_hint), hap) { g.sounds.setHaptics(it) }
-        }
-
-        // Stealth mode: what contacts can see of my activity.
-        Section(R.string.stealth_mode) {
-            val pv = g.s.privacy
-            val rr by pv.readReceipts.collectAsStateWithLifecycle()
-            val ty by pv.typing.collectAsStateWithLifecycle()
-            val ls by pv.lastSeen.collectAsStateWithLifecycle()
-            app.zura.ui.components.SettingSwitch(stringResource(R.string.stealth_read), stringResource(R.string.stealth_read_hint), rr) { pv.setReadReceipts(it) }
-            app.zura.ui.components.SettingSwitch(stringResource(R.string.stealth_typing), null, ty) { pv.setTyping(it) }
-            app.zura.ui.components.SettingSwitch(stringResource(R.string.stealth_seen), stringResource(R.string.stealth_seen_hint), ls) { pv.setLastSeen(it) }
-            Text(stringResource(R.string.stealth_per_person), style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(top = 6.dp))
-        }
-
-        Section(R.string.privacy) {
-            val secure by g.settings.secureScreen.collectAsStateWithLifecycle()
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { haptics.tick(); g.settings.setSecureScreen(!secure) }, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.secure_screen), style = Zura.type.label, color = c.text)
-                    Text(stringResource(R.string.secure_screen_hint), style = Zura.type.caption, color = c.textMuted)
-                }
-                androidx.compose.material3.Switch(
-                    secure, { g.settings.setSecureScreen(it) },
-                    colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = c.accent, checkedThumbColor = c.onAccent),
+        item {
+            Section(R.string.storage) {
+                Text(stringResource(R.string.storage_used, fmt.size(used)), style = Zura.type.label, color = c.text)
+                Text(
+                    stringResource(R.string.manage_media) + " →", style = Zura.type.label, color = c.accent,
+                    modifier = Modifier.padding(vertical = 8.dp).clickable(onClick = onVault),
                 )
+                Spacer(Modifier.height(6.dp))
+                Text(stringResource(R.string.about_privacy), style = Zura.type.caption, color = c.textMuted)
             }
-            Spacer(Modifier.height(12.dp))
-            Text(stringResource(R.string.encrypted_storage), style = Zura.type.label, color = c.text)
-            Text(stringResource(R.string.encrypted_storage_hint), style = Zura.type.caption, color = c.textMuted)
-            Spacer(Modifier.height(8.dp))
-            Text(stringResource(R.string.e2ee_note), style = Zura.type.caption, color = c.textMuted)
         }
-
-        Section(R.string.app_lock) { AppLockSection() }
-
-        Section(R.string.security_title) {
-            Text(stringResource(R.string.security_details), style = Zura.type.label, color = c.textMuted)
-        }
-
-        Section(R.string.account) {
-            Text(
-                stringResource(R.string.my_profile) + " →", style = Zura.type.label, color = c.accent,
-                modifier = Modifier.padding(bottom = 12.dp).clickable(onClick = onProfile),
-            )
-            AccountCard()
-        }
-
-        Section(R.string.diagnostics) { DiagnosticsSection() }
-
-        app.zura.CrashLog.read(ctx)?.let { crash ->
-            Section(R.string.crash_report) {
-                Text(stringResource(R.string.crash_report_hint), style = Zura.type.caption, color = c.textMuted)
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(Modifier.clip(CircleShape).background(c.accent).clickable {
-                        ctx.getSystemService(android.content.ClipboardManager::class.java)
-                            .setPrimaryClip(android.content.ClipData.newPlainText("zura-crash", crash))
-                        android.widget.Toast.makeText(ctx, R.string.copied, android.widget.Toast.LENGTH_SHORT).show()
-                    }.padding(horizontal = 16.dp, vertical = 9.dp)) { Text(stringResource(R.string.action_copy), color = c.onAccent, style = Zura.type.label) }
-                    Box(Modifier.clip(CircleShape).background(c.surfaceHigh).clickable { app.zura.CrashLog.clear(ctx) }
-                        .padding(horizontal = 16.dp, vertical = 9.dp)) { Text(stringResource(R.string.delete), color = c.text, style = Zura.type.label) }
+        // Calls & messages when the app is closed: push, full-screen calls, wake-up (battery).
+        item {
+            Section(R.string.push_status) {
+                Text(
+                    stringResource(if (app.zura.push.Push.enabled) R.string.push_on else R.string.push_off),
+                    style = Zura.type.caption, color = if (app.zura.push.Push.enabled) c.textMuted else c.danger,
+                )
+                Spacer(Modifier.height(12.dp))
+                app.zura.push.CallReadinessList()
+                var telecom by remember { androidx.compose.runtime.mutableStateOf(app.zura.call.Telecom.enabled(ctx)) }
+                app.zura.ui.components.SettingSwitch(stringResource(R.string.use_telecom), stringResource(R.string.use_telecom_hint), telecom, Modifier.padding(top = 8.dp)) {
+                    telecom = it; app.zura.call.Telecom.setEnabled(ctx, it)
                 }
             }
         }
-        Spacer(Modifier.size(40.dp))
+        item {
+            Section(R.string.sounds) {
+                SoundRows(chatId = null, peerId = null)
+                val hap by g.sounds.haptics.collectAsStateWithLifecycle()
+                app.zura.ui.components.SettingSwitch(stringResource(R.string.inapp_haptics), stringResource(R.string.inapp_haptics_hint), hap) { g.sounds.setHaptics(it) }
+            }
+        }
+        // Stealth mode: what contacts can see of my activity.
+        item {
+            Section(R.string.stealth_mode) {
+                val pv = g.s.privacy
+                val rr by pv.readReceipts.collectAsStateWithLifecycle()
+                val ty by pv.typing.collectAsStateWithLifecycle()
+                val ls by pv.lastSeen.collectAsStateWithLifecycle()
+                app.zura.ui.components.SettingSwitch(stringResource(R.string.stealth_read), stringResource(R.string.stealth_read_hint), rr) { pv.setReadReceipts(it) }
+                app.zura.ui.components.SettingSwitch(stringResource(R.string.stealth_typing), null, ty) { pv.setTyping(it) }
+                app.zura.ui.components.SettingSwitch(stringResource(R.string.stealth_seen), stringResource(R.string.stealth_seen_hint), ls) { pv.setLastSeen(it) }
+                Text(stringResource(R.string.stealth_per_person), style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(top = 6.dp))
+            }
+        }
+        item {
+            Section(R.string.privacy) {
+                val secure by g.settings.secureScreen.collectAsStateWithLifecycle()
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { haptics.tick(); g.settings.setSecureScreen(!secure) }, verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.secure_screen), style = Zura.type.label, color = c.text)
+                        Text(stringResource(R.string.secure_screen_hint), style = Zura.type.caption, color = c.textMuted)
+                    }
+                    androidx.compose.material3.Switch(
+                        secure, { g.settings.setSecureScreen(it) },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = c.accent, checkedThumbColor = c.onAccent),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(stringResource(R.string.encrypted_storage), style = Zura.type.label, color = c.text)
+                Text(stringResource(R.string.encrypted_storage_hint), style = Zura.type.caption, color = c.textMuted)
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.e2ee_note), style = Zura.type.caption, color = c.textMuted)
+            }
+        }
+        item {
+            Section(R.string.app_lock) { AppLockSection() }
+        }
+        item {
+            Section(R.string.security_title) {
+                Text(stringResource(R.string.security_details), style = Zura.type.label, color = c.textMuted)
+            }
+        }
+        item {
+            Section(R.string.account) {
+                Text(
+                    stringResource(R.string.my_profile) + " →", style = Zura.type.label, color = c.accent,
+                    modifier = Modifier.padding(bottom = 12.dp).clickable(onClick = onProfile),
+                )
+                AccountCard()
+            }
+        }
+        item {
+            Section(R.string.diagnostics) { DiagnosticsSection() }
+        }
+        item {
+            val crashLog by androidx.compose.runtime.produceState<String?>(null) { value = withContext(Dispatchers.IO) { app.zura.CrashLog.read(ctx) } }
+            crashLog?.let { crash ->
+                Section(R.string.crash_report) {
+                    Text(stringResource(R.string.crash_report_hint), style = Zura.type.caption, color = c.textMuted)
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(Modifier.clip(CircleShape).background(c.accent).clickable {
+                            ctx.getSystemService(android.content.ClipboardManager::class.java)
+                                .setPrimaryClip(android.content.ClipData.newPlainText("zura-crash", crash))
+                            android.widget.Toast.makeText(ctx, R.string.copied, android.widget.Toast.LENGTH_SHORT).show()
+                        }.padding(horizontal = 16.dp, vertical = 9.dp)) { Text(stringResource(R.string.action_copy), color = c.onAccent, style = Zura.type.label) }
+                        Box(Modifier.clip(CircleShape).background(c.surfaceHigh).clickable { app.zura.CrashLog.clear(ctx) }
+                            .padding(horizontal = 16.dp, vertical = 9.dp)) { Text(stringResource(R.string.delete), color = c.text, style = Zura.type.label) }
+                    }
+                }
+            }
+        }
+        item {
+            Spacer(Modifier.size(40.dp))
+        }
     }
 }
 

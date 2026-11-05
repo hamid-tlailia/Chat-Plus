@@ -77,10 +77,10 @@ fun SoundRows(chatId: String?, peerId: String?) {
     }
     val scoped = chatId != null || peerId != null
 
-    Row2(stringResource(R.string.message_tone), s.toneName(ctx, s.messageTone(chatId), RingtoneManager.TYPE_NOTIFICATION)) { toneLauncher.launch(s.messageTone(chatId)) }
+    Row2(stringResource(R.string.message_tone), toneName(s.messageTone(chatId), RingtoneManager.TYPE_NOTIFICATION)) { toneLauncher.launch(s.messageTone(chatId)) }
     Row2(stringResource(R.string.message_vibe), vibeName(s.vibe(chatId))) { pickVibe = "msg" }
     if (!scoped || peerId != null) {
-        Row2(stringResource(R.string.ringtone), s.toneName(ctx, s.ringtone(peerId), RingtoneManager.TYPE_RINGTONE)) { ringLauncher.launch(s.ringtone(peerId)) }
+        Row2(stringResource(R.string.ringtone), toneName(s.ringtone(peerId), RingtoneManager.TYPE_RINGTONE)) { ringLauncher.launch(s.ringtone(peerId)) }
         Row2(stringResource(R.string.ring_vibe), vibeName(s.ringVibe(peerId))) { pickVibe = "ring" }
     }
     if (scoped && (s.messageTone(chatId) != null || s.vibe(chatId) != Vibe.DEFAULT || s.ringtone(peerId) != null || s.ringVibe(peerId) != Vibe.DEFAULT)) {
@@ -135,3 +135,26 @@ private fun previewVibe(ctx: Context, v: Vibe) {
         if (Build.VERSION.SDK_INT >= 26) vib.vibrate(android.os.VibrationEffect.createWaveform(p, -1))
     }
 }
+
+/**
+ * A tone's title, looked up OFF the main thread: the system answers it with a media-database
+ * query (tens to hundreds of ms) — done inline it made opening Settings stutter.
+ */
+@Composable
+private fun toneName(tone: String?, type: Int): String {
+    val ctx = LocalContext.current
+    val quick = when {
+        tone == null -> stringResource(R.string.tone_default)
+        tone.isEmpty() -> stringResource(R.string.tone_silent)
+        else -> null
+    }
+    if (quick != null) return quick
+    val name by androidx.compose.runtime.produceState(toneTitles[tone] ?: "…", tone) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            ctx.graph.sounds.toneName(ctx, tone, type).also { toneTitles[tone!!] = it }
+        }
+    }
+    return name
+}
+
+private val toneTitles = java.util.concurrent.ConcurrentHashMap<String, String>()
