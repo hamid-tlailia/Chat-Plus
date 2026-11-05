@@ -119,6 +119,14 @@ class ChatStore internal constructor(
         removed.sumOf { m -> m.media?.let { SecureEraser.erase(mediaFile(it.fileName)) } ?: 0L }
     }
 
+    /**
+     * Key created on slow hardware (StrongBox, by an older version): re-key the log onto a fast
+     * key once, in the background — every later open of this chat is then ~instant.
+     */
+    suspend fun upgradeKeyIfSlow() = mutex.withLock {
+        if (wrapper.isSlow(alias(generation))) runCatching { rewriteLocked(rotateKey = true) }
+    }
+
     /** Called by VaultStore when the whole chat is erased. */
     internal fun destroyKeys() {
         wrapper.destroy(alias(generation))

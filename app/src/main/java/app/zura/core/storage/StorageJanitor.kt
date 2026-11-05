@@ -38,7 +38,7 @@ class StorageJanitor(private val vault: VaultStore, private val wrapper: KeyWrap
         var keys = 0
         wrapper.aliases().filter { a ->
             // Only chat-log keys ("zc_<chat>_<gen>"); the chat-list index key must never be swept.
-            a.startsWith(ChatStore.ALIAS_PREFIX) && a != VaultStore.INDEX_ALIAS && a !in liveAliases && protectedPrefixes.none(a::startsWith)
+            a.startsWith(ChatStore.ALIAS_PREFIX) && !a.startsWith(VaultStore.INDEX_ALIAS) && a !in liveAliases && protectedPrefixes.none(a::startsWith)
         }.forEach {
             wrapper.destroy(it); keys++
         }

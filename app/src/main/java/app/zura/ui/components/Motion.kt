@@ -48,8 +48,9 @@ fun Modifier.pressScale(interaction: MutableInteractionSource, pressed: Float = 
  */
 fun pageTransition(forward: Boolean, rtl: Boolean): ContentTransform {
     val dir = if (rtl) -1 else 1
-    val slide = spring(dampingRatio = 1f, stiffness = 420f, visibilityThreshold = IntOffset(1, 1))
-    val fade = spring<Float>(stiffness = 420f)
+    // Stiffer = the next page settles sooner (~0.3 s instead of ~0.45 s): the app feels quicker.
+    val slide = spring(dampingRatio = 1f, stiffness = 700f, visibilityThreshold = IntOffset(1, 1))
+    val fade = spring<Float>(stiffness = 700f)
     return if (forward) {
         (slideInHorizontally(slide) { it * dir } togetherWith
             (slideOutHorizontally(slide) { -it / 5 * dir } + fadeOut(fade, targetAlpha = 0.6f)))

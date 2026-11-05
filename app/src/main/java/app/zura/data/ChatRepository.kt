@@ -59,6 +59,17 @@ class ChatRepository(
             .sortedWith(compareByDescending<ChatMeta> { it.pinned }.thenByDescending { it.updatedAt })
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    init {
+        // A chat whose key an older version put on slow hardware moves to a fast key, quietly,
+        // a few seconds after it's opened (never on the path of showing it).
+        vault.onOpened = { store ->
+            scope.launch(Dispatchers.IO) {
+                kotlinx.coroutines.delay(4_000)
+                if (!vault.isLocked()) runCatching { store.upgradeKeyIfSlow() }
+            }
+        }
+    }
+
     /** False only during the one-time build of the index (first start after the update) → skeletons. */
     val chatsLoaded = MutableStateFlow(true)
 

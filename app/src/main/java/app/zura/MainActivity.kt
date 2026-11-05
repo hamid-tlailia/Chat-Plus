@@ -273,6 +273,9 @@ internal fun NavHost(nav: Navigator) {
         targetState = nav.top,
         transitionSpec = {
             if (nav.instant) androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+            // A photo opens / closes with a quick fade (no page slide to wait for).
+            else if (targetState is Route.Media || initialState is Route.Media)
+                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(120)) togetherWith androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120))
             else app.zura.ui.components.pageTransition(nav.forward, rtl)
         },
         label = "nav",

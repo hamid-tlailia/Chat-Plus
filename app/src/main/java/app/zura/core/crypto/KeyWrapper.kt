@@ -32,6 +32,15 @@ interface KeyWrapper {
 
     /** True if [sharedKey] really is shared for [alias] (files written under another key are re-keyed to it). */
     fun isShared(alias: String): Boolean = false
+
+    /**
+     * Alias that new small-file data for [alias] is written under. Differs when the key behind
+     * [alias] is on slow hardware (StrongBox): files move to a fast key the next time they're read.
+     */
+    fun fastAlias(alias: String): String = alias
+
+    /** True if [alias]'s key sits on slow hardware (a chat log then re-keys itself in the background). */
+    fun isSlow(alias: String): Boolean = false
 }
 
 /**
@@ -51,10 +60,17 @@ class AndroidKeystoreWrapper : KeyWrapper {
      * the app. Account/session/identity keys stay usable while locked so calls can still ring.
      * Tries the strongest combination first and degrades only if the hardware refuses.
      */
+    /*
+     * TEE, not StrongBox. StrongBox is a separate secure chip: on the phones that have one each
+     * operation measured ~500 ms (a cold start spent 2 s of its 2 s there; every chat opened paid
+     * it again). The TEE is still hardware-isolated — the key never leaves it, can't be exported,
+     * and chat keys still require an unlocked phone — and answers in a few ms. Keys created by
+     * older versions on StrongBox are moved: small files on their next read ([fastAlias]), chat
+     * logs by a background re-key ([isSlow]).
+     */
     private fun generateBest(alias: String): SecretKey {
         val content = alias.contains("zc_") && Build.VERSION.SDK_INT >= 28
         val attempts = buildList {
-            if (Build.VERSION.SDK_INT >= 28) add(true to content)
             add(false to content)
             if (content) add(false to false)
         }
@@ -120,7 +136,18 @@ class AndroidKeystoreWrapper : KeyWrapper {
      */
     private val opened = ConcurrentHashMap<String, ByteArray>()
     private val shared = ConcurrentHashMap<String, Pair<ByteArray, ByteArray>>()
-    private fun cacheable(alias: String) = !alias.contains("zc_") || alias.endsWith("zc_index")
+    private fun cacheable(alias: String) = !alias.contains("zc_") || alias.contains("zc_index")
+
+    override fun fastAlias(alias: String) = if (alias.endsWith(FAST)) alias else alias + FAST
+
+    override fun isSlow(alias: String): Boolean = Build.VERSION.SDK_INT >= 31 && slow.getOrPut(alias) {
+        runCatching {
+            val key = ks.getKey(alias, null) as? SecretKey ?: return@runCatching false
+            val info = javax.crypto.SecretKeyFactory.getInstance(key.algorithm, PROVIDER).getKeySpec(key, android.security.keystore.KeyInfo::class.java) as android.security.keystore.KeyInfo
+            info.securityLevel == KeyProperties.SECURITY_LEVEL_STRONGBOX
+        }.getOrDefault(false)
+    }
+    private val slow = ConcurrentHashMap<String, Boolean>()
     private fun ck(alias: String, wrapped: ByteArray) = alias + "|" + java.util.Base64.getEncoder().encodeToString(wrapped)
 
     override fun isShared(alias: String) = cacheable(alias)
@@ -145,7 +172,7 @@ class AndroidKeystoreWrapper : KeyWrapper {
 
     override fun aliases(): List<String> = ks.aliases().toList()
 
-    private companion object { const val PROVIDER = "AndroidKeyStore" }
+    private companion object { const val PROVIDER = "AndroidKeyStore"; const val FAST = "_t" }
 }
 
 /**
@@ -158,6 +185,8 @@ class NamespacedKeyWrapper(private val base: KeyWrapper, private val prefix: Str
     override fun destroy(alias: String) = base.destroy(prefix + alias)
     override fun sharedKey(alias: String) = base.sharedKey(prefix + alias)
     override fun isShared(alias: String) = base.isShared(prefix + alias)
+    override fun fastAlias(alias: String) = base.fastAlias(prefix + alias).removePrefix(prefix)
+    override fun isSlow(alias: String) = base.isSlow(prefix + alias)
     override fun aliases(): List<String> = base.aliases().filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
     fun destroyAll() = base.aliases().filter { it.startsWith(prefix) }.forEach(base::destroy)
 }

@@ -111,9 +111,17 @@ class VaultStore(
         openChat(chatId)
     }
 
-    private fun openChat(chatId: String): ChatStore = open.getOrPut(ZuraPaths.safe(chatId)) {
-        ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }.also { _chatIds.value = _chatIds.value + chatId }
+    private fun openChat(chatId: String): ChatStore {
+        val k = ZuraPaths.safe(chatId)
+        open[k]?.let { return it }
+        val created = ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }
+        // Two threads may open the same chat at once: only the instance that is KEPT is announced
+        // (maintenance on the discarded twin — e.g. a re-key — would break the kept one).
+        return open.putIfAbsent(k, created) ?: created.also { _chatIds.value = _chatIds.value + chatId; onOpened?.invoke(it) }
     }
+
+    /** Told about every chat opened (background maintenance, e.g. moving its key off slow hardware). */
+    var onOpened: ((ChatStore) -> Unit)? = null
 
     fun exists(chatId: String) = File(paths.chatDir(chatId), "log.zl").exists()
 

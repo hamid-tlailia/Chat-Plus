@@ -270,4 +270,24 @@ class StorageEngineTest {
         assertEquals("new", app.zura.core.crypto.SecureFile(files[0], w2, "zavc").readText())
         assertEquals(1, w2.unwraps)
     }
+
+    @Test fun smallFilesMoveOffSlowKey() {
+        // Files written under an old (StrongBox) key are re-written under the fast key when read,
+        // stay readable, and shredding removes both keys.
+        val base = SoftwareKeyWrapper()
+        val f = File(tmp.root, "s.zs")
+        app.zura.core.crypto.SecureFile(f, base, "zsess").writeText("token")
+        var slowUnwraps = 0
+        val w = object : app.zura.core.crypto.KeyWrapper by base {
+            override fun fastAlias(alias: String) = if (alias.endsWith("_t")) alias else alias + "_t"
+            override fun unwrap(alias: String, wrapped: ByteArray): ByteArray { if (!alias.endsWith("_t")) slowUnwraps++; return base.unwrap(alias, wrapped) }
+        }
+        assertEquals("token", app.zura.core.crypto.SecureFile(f, w, "zsess").readText())
+        assertEquals(1, slowUnwraps)
+        assertTrue("zsess_t" in base.aliases())
+        assertEquals("token", app.zura.core.crypto.SecureFile(f, w, "zsess").readText())
+        assertEquals(1, slowUnwraps) // second read: fast key only
+        app.zura.core.crypto.SecureFile(f, w, "zsess").shred()
+        assertTrue(base.aliases().none { it.startsWith("zsess") })
+    }
 }

@@ -151,8 +151,21 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
     // Real frosted glass: the message list is blurred live behind the header and the composer.
     val haze = remember { dev.chrisbanes.haze.HazeState() }
     val showRead by vm.showReadTicks.collectAsStateWithLifecycle()
+    // Tap on a reply's quote → scroll to the original and flash it.
+    var flashId by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    val itemsNow by androidx.compose.runtime.rememberUpdatedState(items)
+    val jumpTo: (String) -> Unit = remember {
+        { id ->
+            val index = itemsNow.indexOfFirst { it.key == id }
+            if (index >= 0) scope.launch {
+                flashId = null
+                list.animateScrollToItem(index, scrollOffset = -200)
+                flashId = id
+            }
+        }
+    }
     androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze, LocalShowReadTicks provides showRead, LocalTranslations provides vm.translations, LocalRetranslate provides vm::translate,
-        LocalSelection provides Selection(vm.selected.toSet(), vm::toggleSelect)) {
+        LocalSelection provides Selection(vm.selected.toSet(), vm::toggleSelect), LocalJumpTo provides jumpTo, LocalFlashId provides flashId) {
     Box(Modifier.fillMaxSize()) {
         // Theme Studio wallpaper, dimmed toward the theme background so messages stay readable.
         app.zura.ui.theme.LocalWallpaper.current?.let { (img, dim) ->

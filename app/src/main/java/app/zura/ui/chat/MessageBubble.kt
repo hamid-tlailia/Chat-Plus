@@ -125,9 +125,14 @@ fun BubbleRow(
     val pop = remember { Animatable(if (item.mine && System.currentTimeMillis() - m.sentAt < 1200) 0.86f else 1f) }
     LaunchedEffect(Unit) { if (pop.value < 1f) pop.animateTo(1f, ZuraMotion.Bouncy) }
 
+    // Jumped to from a reply: a soft accent wash that fades out.
+    val flash = remember { Animatable(0f) }
+    val flashId = LocalFlashId.current
+    LaunchedEffect(flashId) { if (flashId == m.id) { flash.snapTo(0.22f); kotlinx.coroutines.delay(500); flash.animateTo(0f, androidx.compose.animation.core.tween(900)) } }
     Box(
         modifier
             .fillMaxWidth()
+            .background(Zura.colors.accent.copy(alpha = flash.value))
             .padding(top = if (item.groupedWithPrev) 2.dp else 8.dp)
             .pointerInput(rtl) {
                 detectHorizontalDragGestures(
@@ -248,16 +253,40 @@ private fun Bubble(
     }
 }
 
+/**
+ * A sharp thumbnail of a quoted photo: the copy already decoded for its bubble if there is one,
+ * else a small decode of the real photo — the tiny blurred preview only while that loads (it
+ * used to be all the reply box ever showed: no details at all).
+ */
+@Composable
+fun rememberQuoteThumb(q: Message?): androidx.compose.ui.graphics.ImageBitmap? {
+    val ref = q?.media
+    val blurred = remember(ref?.preview) { ref?.preview?.let(Previews::decode)?.asImageBitmap() }
+    if (ref == null || q.kind != MsgKind.IMAGE || ref.isPlaceholder) return blurred
+    val g = LocalContext.current.graph
+    val sharp by androidx.compose.runtime.produceState(g.images.cached(ref, 720) ?: g.images.cached(ref, 240), ref.fileName) {
+        if (value == null) value = g.images.load(q.chatId, ref, 240)
+    }
+    return sharp ?: blurred
+}
+
+/** Tap on a quote → scroll to the original message (set by the chat screen). */
+val LocalJumpTo = androidx.compose.runtime.staticCompositionLocalOf<(String) -> Unit> { {} }
+/** The message just jumped to: flashes briefly so the eye finds it. */
+val LocalFlashId = androidx.compose.runtime.compositionLocalOf<String?> { null }
+
 @Composable
 private fun Quote(q: Message, onFill: Color) {
+    val jump = LocalJumpTo.current
     Row(
-        Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp).clip(RoundedCornerShape(12.dp)).background(onFill.copy(alpha = 0.10f)).padding(8.dp),
+        Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp).clip(RoundedCornerShape(12.dp)).background(onFill.copy(alpha = 0.10f))
+            .clickable { jump(q.id) }.padding(8.dp),
     ) {
-        Box(Modifier.width(3.dp).height(32.dp).clip(CircleShape).background(onFill.copy(alpha = 0.6f)))
+        Box(Modifier.width(3.dp).height(36.dp).clip(CircleShape).background(onFill.copy(alpha = 0.6f)))
         Spacer(Modifier.width(8.dp))
-        val thumb = remember(q.media?.preview) { q.media?.preview?.let(Previews::decode)?.asImageBitmap() }
+        val thumb = rememberQuoteThumb(q)
         if (thumb != null) {
-            Image(thumb, null, Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
+            Image(thumb, null, Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop, filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
             Spacer(Modifier.width(8.dp))
         }
         Text(

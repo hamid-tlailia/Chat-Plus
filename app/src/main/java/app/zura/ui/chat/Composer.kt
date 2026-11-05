@@ -132,14 +132,13 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
                 Icon(if (vm.editing != null) Icons.Default.Edit else ZuraIcons.Reply, null, tint = c.accent, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(10.dp))
                 // Replying to a photo/video: show it, like the quote inside the bubble will.
-                val thumb = androidx.compose.runtime.remember(target?.media?.preview) {
-                    target?.media?.preview?.let(app.zura.media.Previews::decode)?.asImageBitmap()
-                }
+                val thumb = rememberQuoteThumb(target)
                 if (thumb != null) {
                     androidx.compose.foundation.Image(
                         thumb, null,
                         Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                     )
                     Spacer(Modifier.width(10.dp))
                 }

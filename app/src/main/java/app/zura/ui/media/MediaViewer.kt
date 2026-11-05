@@ -61,7 +61,10 @@ import kotlinx.coroutines.launch
 fun MediaViewer(chatId: String, messageId: String, onClose: () -> Unit) {
     val ctx = LocalContext.current
     val g = ctx.graph
-    val msgs by remember(chatId) { g.chats.messages(chatId) }.collectAsStateWithLifecycle(emptyList())
+    // First frame straight from the open chat (it is, we came from it): no empty black frame
+    // while the message flow spins up on a background thread.
+    val initial = remember(chatId) { runCatching { g.vault.chat(chatId).messages.value }.getOrDefault(emptyList()) }
+    val msgs by remember(chatId) { g.chats.messages(chatId) }.collectAsStateWithLifecycle(initial)
     val m = msgs.firstOrNull { it.id == messageId }
     val ref = m?.media
     val scope = rememberCoroutineScope()
