@@ -315,9 +315,11 @@ class StorageEngineTest {
         v2.onRecovered = { recovered = it }
         val again = v2.chat("c3")
         assertEquals("c3", recovered)
-        assertTrue(again.messages.value.isEmpty())
+        // Only the system line saying so; the list preview no longer shows the lost message.
+        assertEquals(listOf(VaultStore.EVENT_HISTORY_RESET), again.messages.value.map { it.text })
+        assertEquals(VaultStore.EVENT_HISTORY_RESET, again.meta.value?.preview)
         assertEquals("Wissem", again.meta.value?.title) // contact & chat kept
         again.upsert(msg("m2", "new").copy(chatId = "c3")) // and it works again
-        assertEquals(1, again.messages.value.size)
+        assertEquals(2, again.messages.value.size)
     }
 }

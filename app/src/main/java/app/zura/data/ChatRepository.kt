@@ -64,6 +64,12 @@ class ChatRepository(
         // a few seconds after it's opened (never on the path of showing it).
         vault.onRecovered = { id -> app.zura.DiagLog.record("storage", detail = "chat ${id.take(8)}: log key missing → history reset on this phone") }
         vault.onOpened = { store ->
+            // Reset by 0.9.16 (history lost) but the list still advertises the old last message:
+            // say so in the chat, and fix the preview.
+            val m = store.meta.value
+            if (m != null && store.messages.value.isEmpty() && (m.preview != null || m.previewKind != MsgKind.TEXT)) {
+                scope.launch(Dispatchers.IO) { runCatching { vault.markHistoryReset(store) } }
+            }
             scope.launch(Dispatchers.IO) {
                 kotlinx.coroutines.delay(4_000)
                 if (!vault.isLocked()) runCatching { store.upgradeKeyIfSlow() }

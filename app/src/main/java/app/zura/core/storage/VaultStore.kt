@@ -127,7 +127,7 @@ class VaultStore(
                 onRecovered?.invoke(chatId)
                 SecureEraser.eraseTree(paths.chatDir(chatId))
                 val fresh = ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }
-                _index.value[chatId]?.let { m -> kotlinx.coroutines.runBlocking { fresh.writeMeta(m.copy(preview = null, unread = 0)) } }
+                _index.value[chatId]?.let { m -> kotlinx.coroutines.runBlocking { fresh.writeMeta(m.copy(unread = 0)); markHistoryReset(fresh) } }
                 open[k] = fresh
                 _chatIds.value = _chatIds.value + chatId
                 return fresh
@@ -143,6 +143,20 @@ class VaultStore(
     private val recoverLock = Any()
     /** Told when an unreadable chat log had to be started afresh. */
     var onRecovered: ((String) -> Unit)? = null
+
+    /**
+     * A local system line "earlier messages couldn't be recovered on this phone" + a matching
+     * list preview (the list used to keep showing the lost last message, e.g. "You: Video").
+     */
+    suspend fun markHistoryReset(store: ChatStore) {
+        val now = System.currentTimeMillis()
+        val line = app.zura.core.model.Message(
+            id = "history-reset-$now", chatId = store.chatId, senderId = "", sentAt = now,
+            kind = app.zura.core.model.MsgKind.EVENT, text = EVENT_HISTORY_RESET, status = app.zura.core.model.MsgStatus.READ,
+        )
+        store.upsert(line)
+        store.meta.value?.let { store.writeMeta(it.copy(preview = EVENT_HISTORY_RESET, previewKind = app.zura.core.model.MsgKind.EVENT, previewMine = false, unread = 0)) }
+    }
 
     /** Chats currently open (decrypted in memory). */
     fun openStores(): Collection<ChatStore> = open.values.toList()
@@ -222,6 +236,8 @@ class VaultStore(
     companion object {
         /** Keystore alias of the chat-list index (protected from the janitor's key sweep). */
         const val INDEX_ALIAS = "zc_index"
+        /** System-line code: this phone lost the chat's earlier history (unreadable log). */
+        const val EVENT_HISTORY_RESET = "history_reset"
         private val B64: Base64.Encoder = Base64.getEncoder()
     }
 }

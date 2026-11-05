@@ -201,10 +201,12 @@ private fun Bubble(
                 .then(if (isVisual) Modifier.width(248.dp) else Modifier.widthIn(max = 300.dp))
                 .clip(shape)
                 .background(fill)
-                .pointerInput(m.id) {
+                .pointerInput(m.id, m.media?.isPlaceholder, m.status) {
                     detectTapGestures(
                         onLongPress = { onLongPress() },
-                        onDoubleTap = { onDoubleTap() },
+                        // A photo / video opens on the FIRST tap: listening for a double-tap made
+                        // every tap wait ~300 ms first (react to media with a long-press instead).
+                        onDoubleTap = if (isVisual && m.media?.isPlaceholder != true) null else { _ -> onDoubleTap() },
                         onTap = {
                             when {
                                 m.status == MsgStatus.FAILED -> onRetry()

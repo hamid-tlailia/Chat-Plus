@@ -365,4 +365,5 @@
     <string name="use_telecom_hint">Headset / car buttons answer Zura calls. Some phones handle it badly — turn off if calls behave oddly.</string>
     <string name="pin_chat">Pin</string>
     <string name="unpin_chat">Unpin</string>
+    <string name="history_reset_note">Earlier messages in this chat couldn\'t be recovered on this phone</string>
 </resources>
