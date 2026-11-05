@@ -28,6 +28,7 @@ class ZuraMessagingService : FirebaseMessagingService() {
     private fun prioName(p: Int) = when (p) { RemoteMessage.PRIORITY_HIGH -> "high"; RemoteMessage.PRIORITY_NORMAL -> "normal"; else -> "unknown" }
 
     override fun onMessageReceived(msg: RemoteMessage) {
+        val received = android.os.SystemClock.elapsedRealtime()
         val data = msg.data
         val kind = data["t"] ?: return
         val from = data["f"] ?: return
@@ -62,11 +63,24 @@ class ZuraMessagingService : FirebaseMessagingService() {
                         }
                         return@runBlocking
                     }
-                    // Message carried in the push (E2EE): store + notify right away, no network.
+                    // Message carried in the push (E2EE): SHOW it first — before opening the chat's
+                    // history (and before downloading anything) — then store it. The stored copy
+                    // reuses the same notification (same message id: never a second alert).
                     data["e"]?.let { sealed ->
                         withTimeoutOrNull(4_000) {
-                            val f = session.transport.openFrom(from, sealed) as? Frame.Msg
-                            if (f != null && f.from == from) runCatching { session.transport.onFrame(from, f) }
+                            val f = runCatching { session.transport.openFrom(from, sealed) }.getOrNull() as? Frame.Msg
+                            if (f != null && f.from == from) {
+                                val chatId = ContactsRepository.dmChatId(session.uid, from)
+                                val name = session.contacts.profile(from)?.displayName
+                                // A late push (FCM held it) may be for a message already seen live:
+                                // then store first — storing only notifies what is really new.
+                                val fresh = System.currentTimeMillis() - f.sentAt < 120_000
+                                if (fresh && f.chatId == chatId && name != null) {
+                                    session.notifier.showFromPush(chatId, name, f)
+                                    app.zura.DiagLog.record("push", detail = "msg shown ${android.os.SystemClock.elapsedRealtime() - received} ms after arrival (${app.zura.core.crypto.KeystoreStats.summary()})")
+                                }
+                                runCatching { session.transport.onFrame(from, f) }
+                            }
                         }
                     }
                     // Then catch up on anything else (also removes it from the server inbox).

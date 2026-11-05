@@ -22,6 +22,16 @@ interface KeyWrapper {
     fun unwrap(alias: String, wrapped: ByteArray): ByteArray
     fun destroy(alias: String)
     fun aliases(): List<String>
+
+    /**
+     * A data key that many small files under [alias] can share: (plain, wrapped). Default: a fresh
+     * key per call (one hardware round-trip each). Hardware wrappers wrap it ONCE per process.
+     * The caller owns the returned plain copy.
+     */
+    fun sharedKey(alias: String): Pair<ByteArray, ByteArray> = Crypto.randomKey().let { it to wrap(alias, it) }
+
+    /** True if [sharedKey] really is shared for [alias] (files written under another key are re-keyed to it). */
+    fun isShared(alias: String): Boolean = false
 }
 
 /**
@@ -77,21 +87,60 @@ class AndroidKeystoreWrapper : KeyWrapper {
             )
         }.generateKey()
 
-    override fun wrap(alias: String, plain: ByteArray): ByteArray {
+    override fun wrap(alias: String, plain: ByteArray): ByteArray = timed {
         val c = Cipher.getInstance(Crypto.GCM)
         c.init(Cipher.ENCRYPT_MODE, kek(alias)) // Keystore picks the IV
-        return c.iv + c.doFinal(plain)
+        c.iv + c.doFinal(plain)
     }
 
     override fun unwrap(alias: String, wrapped: ByteArray): ByteArray {
-        val key = ks.getKey(alias, null) as? SecretKey ?: error("KEK $alias destroyed")
-        val c = Cipher.getInstance(Crypto.GCM)
-        c.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, wrapped, 0, Crypto.NONCE))
-        return c.doFinal(wrapped, Crypto.NONCE, wrapped.size - Crypto.NONCE)
+        if (cacheable(alias)) opened[ck(alias, wrapped)]?.let { return it.copyOf() }
+        val plain = timed {
+            val key = ks.getKey(alias, null) as? SecretKey ?: error("KEK $alias destroyed")
+            val c = Cipher.getInstance(Crypto.GCM)
+            c.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, wrapped, 0, Crypto.NONCE))
+            c.doFinal(wrapped, Crypto.NONCE, wrapped.size - Crypto.NONCE)
+        }
+        if (cacheable(alias)) {
+            opened[ck(alias, wrapped)] = plain.copyOf()
+            shared.putIfAbsent(alias, plain.copyOf() to wrapped.copyOf())
+        }
+        return plain
+    }
+
+    /*
+     * Speed: every Keystore call is a round-trip into secure hardware — on phones with StrongBox
+     * (a separate chip) that is tens to hundreds of ms EACH, and a cold start used to make one
+     * per small file (account, session, identity, chat-list index, contacts, every avatar…) and
+     * one more on every write of the chat-list index (= every message). Now, for the small-file
+     * keys, each wrapped data key is opened once per process and files under the same alias
+     * share one data key, so a cold start costs about one hardware call per alias.
+     * Chat-content keys ("zc_…", unlocked-phone-only) are never cached here — except the
+     * chat-list index, which is written on every message.
+     */
+    private val opened = ConcurrentHashMap<String, ByteArray>()
+    private val shared = ConcurrentHashMap<String, Pair<ByteArray, ByteArray>>()
+    private fun cacheable(alias: String) = !alias.contains("zc_") || alias.endsWith("zc_index")
+    private fun ck(alias: String, wrapped: ByteArray) = alias + "|" + java.util.Base64.getEncoder().encodeToString(wrapped)
+
+    override fun isShared(alias: String) = cacheable(alias)
+
+    override fun sharedKey(alias: String): Pair<ByteArray, ByteArray> {
+        if (!cacheable(alias)) return super.sharedKey(alias)
+        val (k, w) = shared.computeIfAbsent(alias) { val key = Crypto.randomKey(); key to wrap(alias, key) }
+        opened.putIfAbsent(ck(alias, w), k.copyOf())
+        return k.copyOf() to w
     }
 
     override fun destroy(alias: String) {
+        shared.remove(alias)?.first?.fill(0)
+        opened.keys.filter { it.startsWith("$alias|") }.forEach { opened.remove(it)?.fill(0) }
         runCatching { ks.deleteEntry(alias) }
+    }
+
+    private inline fun <T> timed(block: () -> T): T {
+        val t = System.nanoTime()
+        try { return block() } finally { KeystoreStats.add(System.nanoTime() - t) }
     }
 
     override fun aliases(): List<String> = ks.aliases().toList()
@@ -107,8 +156,18 @@ class NamespacedKeyWrapper(private val base: KeyWrapper, private val prefix: Str
     override fun wrap(alias: String, plain: ByteArray) = base.wrap(prefix + alias, plain)
     override fun unwrap(alias: String, wrapped: ByteArray) = base.unwrap(prefix + alias, wrapped)
     override fun destroy(alias: String) = base.destroy(prefix + alias)
+    override fun sharedKey(alias: String) = base.sharedKey(prefix + alias)
+    override fun isShared(alias: String) = base.isShared(prefix + alias)
     override fun aliases(): List<String> = base.aliases().filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
     fun destroyAll() = base.aliases().filter { it.startsWith(prefix) }.forEach(base::destroy)
+}
+
+/** Hardware Keystore calls made by this process and the time they took (start-up diagnostics). */
+object KeystoreStats {
+    private val ops = java.util.concurrent.atomic.AtomicInteger()
+    private val nanos = java.util.concurrent.atomic.AtomicLong()
+    fun add(ns: Long) { ops.incrementAndGet(); nanos.addAndGet(ns) }
+    fun summary() = "keystore ${ops.get()} calls, ${nanos.get() / 1_000_000} ms"
 }
 
 /** In-memory KEKs for JVM unit tests. */

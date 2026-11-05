@@ -281,7 +281,7 @@ class CallManager(
         CallService.start(context, _ui.value)
         stage("incoming via push → ringing (${if (p == null) "name pending" else "known contact"})")
         prefetchIce()
-        if (app.zura.push.Push.appVisible) audio.startRingtone(inv.from) // in background the notification itself rings
+        audio.startRingtone(inv.from) // also in the background (the call notification is silent)
         transport.start()
         // Don't wait for the socket: pull the caller's durable offer over HTTPS now.
         scope.launch { runCatching { transport.syncInbox() }.onSuccess { stage("inbox pulled for offer (offer ${if (pendingOffer != null) "ready" else "not yet"})") } }

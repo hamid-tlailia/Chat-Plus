@@ -4,7 +4,8 @@
 // recipient (opaque to Google and to us) so a sleeping phone can show it at once; otherwise it is a
 // bare wake-up and the phone pulls its E2EE inbox. "call" carries only an E2EE sealed call invite.
 //
-// Abuse protection: caller must be signed in (verify_jwt) and an accepted, non-blocked contact
+// Abuse protection: caller must be signed in (verify_jwt — keep it ON: the id is read from the
+// gateway-verified token) and an accepted, non-blocked contact
 // of the recipient — the same rule the database enforces for messages.
 //
 // Secret (Supabase → Edge Functions → Secrets):
@@ -64,34 +65,50 @@ async function accessToken(): Promise<string> {
   return cached.token;
 }
 
+/** Signed-in user id from a token the gateway already verified (verify_jwt). Anon keys have no user. */
+function callerId(header: string): string | null {
+  try {
+    const part = header.replace(/^Bearer\s+/i, "").split(".")[1] ?? "";
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=");
+    const p = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))));
+    return p.role === "authenticated" && typeof p.sub === "string" && /^[0-9a-f-]{36}$/i.test(p.sub) ? p.sub : null;
+  } catch { return null; }
+}
+
 // ───────────────────────── handler
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "method" }, 405);
-  const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-  const { data: auth } = await admin.auth.getUser(jwt);
-  const me = auth?.user?.id;
+  // verify_jwt is ON: the gateway has already checked this token's signature and expiry, so read
+  // the caller's id from it directly (saves a round-trip to the auth server on every push).
+  const me = callerId(req.headers.get("Authorization") ?? "");
   if (!me) return json({ error: "unauthorized" }, 401);
+  // Start the Google token (cached; only a cold instance pays for it) while the database answers.
+  const bearerP = sa ? accessToken() : null;
+  bearerP?.catch(() => {});
 
   let body: { to?: string; kind?: string; data?: Record<string, string>; priority?: string };
   try { body = await req.json(); } catch { return json({ error: "bad json" }, 400); }
   const { to, kind } = body;
   const data = body.data ?? {};
-  if (!to || !kind || !KINDS.has(kind) || to === me) return json({ error: "bad request" }, 400);
+  if (!to || !/^[0-9a-f-]{36}$/i.test(to) || !kind || !KINDS.has(kind) || to === me) return json({ error: "bad request" }, 400);
   if (Object.values(data).some((v) => typeof v !== "string") || JSON.stringify(data).length > 3000) {
     return json({ error: "payload too large" }, 413);
   }
 
-  // Must be mutual, non-blocked contacts.
-  const { data: rows, error } = await admin.from("contacts").select("owner_id,peer_id,blocked")
-    .or(`and(owner_id.eq.${me},peer_id.eq.${to}),and(owner_id.eq.${to},peer_id.eq.${me})`);
+  // Must be mutual, non-blocked contacts. Both lookups run at once (one round-trip, not two);
+  // nothing is sent unless the contact check passes.
+  const [{ data: rows, error }, { data: tokens }] = await Promise.all([
+    admin.from("contacts").select("owner_id,peer_id,blocked")
+      .or(`and(owner_id.eq.${me},peer_id.eq.${to}),and(owner_id.eq.${to},peer_id.eq.${me})`),
+    admin.from("device_tokens").select("token").eq("user_id", to),
+  ]);
   if (error) return json({ error: "db" }, 500);
   if (!rows || rows.length !== 2 || rows.some((r) => r.blocked)) return json({ error: "forbidden" }, 403);
 
-  if (!sa) return json({ sent: 0, configured: false });
-  const { data: tokens } = await admin.from("device_tokens").select("token").eq("user_id", to);
+  if (!sa || !bearerP) return json({ sent: 0, configured: false });
   if (!tokens?.length) return json({ sent: 0, configured: true });
 
-  const bearer = await accessToken();
+  const bearer = await bearerP;
   const isCall = kind !== "msg";
   let sent = 0;
   await Promise.all(tokens.map(async ({ token }) => {

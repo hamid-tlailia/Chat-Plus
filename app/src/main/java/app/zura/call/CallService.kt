@@ -30,7 +30,7 @@ class CallService : Service() {
     /** Foreground-service types currently granted (null = not in the foreground yet). */
     private var runningType: Int? = null
 
-    override fun onDestroy() { runningType = null; super.onDestroy() }
+    override fun onDestroy() { runningType = null; Ringer.stop(); super.onDestroy() }
 
     /** The signed-in account, read straight from the auth state (no derived flow that may lag). */
     private fun activeSession() = (graph.accounts.state.value as? app.zura.account.AuthState.SignedIn)?.session
@@ -38,9 +38,10 @@ class CallService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val session = activeSession()
         when (intent?.action) {
-            ACTION_PRE_RING -> if (session?.calls?.ui?.value?.inCall != true) { preRing(intent.getStringExtra(EXTRA_NAME)); return START_NOT_STICKY }
+            ACTION_PRE_RING -> if (session?.calls?.ui?.value?.inCall != true) { preRing(intent.getStringExtra(EXTRA_NAME), intent.getStringExtra(EXTRA_FROM)); return START_NOT_STICKY }
             ACTION_CANCEL_PRE -> if (session?.calls?.ui?.value?.inCall != true) {
                 preRingUntil = 0
+                Ringer.stop()
                 runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
                 getSystemService(NotificationManager::class.java).cancel(ID)
                 stopSelf()
@@ -82,10 +83,13 @@ class CallService : Service() {
         if (ui == null || !ui.inCall) {
             // No call any more (ended, or the process was restarted and lost it): never leave a
             // dead ringing notification behind.
+            Ringer.stop()
             getSystemService(NotificationManager::class.java).cancel(ID)
             stopSelf()
             return START_NOT_STICKY
         }
+        // Ring while it's ringing — in the foreground AND the background (the notification is silent).
+        if (ui.phase == CallPhase.INCOMING) Ringer.start(this, ui.peerId) else Ringer.stop()
         val n = build(this, ui)
         val type = if (Build.VERSION.SDK_INT >= 30) {
             // Ringing: "phone call" type — allowed to start from the background (a push), unlike the
@@ -128,17 +132,24 @@ class CallService : Service() {
      * only shortly after the push — opening the account and decrypting the invite come after.
      * Replaced by the real call notification within a second; gone after 20 s if no call shows up.
      */
-    private fun preRing(name: String?) {
+    private fun preRing(name: String?, from: String?) {
         preRingUntil = System.currentTimeMillis() + 20_000
-        val n = build(this, CallUi(phase = CallPhase.INCOMING, peerName = name ?: "Zura"))
+        val ui = CallUi(phase = CallPhase.INCOMING, peerName = name ?: "Zura", peerId = from)
         runCatching {
+            val n = build(this, ui)
             if (Build.VERSION.SDK_INT >= 29) startForeground(ID, n, if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL else 0)
             else startForeground(ID, n)
             runningType = if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL else 0
-        }.onFailure { app.zura.DiagLog.record("pre-ring", it) }
+            Ringer.start(this, from)
+        }.onFailure {
+            // Not allowed to run in the foreground: a plain notification that rings by itself.
+            app.zura.DiagLog.record("pre-ring", it)
+            runCatching { getSystemService(NotificationManager::class.java).notify(ID, build(this, ui, channelRings = true)) }
+        }
         android.os.Handler(mainLooper).postDelayed({
             if (activeSession()?.calls?.ui?.value?.inCall != true) {
                 preRingUntil = 0
+                Ringer.stop()
                 runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
                 getSystemService(NotificationManager::class.java).cancel(ID)
                 stopSelf()
@@ -151,6 +162,7 @@ class CallService : Service() {
         const val ACTION_PRE_RING = "zura.call.PRE_RING"
         const val EXTRA_CALL_ID = "zura.call_id"
         const val EXTRA_NAME = "zura.caller_name"
+        const val EXTRA_FROM = "zura.caller_id"
         const val ACTION_CANCEL_PRE = "zura.call.CANCEL_PRE"
 
         /** The pushed call turned out invalid (blocked, expired, undecryptable): stop the provisional ring. */
@@ -168,7 +180,7 @@ class CallService : Service() {
 
         fun preRing(context: Context, from: String? = null) {
             val name = from?.let { context.getSharedPreferences("zura_callers", Context.MODE_PRIVATE).getString(it, null) }
-            runCatching { ContextCompat.startForegroundService(context, Intent(context, CallService::class.java).setAction(ACTION_PRE_RING).putExtra(EXTRA_NAME, name)) }
+            runCatching { ContextCompat.startForegroundService(context, Intent(context, CallService::class.java).setAction(ACTION_PRE_RING).putExtra(EXTRA_NAME, name).putExtra(EXTRA_FROM, from)) }
                 .onFailure { app.zura.DiagLog.record("pre-ring start", it) }
         }
         /** Set once the service runs with the mediaProjection type (required before screen capture). */
@@ -183,8 +195,10 @@ class CallService : Service() {
         fun start(context: Context, ui: CallUi) {
             runCatching { ContextCompat.startForegroundService(context, Intent(context, CallService::class.java)) }
                 .onFailure {
-                    // Background-start restrictions: still ring/show the call via a plain notification.
-                    runCatching { context.getSystemService(NotificationManager::class.java).notify(ID, build(context, ui)) }
+                    // Background-start restrictions: still ring/show the call via a plain notification
+                    // (no service to play the ringtone → the notification channel rings).
+                    app.zura.DiagLog.record("call fgs start", it)
+                    runCatching { context.getSystemService(NotificationManager::class.java).notify(ID, build(context, ui, channelRings = ui.phase == CallPhase.INCOMING)) }
                 }
         }
 
@@ -194,11 +208,13 @@ class CallService : Service() {
         }
 
         fun stop(context: Context) {
+            Ringer.stop()
             context.stopService(Intent(context, CallService::class.java))
             context.getSystemService(NotificationManager::class.java).cancel(ID)
         }
 
-        fun build(c: Context, ui: CallUi): Notification {
+        /** [channelRings]: only when no service runs to play the ringtone ([Ringer]) — the notification rings itself. */
+        fun build(c: Context, ui: CallUi, channelRings: Boolean = false): Notification {
             ensureChannels(c)
             val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
             val person = Person.Builder().setName(ui.peerName.ifBlank { "Zura" }).setImportant(true).build()
@@ -220,8 +236,9 @@ class CallService : Service() {
             val incoming = ui.phase == CallPhase.INCOMING
             val style = if (incoming) NotificationCompat.CallStyle.forIncomingCall(person, action(ACTION_DECLINE), answer)
             else NotificationCompat.CallStyle.forOngoingCall(person, action(ACTION_HANGUP))
-            // App in background (woken by push): the notification itself rings, looping until answered.
-            val ringing = incoming && !app.zura.push.Push.appVisible
+            // Normally silent: [Ringer] rings (foreground and background alike). Only without a
+            // running service does the notification ring by itself, looping until answered.
+            val ringing = incoming && channelRings
             val ringCh = if (ringing) runCatching { (c.applicationContext as app.zura.ZuraApp).graph.sounds.ringChannel(c, ui.peerId, CH_RING) }.getOrDefault(CH_RING) else CH_RING
             return NotificationCompat.Builder(c, if (ringing) ringCh else if (incoming) CH_INCOMING else CH_ONGOING)
                 .setSmallIcon(R.drawable.ic_stat_zura)

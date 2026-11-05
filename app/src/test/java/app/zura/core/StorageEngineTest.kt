@@ -221,4 +221,53 @@ class StorageEngineTest {
         assertTrue(w.aliases().none { it.startsWith("zc_c1_") })
         assertEquals(setOf("c2"), v.chatIds.value)
     }
+
+    /** Counts hardware calls; shares one data key per alias the way the Keystore wrapper does. */
+    private class SharingWrapper : app.zura.core.crypto.KeyWrapper {
+        val base = SoftwareKeyWrapper()
+        var unwraps = 0
+        private val shared = HashMap<String, Pair<ByteArray, ByteArray>>()
+        private val opened = HashMap<String, ByteArray>()
+        override fun wrap(alias: String, plain: ByteArray) = base.wrap(alias, plain)
+        override fun unwrap(alias: String, wrapped: ByteArray): ByteArray {
+            val k = alias + wrapped.contentHashCode()
+            opened[k]?.let { return it.copyOf() }
+            unwraps++
+            return base.unwrap(alias, wrapped).also { opened[k] = it.copyOf(); shared.putIfAbsent(alias, it.copyOf() to wrapped) }
+        }
+        override fun sharedKey(alias: String): Pair<ByteArray, ByteArray> {
+            val (k, w) = shared.getOrPut(alias) { val key = app.zura.core.crypto.Crypto.randomKey(); key to wrap(alias, key) }
+            opened[alias + w.contentHashCode()] = k.copyOf()
+            return k.copyOf() to w
+        }
+        override fun isShared(alias: String) = true
+        override fun destroy(alias: String) { shared.remove(alias); base.destroy(alias) }
+        override fun aliases() = base.aliases()
+    }
+
+    @Test fun smallFilesShareOneDataKeyPerAlias() {
+        // Files written with their own key each (older versions) are re-keyed on first read, so the
+        // next start needs ONE hardware call for all of them (e.g. every cached avatar).
+        val old = SoftwareKeyWrapper()
+        val files = (1..5).map { File(tmp.root, "av$it.zs") }
+        files.forEachIndexed { i, f -> app.zura.core.crypto.SecureFile(f, old, "zavc").writeText("avatar $i") }
+        val w = SharingWrapper()
+        // Same hardware key (KEK) as before: copy it over.
+        w.base.wrap("zavc", ByteArray(1)) // create alias
+        val kekField = SoftwareKeyWrapper::class.java.getDeclaredField("keks").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST") (kekField.get(w.base) as MutableMap<String, ByteArray>)["zavc"] =
+            (kekField.get(old) as Map<String, ByteArray>)["zavc"]!!
+        files.forEachIndexed { i, f -> assertEquals("avatar $i", app.zura.core.crypto.SecureFile(f, w, "zavc").readText()) }
+        assertEquals(5, w.unwraps)
+        // "Next start": a fresh process cache, same disk.
+        val w2 = SharingWrapper()
+        @Suppress("UNCHECKED_CAST") (kekField.get(w2.base) as MutableMap<String, ByteArray>)["zavc"] =
+            (kekField.get(old) as Map<String, ByteArray>)["zavc"]!!
+        files.forEachIndexed { i, f -> assertEquals("avatar $i", app.zura.core.crypto.SecureFile(f, w2, "zavc").readText()) }
+        assertEquals(1, w2.unwraps)
+        // Writes after that cost no hardware call and stay readable.
+        app.zura.core.crypto.SecureFile(files[0], w2, "zavc").writeText("new")
+        assertEquals("new", app.zura.core.crypto.SecureFile(files[0], w2, "zavc").readText())
+        assertEquals(1, w2.unwraps)
+    }
 }

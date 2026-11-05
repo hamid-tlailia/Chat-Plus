@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import app.zura.R
 import app.zura.DiagLog
+import app.zura.core.crypto.KeystoreStats
 import app.zura.net.Backend
 import io.github.jan.supabase.auth.SignOutScope
 import io.github.jan.supabase.auth.auth
@@ -113,6 +114,9 @@ class AccountManager(
                 // importSession and keeps retrying on a slow network — the app sat on a blank screen.
                 withTimeoutOrNull(3_000) { backend.client.auth.importSession(saved, autoRefresh = false) }
                 activate(uid, acct.email, true, backend.client.auth.currentSessionOrNull() ?: saved)
+                val since = android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime()
+                val chats = (state.value as? AuthState.SignedIn)?.session?.vault?.metaIndex?.value?.size
+                DiagLog.record("startup", detail = "account open $since ms after process start, $chats chats in index (${KeystoreStats.summary()})")
                 // Refresh + keep refreshing in the background.
                 scope.launch {
                     withTimeoutOrNull(20_000) { runCatching { backend.ensureFresh() } }

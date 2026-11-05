@@ -358,6 +358,14 @@ class ChatRepository(
             }
         }
         val frame = Frame.Msg(wire.id, wire.chatId, me, peersOf(wire.chatId), wire.sentAt, wire.kind, wire.text, wire.media, wire.replyTo, wire.link, wire.ttlMs, wire.moment)
+        // A short text travels INSIDE the push, sealed end-to-end for that peer (FCM/Google see only
+        // ciphertext): it doesn't depend on the inbox, so it goes out NOW, in parallel with it.
+        val sealedFor = if (frame.kind == MsgKind.TEXT && frame.link == null)
+            peersOf(wire.chatId).associateWith { p -> runCatching { transport.sealFor(p, frame) }.getOrNull()?.takeIf { it.length <= 2_600 } }
+        else emptyMap()
+        sealedFor.forEach { (peer, sealed) ->
+            if (sealed != null) { val online = isOnline(peer); scope.launch { backend.push(peer, "msg", mapOf("e" to sealed), normalPriority = online) } }
+        }
         val ok = peersOf(wire.chatId).all { transport.send(it, frame) }
         // Never leave a message on the clock forever: sent → ✓, otherwise → "failed, tap to retry"
         // (also retried automatically on the next reconnect).
@@ -370,12 +378,9 @@ class ChatRepository(
         // Always a wake-up push ("online" can be stale: an app swiped away may not get its "offline"
         // out). Peers who look online get NORMAL priority — prompt on an awake phone and not held
         // against us if they already had it live; everyone else HIGH (bypasses Doze).
-        if (ok) peersOf(wire.chatId).forEach { peer ->
+        if (ok) peersOf(wire.chatId).filter { sealedFor[it] == null }.forEach { peer ->
             val online = isOnline(peer)
-            scope.launch {
-                val sealed = if (frame.kind == MsgKind.TEXT && frame.link == null) transport.sealFor(peer, frame)?.takeIf { it.length <= 2_600 } else null
-                backend.push(peer, "msg", if (sealed != null) mapOf("e" to sealed) else emptyMap(), normalPriority = online)
-            }
+            scope.launch { backend.push(peer, "msg", emptyMap(), normalPriority = online) }
         }
     }
 

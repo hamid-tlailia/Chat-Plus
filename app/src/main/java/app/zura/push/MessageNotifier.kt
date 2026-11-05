@@ -61,12 +61,14 @@ class MessageNotifier(private val context: Context) {
     }
 
     private fun post(chatId: String, title: String, senderId: String, msgId: String, shown: String, sentAt: Long, lockedChat: Boolean) {
-        if (Push.appVisible && Push.openChatId == chatId) return
+        // Remembered even when not shown (chat open on screen): a late push for a message already
+        // read live must not pop up afterwards.
         val duplicate = synchronized(notified) {
             val d = !notified.add(msgId)
             while (notified.size > 500) notified.remove(notified.first())
             d
         }
+        if (Push.appVisible && Push.openChatId == chatId) return
         if (duplicate) return // already on screen (from the push) — don't add it or ring again
         ensureChannel()
         val sender = Person.Builder().setName(title).setKey(senderId).build()

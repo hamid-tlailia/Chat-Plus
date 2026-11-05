@@ -18,7 +18,6 @@ import android.os.VibratorManager
 class CallAudio(private val context: Context) {
     private val am = context.getSystemService(AudioManager::class.java)
     private var focus: AudioFocusRequest? = null
-    private var ringtone: Ringtone? = null
     private var ringback: android.media.AudioTrack? = null
     private var proximity: PowerManager.WakeLock? = null
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= 31)
@@ -59,21 +58,11 @@ class CallAudio(private val context: Context) {
         proximity(false)
     }
 
+    /** Incoming-call ring: shared with the provisional ring of a push (see [Ringer]). */
     fun startRingtone(peerId: String? = null) {
-        if (ringtone?.isPlaying == true) return // never stack a second ringtone
+        if (Ringer.isRinging) return
         stopTones()
-        val sounds = runCatching { (context.applicationContext as app.zura.ZuraApp).graph.sounds }.getOrNull()
-        val uri = sounds?.soundUri(sounds.effectiveRingtone(peerId), RingtoneManager.TYPE_RINGTONE) ?: if (sounds == null) RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE) else null
-        val vibe = sounds?.effectiveRingVibe(peerId)
-        if (am.ringerMode == AudioManager.RINGER_MODE_NORMAL && uri != null) {
-            ringtone = RingtoneManager.getRingtone(context, uri)?.apply {
-                if (Build.VERSION.SDK_INT >= 28) isLooping = true
-                play()
-            }
-        }
-        if (am.ringerMode != AudioManager.RINGER_MODE_SILENT && Build.VERSION.SDK_INT >= 26) {
-            if (vibe != app.zura.data.Vibe.NONE) vibrator?.vibrate(VibrationEffect.createWaveform(vibe?.pattern?.takeIf { it.size > 1 } ?: longArrayOf(0, 700, 900), 0))
-        }
+        Ringer.start(context, peerId)
     }
 
     /**
@@ -116,7 +105,7 @@ class CallAudio(private val context: Context) {
     }
 
     fun stopTones() {
-        ringtone?.stop(); ringtone = null
+        Ringer.stop()
         ringback?.run { runCatching { stop() }; release() }; ringback = null
         vibrator?.cancel()
     }
