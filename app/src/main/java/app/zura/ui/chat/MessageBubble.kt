@@ -252,8 +252,15 @@ private fun Bubble(
             Footer(m, item.mine, onFill, fmt, Modifier.align(Alignment.End).padding(start = 14.dp, end = 10.dp, bottom = 6.dp, top = 2.dp))
         }
         if (m.reactions.isNotEmpty()) Reactions(m, fmt)
+        if (item.seen && LocalShowReadTicks.current) LocalPeerFace.current?.let { p ->
+            Box(Modifier.padding(top = 3.dp, end = 4.dp)) { app.zura.ui.components.UserAvatar(p.name, p.hue, p.path, 16.dp) }
+        }
     }
 }
+
+/** The contact of a 1:1 chat: their photo marks "seen" under my last message. */
+data class PeerFace(val name: String, val hue: Float, val path: String?)
+val LocalPeerFace = androidx.compose.runtime.staticCompositionLocalOf<PeerFace?> { null }
 
 /**
  * A sharp thumbnail of a quoted photo: the copy already decoded for its bubble if there is one,
@@ -651,16 +658,48 @@ private fun EventRow(m: Message, mine: Boolean, fmt: ZuraFormat, modifier: Modif
     val c = Zura.colors
     val ctx = LocalContext.current
     val label = eventText(ctx, m.text, mine)
-    Box(modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+    Column(modifier.fillMaxWidth().padding(vertical = 6.dp, horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
-            Modifier.clip(CircleShape).background(c.surface.copy(alpha = 0.8f)).padding(horizontal = 14.dp, vertical = 7.dp),
+            Modifier.clip(RoundedCornerShape(18.dp)).background(c.surface.copy(alpha = 0.8f)).padding(horizontal = 14.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("${eventIcon(m.text)}  $label", style = Zura.type.label, color = c.textMuted)
+            Text("${eventIcon(m.text)}  $label", style = Zura.type.label, color = c.textMuted, modifier = Modifier.weight(1f, fill = false))
             Spacer(Modifier.width(8.dp))
             Text(fmt.time(m.sentAt), style = Zura.type.caption, color = c.textMuted)
         }
+        // History lost on this phone: ask the contact for their copy, right here.
+        if (m.text == app.zura.core.storage.VaultStore.EVENT_HISTORY_RESET) HistoryRestoreAction(m.chatId)
     }
+}
+
+/** "Ask Hiba to send it" → waiting → restoring → (the line turns into "restored"). */
+@Composable
+private fun HistoryRestoreAction(chatId: String) {
+    val g = LocalContext.current.graph
+    val c = Zura.colors
+    val scope = rememberCoroutineScope()
+    val meta by remember(chatId) { g.chats.meta(chatId) }.collectAsStateWithLifecycle(null)
+    if (meta?.peerIds?.singleOrNull() == null) return // notes: nobody has a copy
+    val name = meta?.title.orEmpty()
+    val states by g.s.history.state.collectAsStateWithLifecycle()
+    val st = states[chatId]
+    val label = when (st) {
+        app.zura.data.HistoryRestore.State.REQUESTED -> stringResource(R.string.history_restore_waiting, name)
+        app.zura.data.HistoryRestore.State.RECEIVING -> stringResource(R.string.history_restore_receiving)
+        app.zura.data.HistoryRestore.State.DECLINED -> stringResource(R.string.history_restore_declined, name)
+        app.zura.data.HistoryRestore.State.FAILED -> stringResource(R.string.history_restore_failed)
+        else -> null
+    }
+    if (label != null && st != app.zura.data.HistoryRestore.State.FAILED && st != app.zura.data.HistoryRestore.State.DECLINED) {
+        Text(label, style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(top = 8.dp))
+        return
+    }
+    label?.let { Text(it, style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(top = 8.dp)) }
+    Box(
+        Modifier.padding(top = 8.dp).clip(CircleShape).background(c.accent)
+            .clickable { scope.launch { g.s.history.request(chatId) } }
+            .padding(horizontal = 16.dp, vertical = 9.dp),
+    ) { Text(stringResource(R.string.history_restore_ask, name), style = Zura.type.label, color = c.onAccent) }
 }
 
 @Composable

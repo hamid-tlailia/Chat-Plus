@@ -366,4 +366,20 @@
     <string name="pin_chat">Pin</string>
     <string name="unpin_chat">Unpin</string>
     <string name="history_reset_note">Earlier messages in this chat couldn\'t be recovered on this phone</string>
+    <string name="history_restore_ask">Ask %1$s to send it</string>
+    <string name="history_restore_waiting">Waiting for %1$s to approve…</string>
+    <string name="history_restore_receiving">Restoring the chat history…</string>
+    <string name="history_restore_declined">%1$s declined</string>
+    <string name="history_restore_failed">Couldn\'t send the request — check your connection</string>
+    <string name="history_restored_note">Chat history restored from your contact\'s copy</string>
+    <string name="history_request_title">Send your chat history?</string>
+    <string name="history_request_body">%1$s lost this chat\'s history on their phone and asks for your copy. It\'s sent end-to-end encrypted, with recent photos and files.</string>
+    <string name="history_send">Send</string>
+    <string name="history_decline">Decline</string>
+    <string name="history_request_notif">%1$s asks for your copy of your chat</string>
+    <string name="history_sent_toast">Chat history sent to %1$s</string>
+    <string name="media_not_restored">Media not restored</string>
+    <string name="profile_restore_history">Restore chat history</string>
+    <string name="profile_restore_hint">Ask %1$s to send their copy of this chat</string>
+    <string name="history_requested_toast">Request sent to %1$s</string>
 </resources>

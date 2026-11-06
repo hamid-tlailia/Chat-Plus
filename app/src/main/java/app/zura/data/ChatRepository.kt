@@ -243,6 +243,9 @@ class ChatRepository(
     suspend fun onUnlocked() = unlockLock.withLock {
         if (vault.isLocked()) return@withLock
         ensureIndex()
+        // Chats whose last message is mine, from before the list knew its ticks: fill them in once.
+        chats.value.filter { it.previewMine && it.previewStatus == null && it.peerIds.isNotEmpty() }
+            .forEach { runCatching { syncPreviewStatus(vault.chat(it.id)) } }
         if (transport.online.value) runCatching { resendPending() } // messages queued while locked
         vault.deferredWork().forEach { d ->
             runCatching {
@@ -348,15 +351,15 @@ class ChatRepository(
             store.upsert(msg)
             touchMeta(store, msg, unreadDelta = 0)
             if (kind != MsgKind.CALL && kind != MsgKind.EVENT) setTyping(chatId, false)
-            // A link: the bubble is already shown; build its card (≤ 6 s) and send it with the text.
-            var out = msg
-            if (kind == MsgKind.TEXT && text != null && app.zura.net.LinkPreviews.find(text).isNotEmpty()) {
-                app.zura.net.LinkPreviews.fetch(text)?.let { lp ->
-                    out = (store.get(msg.id) ?: msg).copy(link = lp)
-                    store.upsert(out)
-                }
+            // Sent NOW — a link's card (fetched in up to 6 s) used to hold the whole message back.
+            if (peers.isNotEmpty()) transmit(store, msg)
+            if (kind == MsgKind.TEXT && text != null && app.zura.net.LinkPreviews.find(text).isNotEmpty()) scope.launch(Dispatchers.IO) {
+                val lp = app.zura.net.LinkPreviews.fetch(text) ?: return@launch
+                val cur = store.update(msg.id) { it.copy(link = lp) } ?: return@launch
+                // The card follows as the same message id: the other phone adds it to the bubble.
+                val f = Frame.Msg(cur.id, chatId, me, peers, cur.sentAt, cur.kind, cur.text, null, cur.replyTo, lp, cur.ttlMs, cur.moment)
+                peers.forEach { p -> transport.sendWithRetry(p, f) }
             }
-            if (peers.isNotEmpty()) transmit(store, out)
         }
 
     private fun transmit(store: ChatStore, msg: Message) = scope.launch(Dispatchers.IO) {
@@ -366,6 +369,7 @@ class ChatRepository(
             if (e is kotlinx.coroutines.CancellationException) throw e
             app.zura.DiagLog.record("transmit", e)
             store.get(msg.id)?.takeIf { it.status == MsgStatus.PENDING }?.let { store.upsert(it.copy(status = notSent())) }
+            runCatching { syncPreviewStatus(store) }
         }
     }
 
@@ -390,11 +394,14 @@ class ChatRepository(
         sealedFor.forEach { (peer, sealed) ->
             if (sealed != null) { val online = isOnline(peer); scope.launch { backend.push(peer, "msg", mapOf("e" to sealed), normalPriority = online) } }
         }
+        // Contact has Zura open: the live channel too (≈ instant), next to the durable inbox copy
+        // (whichever arrives first is stored; the other is recognised by its id).
+        peersOf(wire.chatId).filter { isOnline(it) }.forEach { p -> scope.launch { transport.signal(p, frame) } }
         val ok = peersOf(wire.chatId).all { transport.send(it, frame) }
         // Never leave a message on the clock forever: sent → ✓, otherwise → "failed, tap to retry"
         // (also retried automatically on the next reconnect).
-        store.get(wire.id)?.takeIf { it.status == MsgStatus.PENDING || it.status == MsgStatus.FAILED }
-            ?.let { store.upsert(it.copy(status = if (ok) MsgStatus.SENT else notSent())) }
+        store.update(wire.id) { if (it.status == MsgStatus.PENDING || it.status == MsgStatus.FAILED) it.copy(status = if (ok) MsgStatus.SENT else notSent()) else it }
+        syncPreviewStatus(store)
         // Always wake the peer's phone with a push. A short text travels INSIDE the push, sealed
         // end-to-end for that peer (FCM/Google see only ciphertext): their phone decrypts and
         // shows it at once, without first reconnecting and downloading the inbox. Bigger
@@ -471,7 +478,7 @@ class ChatRepository(
         if (unread.isNotEmpty()) {
             store.upsertAll(unread.map { it.copy(status = MsgStatus.READ) })
             unread.groupBy { it.senderId }.filterKeys { privacy?.receiptsTo(it) != false }.forEach { (sender, ms) ->
-                scope.launch { transport.sendWithRetry(sender, Frame.Receipt(chatId, me, ms.map { it.id }, MsgStatus.READ)) }
+                receipt(sender, Frame.Receipt(chatId, me, ms.map { it.id }, MsgStatus.READ))
             }
         }
         store.meta.value?.takeIf { it.unread > 0 }?.let { store.writeMeta(it.copy(unread = 0)) }
@@ -491,7 +498,15 @@ class ChatRepository(
                 if (f.from != from || f.chatId == MomentsRepository.STORE) return@withContext
                 if (!vault.exists(f.chatId)) return@withContext // only conversations with accepted contacts exist
                 val store = vault.chat(f.chatId)
-                if (from !in peersOf(f.chatId) || store.get(f.id) != null) return@withContext
+                if (from !in peersOf(f.chatId)) return@withContext
+                store.get(f.id)?.let { old ->
+                    // Same message again: the link card that followed it, or the second copy (live + inbox).
+                    if (f.link != null && old.link == null && old.senderId == from) store.update(f.id) { it.copy(link = f.link) }
+                    return@withContext
+                }
+                // The live copy and the inbox copy can arrive at the same moment: handle one.
+                if (!inFlight.add(f.id)) return@withContext
+                try {
                 val media = f.media?.let { ref ->
                     val blob = ref.remoteBlobId ?: return@let null
                     runCatching { backend.download("blobs", blob) { vault.adoptCiphertext(f.chatId, ref, it) } }.getOrNull()
@@ -505,7 +520,8 @@ class ChatRepository(
                 touchMeta(store, msg, unreadDelta = 1)
                 store.meta.value?.let { onIncoming(it, msg) }
                 typingMap.update { m -> m + (f.chatId to (m[f.chatId].orEmpty() - from)) }
-                scope.launch { transport.sendWithRetry(from, Frame.Receipt(f.chatId, me, listOf(f.id), MsgStatus.DELIVERED)) }
+                receipt(from, Frame.Receipt(f.chatId, me, listOf(f.id), MsgStatus.DELIVERED))
+                } finally { inFlight.remove(f.id) }
             }
             is Frame.Receipt -> {
                 if (f.from != from || !vault.exists(f.chatId)) return@withContext
@@ -514,6 +530,7 @@ class ChatRepository(
                     .filter { it.senderId == me && it.status.ordinal < f.status.ordinal }
                     .map { it.copy(status = f.status) }
                 store.upsertAll(updates)
+                syncPreviewStatus(store)
                 // Delivered → the peer has its own copy; remove our ciphertext from the server.
                 if (f.status >= MsgStatus.DELIVERED) updates.mapNotNull { it.media?.remoteBlobId }.forEach { backend.delete("blobs", it) }
             }
@@ -556,13 +573,30 @@ class ChatRepository(
 
     private suspend fun touchMeta(store: ChatStore, m: Message, unreadDelta: Int) {
         val meta = store.meta.value ?: return
-        store.writeMeta(meta.copy(updatedAt = m.sentAt, preview = m.text, previewKind = m.kind, previewMine = m.senderId == me, unread = meta.unread + unreadDelta))
+        store.writeMeta(meta.copy(updatedAt = m.sentAt, preview = m.text, previewKind = m.kind, previewMine = m.senderId == me,
+            previewStatus = m.status.takeIf { m.senderId == me }, unread = meta.unread + unreadDelta))
     }
 
-    private suspend fun refreshPreview(chatId: String) {
+    internal suspend fun refreshPreview(chatId: String) {
         val store = vault.chat(chatId)
         val last = store.messages.value.lastOrNull()
-        store.meta.value?.let { store.writeMeta(it.copy(preview = last?.text, previewKind = last?.kind ?: MsgKind.TEXT, previewMine = last?.senderId == me)) }
+        store.meta.value?.let { store.writeMeta(it.copy(preview = last?.text, previewKind = last?.kind ?: MsgKind.TEXT, previewMine = last?.senderId == me, previewStatus = last?.takeIf { l -> l.senderId == me }?.status)) }
+    }
+
+    private val inFlight: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** Ticks: live (instant ✓✓ / seen while they're in the app) + durable copy for when they aren't. */
+    private fun receipt(to: String, f: Frame.Receipt) = scope.launch {
+        if (isOnline(to)) transport.signal(to, f)
+        transport.sendWithRetry(to, f)
+    }
+
+    /** My last message's ticks changed (sent → delivered → seen): keep the chat list in step. */
+    private suspend fun syncPreviewStatus(store: ChatStore) {
+        val last = store.messages.value.lastOrNull() ?: return
+        val meta = store.meta.value ?: return
+        val want = last.status.takeIf { last.senderId == me }
+        if (meta.previewStatus != want && meta.previewMine == (last.senderId == me)) store.writeMeta(meta.copy(previewStatus = want))
     }
 
     private fun now() = System.currentTimeMillis()

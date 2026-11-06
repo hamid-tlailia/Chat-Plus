@@ -66,6 +66,9 @@ import app.zura.R
 import app.zura.core.model.ChatMeta
 import app.zura.core.model.MsgKind
 import app.zura.graph
+import app.zura.core.model.MsgStatus
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Warning
 import app.zura.i18n.ZuraFormat
 import app.zura.ui.components.Avatar
 import app.zura.ui.components.glass
@@ -300,9 +303,28 @@ private fun ChatRow(c: ChatMeta, fmt: ZuraFormat, typing: Boolean = false, onCli
                 if (typing) {
                     Text(stringResource(R.string.typing), style = Zura.type.label.copy(fontWeight = null), color = col.accent, maxLines = 1, modifier = Modifier.weight(1f))
                 } else {
+                    // My own last message: its ticks first (sent / delivered / failed), like inside the chat.
+                    val peer = c.peerIds.singleOrNull()
+                    val st = c.previewStatus?.takeIf { c.previewMine && peer != null && c.previewKind != MsgKind.CALL && c.previewKind != MsgKind.EVENT }
+                    // Fair play, as in the chat: if I hide my read receipts from them, I don't see theirs.
+                    val g = LocalContext.current.graph
+                    val rr by g.s.privacy.readReceipts.collectAsStateWithLifecycle()
+                    val ghost by g.s.privacy.ghost.collectAsStateWithLifecycle()
+                    val seen = st == MsgStatus.READ && rr && peer !in ghost
+                    if (st != null && !seen) {
+                        val (icon, tint) = when (st) {
+                            MsgStatus.PENDING -> app.zura.ui.ZuraIcons.Clock to col.textMuted
+                            MsgStatus.SENT -> androidx.compose.material.icons.Icons.Default.Done to col.textMuted
+                            MsgStatus.FAILED -> androidx.compose.material.icons.Icons.Default.Warning to col.danger
+                            else -> app.zura.ui.ZuraIcons.DoneAll to col.textMuted
+                        }
+                        Icon(icon, null, tint = tint, modifier = Modifier.padding(end = 4.dp).size(16.dp))
+                    }
                     // My own last message reads "You: …" (not for call logs, which already say who).
                     val shown = if (c.previewMine && c.previewKind != MsgKind.CALL && c.previewKind != MsgKind.EVENT && preview.isNotEmpty()) stringResource(R.string.you_prefix, preview) else preview
                     Text(shown, style = Zura.type.label.copy(fontWeight = null), color = col.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    // Seen: their photo, small, at the end of the row (like Messenger).
+                    if (seen) Box(Modifier.padding(start = 8.dp)) { app.zura.ui.components.UserAvatar(c.title, c.avatarHue, c.avatarPath, 18.dp) }
                 }
                 if (c.unread > 0) {
                     Box(

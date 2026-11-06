@@ -157,6 +157,15 @@ class CallManager(
     fun startCall(peerId: String, video: Boolean) = scope.launch(rtc) {
         if (_ui.value.inCall) return@launch
         val p = contacts.profile(peerId)
+        // Wake their phone FIRST: the sealed invite is all it needs to start ringing, so it leaves
+        // before the block re-check, the TURN setup and the SDP (which used to delay a closed
+        // phone's ring by 1–3 s). A blocked pair is refused by the push function itself.
+        val callId = UUID.randomUUID().toString()
+        scope.launch {
+            transport.sealFor(peerId, Frame.CallInvite(callId, me, video, System.currentTimeMillis()))
+                ?.let { backend.push(peerId, "call", mapOf("e" to it)) }
+            stage("call push sent")
+        }
         // Blocked (either way): never ring. Re-check the server quickly — the block may be new.
         kotlinx.coroutines.withTimeoutOrNull(1_500) { contacts.refreshBlockedMe() }
         if (contacts.isBlocked(peerId)) {
@@ -165,9 +174,10 @@ class CallManager(
                 peerHue = (peerId.hashCode() and 0xFFFF) % 360f, outgoing = true, video = video, endReason = "blocked",
                 net = network.type.value,
             )
+            // The push already went out: tell that phone to stop.
+            scope.launch { backend.push(peerId, "call_end", mapOf("c" to callId)) }
             return@launch
         }
-        val callId = UUID.randomUUID().toString()
         _ui.value = CallUi(
             phase = CallPhase.OUTGOING, callId = callId, peerId = peerId, peerName = p?.displayName ?: "",
             peerAvatar = p?.avatarPath, peerHue = (peerId.hashCode() and 0xFFFF) % 360f, outgoing = true,
@@ -190,12 +200,7 @@ class CallManager(
             val full = frame.copy(sdp = withRoutes(frame.sdp))
             runCatching { transport.send(peerId, full) }.onSuccess { stage("offer sent (durable)") }
         }
-        // Their phone may be asleep / app closed: wake it with an E2EE-sealed invite over FCM,
-        // and keep re-offering every 2.5 s until it rings (the woken app needs ~1–3 s to connect).
-        scope.launch {
-            transport.sealFor(peerId, Frame.CallInvite(callId, me, video, System.currentTimeMillis()))
-                ?.let { backend.push(peerId, "call", mapOf("e" to it)) }
-        }
+        // Keep re-offering every 2.5 s until it rings (a woken app needs ~1–3 s to connect).
         timers += scope.launch(rtc) {
             repeat(16) {
                 delay(2_500)

@@ -105,6 +105,21 @@ sealed interface Frame {
 
     @Serializable @SerialName("call_media")
     data class CallMedia(val callId: String, val from: String, val videoOn: Boolean, val muted: Boolean, val screen: Boolean = false) : Frame
+
+    // ── Chat-history restore (a phone lost a chat's history: the contact sends their copy back,
+    //    end-to-end encrypted like everything else, and only after they approve).
+
+    /** "I lost this chat's history on my phone — please send me your copy." */
+    @Serializable @SerialName("hist_req")
+    data class HistoryRequest(val chatId: String, val from: String, val at: Long) : Frame
+
+    /** One batch of the chat, oldest first; [last] closes the restore. */
+    @Serializable @SerialName("hist")
+    data class HistoryChunk(val chatId: String, val from: String, val index: Int, val last: Boolean, val messages: List<app.zura.core.model.Message>) : Frame
+
+    /** Requester → provider: done (the provider deletes the media it re-uploaded). Provider → requester: [declined]. */
+    @Serializable @SerialName("hist_done")
+    data class HistoryDone(val chatId: String, val from: String, val declined: Boolean = false) : Frame
 }
 
 val WireJson = Json {

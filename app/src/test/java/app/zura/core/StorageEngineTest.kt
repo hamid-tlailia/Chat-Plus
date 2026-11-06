@@ -322,4 +322,26 @@ class StorageEngineTest {
         again.upsert(msg("m2", "new").copy(chatId = "c3")) // and it works again
         assertEquals(2, again.messages.value.size)
     }
+
+    @Test fun updateChangesOneMessageAtomically() = runBlocking {
+        val (v, _) = vault()
+        val st = v.chat("c1")
+        st.upsert(msg("m1", "hi").copy(status = MsgStatus.PENDING))
+        // Two writers (status tick and link card) both keep their change.
+        st.update("m1") { it.copy(status = MsgStatus.SENT) }
+        st.update("m1") { it.copy(text = "hi!") }
+        assertEquals(MsgStatus.SENT, st.get("m1")!!.status)
+        assertEquals("hi!", st.get("m1")!!.text)
+        assertNull(st.update("nope") { it })
+    }
+
+    @Test fun historyBatchSurvivesTheWireAndFitsAnEnvelope() {
+        val ms = (1..60).map { msg("m$it", "message number $it with some words in it", at = it.toLong()).copy(reactions = mapOf("u" to "❤️")) }
+        val f = app.zura.core.sync.Frame.HistoryChunk("c1", "me", 0, true, ms)
+        val wire = app.zura.core.sync.WireJson.encodeToString(app.zura.core.sync.Frame.serializer(), f)
+        val back = app.zura.core.sync.WireJson.decodeFromString(app.zura.core.sync.Frame.serializer(), wire) as app.zura.core.sync.Frame.HistoryChunk
+        assertEquals(ms, back.messages)
+        // A batch is capped at 30 000 chars of JSON: sealed + base64 it stays under the 64 KB envelope.
+        assertTrue(30_000 * 4 / 3 + 200 < 65_536)
+    }
 }

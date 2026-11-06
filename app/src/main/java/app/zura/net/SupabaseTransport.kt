@@ -150,7 +150,7 @@ class SupabaseTransport(
     suspend fun signal(to: String, frame: Frame): Boolean {
         val key = peerKey(to) ?: return false
         return runCatching { backend.broadcast(to, EVENT, buildJsonObject { put("f", me); put("p", seal(key, frame)) }) }
-            .onFailure { app.zura.DiagLog.record("broadcast ${frame.javaClass.simpleName}", it) }
+            .onFailure { if (it !is kotlinx.coroutines.CancellationException) app.zura.DiagLog.record("broadcast ${frame.javaClass.simpleName}", it) }
             .getOrDefault(false) == true
     }
 

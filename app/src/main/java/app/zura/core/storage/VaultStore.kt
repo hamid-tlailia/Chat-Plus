@@ -238,6 +238,8 @@ class VaultStore(
         const val INDEX_ALIAS = "zc_index"
         /** System-line code: this phone lost the chat's earlier history (unreadable log). */
         const val EVENT_HISTORY_RESET = "history_reset"
+        /** …and it was restored from the contact's copy. */
+        const val EVENT_HISTORY_RESTORED = "history_restored"
         private val B64: Base64.Encoder = Base64.getEncoder()
     }
 }

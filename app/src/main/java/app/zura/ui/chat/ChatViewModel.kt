@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
 @Immutable
 sealed interface ChatItem {
     val key: String
-    data class Bubble(val m: Message, val mine: Boolean, val groupedWithPrev: Boolean, val groupedWithNext: Boolean) : ChatItem {
+    data class Bubble(val m: Message, val mine: Boolean, val groupedWithPrev: Boolean, val groupedWithNext: Boolean, val seen: Boolean = false) : ChatItem {
         override val key get() = m.id
     }
     data class Day(val epochMs: Long) : ChatItem {
@@ -85,7 +85,9 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
             val prev = ms.getOrNull(i - 1)
             val next = ms.getOrNull(i + 1)
             fun near(a: Message?, b: Message) = a != null && a.senderId == b.senderId && kotlin.math.abs(a.sentAt - b.sentAt) < 120_000 && day(a.sentAt) == day(b.sentAt)
-            out += ChatItem.Bubble(m, m.senderId == me, near(prev, m), near(next, m))
+            // Their small photo under my last message once they've read it (only when it's the last one).
+            val seen = next == null && m.senderId == me && m.status == app.zura.core.model.MsgStatus.READ && m.kind != MsgKind.EVENT
+            out += ChatItem.Bubble(m, m.senderId == me, near(prev, m), near(next, m), seen)
             if (prev == null || day(prev.sentAt) != day(m.sentAt)) out += ChatItem.Day(m.sentAt)
         }
         out

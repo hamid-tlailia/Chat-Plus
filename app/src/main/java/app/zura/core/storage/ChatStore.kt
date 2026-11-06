@@ -92,6 +92,17 @@ class ChatStore internal constructor(
         if (lineCount > 64 && lineCount > byId.size * 2) runCatching { rewriteLocked(rotateKey = false) }
     }
 
+    /** Read-modify-write of ONE message, atomic against other writes (status vs. link card…). */
+    suspend fun update(id: String, change: (Message) -> Message): Message? = mutex.withLock {
+        val cur = synchronized(byId) { byId[id] } ?: return@withLock null
+        val next = change(cur)
+        if (next == cur) return@withLock cur
+        appendLines(listOf(seal(Record(put = next))))
+        synchronized(byId) { byId[id] = next }
+        publish()
+        next
+    }
+
     suspend fun writeMeta(meta: ChatMeta) = mutex.withLock {
         appendLines(listOf(seal(Record(meta = meta))))
         _meta.value = meta

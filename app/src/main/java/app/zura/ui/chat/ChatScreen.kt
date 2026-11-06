@@ -151,6 +151,9 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
     // Real frosted glass: the message list is blurred live behind the header and the composer.
     val haze = remember { dev.chrisbanes.haze.HazeState() }
     val showRead by vm.showReadTicks.collectAsStateWithLifecycle()
+    val peerFace = remember(meta?.title, meta?.avatarHue, meta?.avatarPath, meta?.peerIds?.size) {
+        meta?.takeIf { it.peerIds.size == 1 }?.let { PeerFace(it.title, it.avatarHue, it.avatarPath) }
+    }
     // Tap on a reply's quote → scroll to the original and flash it.
     var flashId by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val itemsNow by androidx.compose.runtime.rememberUpdatedState(items)
@@ -165,7 +168,8 @@ fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit
         }
     }
     androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze, LocalShowReadTicks provides showRead, LocalTranslations provides vm.translations, LocalRetranslate provides vm::translate,
-        LocalSelection provides Selection(vm.selected.toSet(), vm::toggleSelect), LocalJumpTo provides jumpTo, LocalFlashId provides flashId) {
+        LocalSelection provides Selection(vm.selected.toSet(), vm::toggleSelect), LocalJumpTo provides jumpTo, LocalFlashId provides flashId,
+        LocalPeerFace provides peerFace) {
     Box(Modifier.fillMaxSize()) {
         // Theme Studio wallpaper, dimmed toward the theme background so messages stay readable.
         app.zura.ui.theme.LocalWallpaper.current?.let { (img, dim) ->

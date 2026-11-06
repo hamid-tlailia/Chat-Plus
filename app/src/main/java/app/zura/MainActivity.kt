@@ -24,6 +24,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
@@ -185,11 +188,32 @@ class MainActivity : ComponentActivity() {
                 NavHost(nav)
                 app.zura.push.CallReadinessPrompt()
             }
+            // A contact lost our chat's history and asks for my copy: approve / decline.
+            if (!locked) HistoryRequestPrompt(session)
             // Live walkie-talkie audio from a contact, wherever I am in the app.
             if (!locked) app.zura.ui.chat.WalkieIndicator(Modifier.align(androidx.compose.ui.Alignment.TopCenter).statusBarsPadding().padding(top = 8.dp))
             // Calls ring and can be answered above the lock (like WhatsApp).
             CallScreen(session.calls)
         }
+    }
+
+    @Composable
+    private fun HistoryRequestPrompt(session: AccountSession) {
+        val asks by session.history.incoming.collectAsStateWithLifecycle()
+        var later by remember { mutableStateOf(emptySet<String>()) }
+        val (chatId, from) = asks.entries.firstOrNull { it.key !in later }?.toPair() ?: return
+        val name = session.contacts.profile(from)?.displayName ?: ""
+        app.zura.ui.components.ConfirmSheet(
+            title = getString(R.string.history_request_title),
+            message = getString(R.string.history_request_body, name),
+            actions = listOf(
+                app.zura.ui.components.ConfirmAction(getString(R.string.history_send)) { session.history.approve(chatId) },
+                app.zura.ui.components.ConfirmAction(getString(R.string.history_decline), danger = true) { session.history.decline(chatId) },
+            ),
+            cancelLabel = getString(R.string.not_now),
+            onDismiss = { later = later + chatId }, // asked again next time the app opens
+            icon = androidx.compose.material.icons.Icons.Default.Refresh,
+        )
     }
 
     /**

@@ -17,6 +17,28 @@ object Push {
     @Volatile var enabled = false
         private set
 
+    /**
+     * What Android / the phone maker currently allows us in the background — the usual reason a
+     * high-priority push arrives hours late: the app was put in the "restricted" standby bucket
+     * (rarely used / Samsung "deep sleeping apps") or its background use was restricted.
+     */
+    fun backgroundState(c: android.content.Context): String {
+        val bucket = if (android.os.Build.VERSION.SDK_INT >= 28) runCatching {
+            when (val b = c.getSystemService(android.app.usage.UsageStatsManager::class.java).appStandbyBucket) {
+                android.app.usage.UsageStatsManager.STANDBY_BUCKET_ACTIVE -> "active"
+                android.app.usage.UsageStatsManager.STANDBY_BUCKET_WORKING_SET -> "working"
+                android.app.usage.UsageStatsManager.STANDBY_BUCKET_FREQUENT -> "frequent"
+                android.app.usage.UsageStatsManager.STANDBY_BUCKET_RARE -> "RARE"
+                45 -> "RESTRICTED" // STANDBY_BUCKET_RESTRICTED (API 30)
+                else -> b.toString()
+            }
+        }.getOrDefault("?") else "n/a"
+        val restricted = android.os.Build.VERSION.SDK_INT >= 28 &&
+            runCatching { c.getSystemService(android.app.ActivityManager::class.java).isBackgroundRestricted }.getOrDefault(false)
+        val unoptimized = runCatching { c.getSystemService(android.os.PowerManager::class.java).isIgnoringBatteryOptimizations(c.packageName) }.getOrDefault(false)
+        return ", bucket=$bucket" + (if (restricted) ", BACKGROUND RESTRICTED" else "") + (if (unoptimized) ", battery=unrestricted" else ", battery=optimized")
+    }
+
     fun init(app: Application) {
         if (BuildConfig.FIREBASE_APP_ID.isBlank() || BuildConfig.FIREBASE_API_KEY.isBlank()) return
         runCatching {

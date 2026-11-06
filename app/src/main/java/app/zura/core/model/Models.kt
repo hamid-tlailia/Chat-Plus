@@ -88,6 +88,8 @@ data class ChatMeta(
     val previewKind: MsgKind = MsgKind.TEXT,
     /** The last message is mine → shown as "You: …" in the chat list. */
     val previewMine: Boolean = false,
+    /** Status of that last message when it's mine (sent / delivered / seen) — ticks or their photo in the list. */
+    val previewStatus: MsgStatus? = null,
     val unread: Int = 0,
     val pinned: Boolean = false,
     val avatarHue: Float = 0f,

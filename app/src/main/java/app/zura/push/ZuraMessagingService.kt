@@ -36,7 +36,7 @@ class ZuraMessagingService : FirebaseMessagingService() {
         // (it does when high-priority pushes don't lead to a visible notification).
         app.zura.DiagLog.record("push", detail = "$kind received after ${System.currentTimeMillis() - msg.sentTime} ms, prio=${prioName(msg.priority)}" +
             (if (msg.priority != msg.originalPriority) " (DOWNGRADED from ${prioName(msg.originalPriority)})" else "") +
-            ", locked=${!app.zura.security.DeviceLock.chatKeysUsable(this)}")
+            ", locked=${!app.zura.security.DeviceLock.chatKeysUsable(this)}" + app.zura.push.Push.backgroundState(this))
         // A call: start ringing immediately — before opening the account or touching the network.
         if (kind == "call") app.zura.call.CallService.preRing(this, from)
         try { runBlocking {

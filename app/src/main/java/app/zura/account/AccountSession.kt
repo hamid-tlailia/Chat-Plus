@@ -20,6 +20,7 @@ import app.zura.core.storage.VaultStore
 import app.zura.core.storage.ZuraPaths
 import app.zura.core.sync.Frame
 import app.zura.data.ChatRepository
+import app.zura.data.HistoryRestore
 import app.zura.data.Privacy
 import app.zura.data.ContactsRepository
 import app.zura.data.MomentsRepository
@@ -73,6 +74,8 @@ class AccountSession(
     val chats = ChatRepository(vault, transport, backend, uid, scope, privacy)
     val moments = MomentsRepository(vault, chats, transport, backend, uid, { contactIds() }, scope, nameOf = { contacts.profile(it)?.displayName })
     val walkie by lazy { Walkie(transport, uid, scope) }
+    /** Restoring a chat's history from the contact's phone (with their approval). */
+    val history by lazy { HistoryRestore(app, vault, transport, backend, chats, uid, scope) { contacts.profile(it)?.displayName } }
     val calls by lazy { CallManager(app, transport, contacts, chats, backend, uid, scope) }
 
     val images by lazy { VaultImages(vault) }
@@ -95,6 +98,7 @@ class AccountSession(
                 is Frame.Block -> if (f.from == from) contacts.markBlockedMe(from, f.blocked)
                 // Live voice only from accepted, unblocked contacts.
                 is Frame.Walkie -> if (f.from == from && contacts.contacts.value.any { it.profile.id == from } && !contacts.isBlocked(from)) walkie.onFrame(from, f)
+                is Frame.HistoryRequest, is Frame.HistoryChunk, is Frame.HistoryDone -> history.handle(from, f)
                 is Frame.CallOffer, is Frame.CallAnswer, is Frame.CallIce, is Frame.CallEnd,
                 is Frame.CallRinging, is Frame.CallRestartRequest, is Frame.CallMedia -> calls.handle(from, f)
                 else -> try {
@@ -185,6 +189,10 @@ class AccountSession(
         }
         step("Live connection (realtime)") { if (transport.online.value) null else "offline — messages arrive on sync/push only" }
         step("Push (wake when closed)") { if (Push.token() != null) null else "no Firebase token" }
+        step("Background delivery${Push.backgroundState(app)}") {
+            val s = Push.backgroundState(app)
+            if ("RESTRICTED" in s || "RARE" in s) "the phone is holding Zura back — pushes can arrive late (Battery → Unrestricted, and not in sleeping apps)" else null
+        }
         val log = DiagLog.read().lines().takeLast(70).joinToString("\n")
         if (log.isNotBlank()) out.append("\nRecent issues:\n").append(log)
         out.toString()

@@ -366,4 +366,20 @@
     <string name="pin_chat">تثبيت</string>
     <string name="unpin_chat">إلغاء التثبيت</string>
     <string name="history_reset_note">تعذّر استرجاع الرسائل السابقة لهذه المحادثة على هذا الهاتف</string>
+    <string name="history_restore_ask">اطلب من %1$s إرسالها</string>
+    <string name="history_restore_waiting">في انتظار موافقة %1$s…</string>
+    <string name="history_restore_receiving">جارٍ استعادة سجل المحادثة…</string>
+    <string name="history_restore_declined">رفض %1$s الطلب</string>
+    <string name="history_restore_failed">تعذّر إرسال الطلب — تحقّق من الاتصال</string>
+    <string name="history_restored_note">تمت استعادة سجل المحادثة من نسخة جهة الاتصال</string>
+    <string name="history_request_title">إرسال سجل المحادثة؟</string>
+    <string name="history_request_body">فقد %1$s سجل هذه المحادثة على هاتفه ويطلب نسختك. تُرسل مشفّرة من طرف إلى طرف، مع الصور والملفات الحديثة.</string>
+    <string name="history_send">إرسال</string>
+    <string name="history_decline">رفض</string>
+    <string name="history_request_notif">يطلب %1$s نسختك من محادثتكما</string>
+    <string name="history_sent_toast">تم إرسال سجل المحادثة إلى %1$s</string>
+    <string name="media_not_restored">وسائط لم تُستعد</string>
+    <string name="profile_restore_history">استعادة سجل المحادثة</string>
+    <string name="profile_restore_hint">اطلب من %1$s إرسال نسخته من هذه المحادثة</string>
+    <string name="history_requested_toast">تم إرسال الطلب إلى %1$s</string>
 </resources>

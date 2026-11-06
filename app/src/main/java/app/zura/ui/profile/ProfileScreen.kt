@@ -291,6 +291,28 @@ private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpe
             androidx.compose.animation.AnimatedVisibility(showSounds) {
                 Column(Modifier.padding(horizontal = 16.dp)) { app.zura.ui.settings.SoundRows(chatId = chatId, peerId = p.id) }
             }
+            // Lost this chat's history on this phone (or part of it): ask the contact for their copy.
+            if (!blocked) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        g.s.scope.launch {
+                            val ok = g.s.history.request(chatId)
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                android.widget.Toast.makeText(ctx, if (ok) ctx.getString(R.string.history_requested_toast, p.displayName) else ctx.getString(R.string.history_restore_failed), android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🔄", style = Zura.type.headline)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.profile_restore_history), style = Zura.type.label, color = c.text)
+                        Text(stringResource(R.string.profile_restore_hint, p.displayName), style = Zura.type.caption, color = c.textMuted)
+                    }
+                }
+            }
             // Per-contact stealth: invisible to this one person.
             val ghost by g.s.privacy.ghost.collectAsStateWithLifecycle()
             Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))
