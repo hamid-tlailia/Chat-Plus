@@ -173,7 +173,10 @@ private fun GroupPlayer(group: MomentGroup, active: Boolean, onNextGroup: () -> 
                 }
             }
             Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Avatar(group.name, group.hue, 36.dp)
+                app.zura.ui.components.UserAvatar(
+                    group.name, group.hue,
+                    if (group.mine) g.s.contacts.myProfile.value?.avatarPath else g.s.contacts.profile(group.ownerId)?.avatarPath, 36.dp,
+                )
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(group.name, color = Color.White, style = app.zura.ui.theme.Zura.type.label)

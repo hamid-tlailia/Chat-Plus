@@ -111,36 +111,46 @@ class VaultStore(
         openChat(chatId)
     }
 
+    /**
+     * One lock per chat: opening (or creating) a chat and deleting it never overlap. Two threads
+     * creating the same NEW chat at once — e.g. its screen and the contacts refresh right after it
+     * was deleted — both wrote the same temp file ("atomic rename failed" → crash) and could even
+     * create its Keystore key twice, the second replacing the first.
+     */
+    private val chatLocks = ConcurrentHashMap<String, Any>()
+    private fun lockOf(k: String) = chatLocks.computeIfAbsent(k) { Any() }
+
     private fun openChat(chatId: String): ChatStore {
         val k = ZuraPaths.safe(chatId)
         open[k]?.let { return it }
-        val created = try {
-            ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }
-        } catch (e: IllegalStateException) {
-            if (e.message?.contains("destroyed") != true) throw e
-            // The log's key no longer exists (destroyed by a bug in 0.9.15): its history can never be
-            // decrypted again. Start the conversation afresh instead of crashing on every open —
-            // the contact, the chat and its settings stay; only this phone's old messages are gone.
-            // One reset only, even if several threads hit the broken log at once.
-            synchronized(recoverLock) {
-                open[k]?.let { return it }
+        synchronized(lockOf(k)) {
+            open[k]?.let { return it } // opened by another thread while we waited
+            val store = try {
+                ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }
+            } catch (e: IllegalStateException) {
+                if (e.message?.contains("destroyed") != true) throw e
+                // The log's key no longer exists (destroyed by a bug in 0.9.15): its history can never be
+                // decrypted again. Start the conversation afresh instead of crashing on every open —
+                // the contact, the chat and its settings stay; only this phone's old messages are gone.
                 onRecovered?.invoke(chatId)
                 SecureEraser.eraseTree(paths.chatDir(chatId))
-                val fresh = ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }
-                _index.value[chatId]?.let { m -> kotlinx.coroutines.runBlocking { fresh.writeMeta(m.copy(unread = 0)); markHistoryReset(fresh) } }
-                open[k] = fresh
-                _chatIds.value = _chatIds.value + chatId
-                return fresh
+                ChatStore(chatId, paths.chatDir(chatId), wrapper) { m -> noteMeta(chatId, m) }.also { fresh ->
+                    _index.value[chatId]?.let { m -> kotlinx.coroutines.runBlocking { fresh.writeMeta(m.copy(unread = 0)); markHistoryReset(fresh) } }
+                }
             }
+            open[k] = store
+            _chatIds.value = _chatIds.value + chatId
+            onOpened?.invoke(store)
+            return store
         }
-        // Two threads may open the same chat at once: only the instance that is KEPT is announced
-        // (maintenance on the discarded twin — e.g. a re-key — would break the kept one).
-        return open.putIfAbsent(k, created) ?: created.also { _chatIds.value = _chatIds.value + chatId; onOpened?.invoke(it) }
     }
+
+    /** Bumped each time a chat is deleted: a screen still holding the old one must not be reused. */
+    fun incarnation(chatId: String): Int = incarnations[ZuraPaths.safe(chatId)] ?: 0
+    private val incarnations = ConcurrentHashMap<String, Int>()
 
     /** Told about every chat opened (background maintenance, e.g. moving its key off slow hardware). */
     var onOpened: ((ChatStore) -> Unit)? = null
-    private val recoverLock = Any()
     /** Told when an unreadable chat log had to be started afresh. */
     var onRecovered: ((String) -> Unit)? = null
 
@@ -169,8 +179,9 @@ class VaultStore(
      * Erase an entire conversation: destroy its Keystore KEK (crypto-shred), then zero + unlink
      * the log and unlink every media file. Returns bytes freed.
      */
-    fun deleteChat(chatId: String): Long {
-        val store = open.remove(chatId)
+    fun deleteChat(chatId: String): Long = synchronized(lockOf(ZuraPaths.safe(chatId))) {
+        incarnations.merge(ZuraPaths.safe(chatId), 1, Int::plus)
+        val store = open.remove(ZuraPaths.safe(chatId))
             ?: if (exists(chatId)) runCatching { ChatStore(chatId, paths.chatDir(chatId), wrapper) }.getOrNull() else null
         store?.destroyKeys()
         val freed = SecureEraser.eraseTree(paths.chatDir(chatId))
@@ -180,7 +191,7 @@ class VaultStore(
             _index.value = _index.value - chatId
             if (indexRead) runCatching { indexFile.writeText(indexJson.encodeToString(indexSer, _index.value)) }
         }
-        return freed
+        freed
     }
 
     // ------------------------------------------------------------- media vault

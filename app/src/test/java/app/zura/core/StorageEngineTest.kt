@@ -344,4 +344,24 @@ class StorageEngineTest {
         // A batch is capped at 30 000 chars of JSON: sealed + base64 it stays under the 64 KB envelope.
         assertTrue(30_000 * 4 / 3 + 200 < 65_536)
     }
+
+    @Test fun concurrentOpensOfANewChatShareOneStore() {
+        // Regression: the chat screen and the contacts refresh created the same new chat at once →
+        // both wrote "log.zl.new" → "atomic rename failed" crash (and a doubled key generation).
+        val (v, w) = vault()
+        repeat(20) { round ->
+            val id = "race$round"
+            val pool = java.util.concurrent.Executors.newFixedThreadPool(8)
+            val start = java.util.concurrent.CountDownLatch(1)
+            val results = (1..8).map { pool.submit<app.zura.core.storage.ChatStore> { start.await(); v.chat(id) } }
+            start.countDown()
+            val stores = results.map { it.get() } // throws if any open failed
+            pool.shutdown()
+            assertEquals(1, stores.toSet().size)
+            runBlocking { stores[0].upsert(msg("m", "ok").copy(chatId = id)) }
+        }
+        // And every one reads back after a restart (one key per chat, not a replaced one).
+        val v2 = VaultStore(ZuraPaths(File(tmp.root, "files"), File(tmp.root, "nb"), File(tmp.root, "cache")), w)
+        repeat(20) { round -> assertEquals("ok", v2.chat("race$round").get("m")?.text) }
+    }
 }

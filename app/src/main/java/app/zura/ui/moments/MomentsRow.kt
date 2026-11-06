@@ -1,5 +1,7 @@
 package app.zura.ui.moments
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
 import app.zura.ui.components.appear
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,22 +47,25 @@ import app.zura.ui.theme.Zura
 @Composable
 fun MomentsRow(groups: List<MomentGroup>, myName: String, onAdd: () -> Unit, onOpen: (String) -> Unit) {
     val mine = groups.firstOrNull { it.mine }
+    val graph = LocalContext.current.graph
+    val me by graph.s.contacts.myProfile.collectAsStateWithLifecycle()
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         item(key = "me") {
             RingItem(
-                label = stringResource(R.string.your_moment), group = mine, name = myName, hue = 42f,
+                label = stringResource(R.string.your_moment), group = mine, name = me?.displayName ?: myName, hue = (graph.s.uid.hashCode() and 0xFFFF) % 360f,
                 badge = true, onClick = { if (mine != null) onOpen(mine.ownerId) else onAdd() }, onBadge = onAdd,
+                avatarPath = me?.avatarPath,
             )
         }
         items(groups.filterNot { it.mine }, key = { it.ownerId }) { g ->
             // Stories slide in one after another when the list first shows.
-            androidx.compose.foundation.layout.Box(Modifier.appear(groups.indexOf(g))) { RingItem(g.name, g, g.name, g.hue, badge = false, onClick = { onOpen(g.ownerId) }, onBadge = {}) }
+            androidx.compose.foundation.layout.Box(Modifier.appear(groups.indexOf(g))) { RingItem(g.name, g, g.name, g.hue, badge = false, onClick = { onOpen(g.ownerId) }, onBadge = {}, avatarPath = graph.s.contacts.profile(g.ownerId)?.avatarPath) }
         }
     }
 }
 
 @Composable
-private fun RingItem(label: String, group: MomentGroup?, name: String, hue: Float, badge: Boolean, onClick: () -> Unit, onBadge: () -> Unit) {
+private fun RingItem(label: String, group: MomentGroup?, name: String, hue: Float, badge: Boolean, onClick: () -> Unit, onBadge: () -> Unit, avatarPath: String? = null) {
     val src = remember { MutableInteractionSource() }
     val c = Zura.colors
     Column(
@@ -68,16 +73,10 @@ private fun RingItem(label: String, group: MomentGroup?, name: String, hue: Floa
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box {
-            Avatar(name, hue, 66.dp, ring = group != null, ringSeen = group?.allSeen == true) {
-                // Ring shows the latest moment's micro-preview — painted instantly from the record.
-                val last = group?.items?.lastOrNull()?.media
-                val preview = remember(last?.preview) { last?.preview?.let(Previews::decode)?.asImageBitmap() }
-                val g = LocalContext.current.graph
-                val sharp = last?.let { rememberVaultImage(g.images, MomentsRepository.STORE, it, 180).value }
-                val bmp = sharp ?: preview
-                if (bmp != null) Image(bmp, null, Modifier.size(59.dp).clip(CircleShape), contentScale = ContentScale.Crop)
-                else Text(name.take(1).uppercase(), color = androidx.compose.ui.graphics.Color.White, style = Zura.type.headline)
-            }
+            // The person's profile photo inside the ring (monogram if they have none).
+            val g = LocalContext.current.graph
+            val photo = app.zura.account.rememberAvatar(g.avatars, avatarPath).value
+            Avatar(name, hue, 66.dp, ring = group != null, ringSeen = group?.allSeen == true, image = photo)
             if (badge) {
                 Box(
                     Modifier.align(Alignment.BottomEnd).size(22.dp).clip(CircleShape).background(c.accent)

@@ -92,7 +92,15 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
     // Keyed by the account session too: the view model outlives screens (activity scope), and one
     // made for a session that was since re-opened kept showing that closed session's storage —
     // new reactions / messages appeared only after restarting the app.
-    val vm = viewModel(key = "${System.identityHashCode(g.s)}:$chatId") { ChatViewModel(g, chatId) }
+    // (+ the chat's incarnation: after it was deleted, a new view model — never the one holding the old chat.)
+    val vm = viewModel(key = "${System.identityHashCode(g.s)}:$chatId:${g.vault.incarnation(chatId)}") { ChatViewModel(g, chatId) }
+    // A contact's chat that was deleted: opened again from People / their profile → give it back
+    // its name and photo (it is recreated empty).
+    LaunchedEffect(chatId) {
+        if (g.vault.metaIndex.value[chatId] == null) g.s.contacts.contacts.value
+            .firstOrNull { app.zura.data.ContactsRepository.dmChatId(g.s.uid, it.profile.id) == chatId }
+            ?.let { g.s.contacts.ensureChatWith(it.profile.id) }
+    }
     val items by vm.items.collectAsStateWithLifecycle()
     val meta by vm.meta.collectAsStateWithLifecycle()
     val typing by vm.peerTyping.collectAsStateWithLifecycle()

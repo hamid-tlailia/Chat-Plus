@@ -296,6 +296,9 @@ class ContactsRepository(
     // ---------------------------------------------------------------- conversations
 
     /** Every accepted contact has exactly one conversation; both phones derive the same id. */
+    /** Opening a contact's chat (from People / their profile): recreate it if it was deleted. */
+    suspend fun ensureChatWith(uid: String) = withContext(Dispatchers.IO) { profile(uid)?.let { runCatching { ensureChat(it) } } }
+
     private suspend fun ensureChat(p: Profile) {
         if (vault.isLocked()) return // done on the next refresh after unlock
         val id = dmChatId(me, p.id)
@@ -308,7 +311,8 @@ class ContactsRepository(
             val known = vault.metaIndex.value[id]
             if (known != null && known.title == p.displayName && known.avatarPath == p.avatarPath) return
             val s = vault.chat(id)
-            val m = s.meta.value ?: return
+            // Opened empty (its screen, right after the chat was deleted): give it its name back.
+            val m = s.meta.value ?: run { s.writeMeta(ChatMeta(id, p.displayName, listOf(p.id), System.currentTimeMillis(), avatarHue = hue, avatarPath = p.avatarPath)); return }
             if (m.title != p.displayName || m.avatarPath != p.avatarPath) s.writeMeta(m.copy(title = p.displayName, avatarPath = p.avatarPath))
         }
     }

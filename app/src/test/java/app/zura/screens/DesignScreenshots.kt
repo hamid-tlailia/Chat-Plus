@@ -285,7 +285,7 @@ class DesignScreenshots {
         setup = { rule.activity.graph.settings.setBubbles(app.zura.ui.theme.BubbleStyle.OCEAN) },
         after = {
             rule.runOnUiThread {
-                val vm = androidx.lifecycle.ViewModelProvider(rule.activity.viewModelStore, androidx.lifecycle.ViewModelProvider.NewInstanceFactory())["${System.identityHashCode(rule.activity.graph.s)}:$sara", app.zura.ui.chat.ChatViewModel::class.java]
+                val vm = androidx.lifecycle.ViewModelProvider(rule.activity.viewModelStore, androidx.lifecycle.ViewModelProvider.NewInstanceFactory())["${System.identityHashCode(rule.activity.graph.s)}:$sara:${rule.activity.graph.vault.incarnation(sara)}", app.zura.ui.chat.ChatViewModel::class.java]
                 vm.replyTo = rule.activity.graph.s.vault.chat(sara).get("m3")
             }
         }) {
@@ -331,4 +331,14 @@ class DesignScreenshots {
 
     @Test fun s17_call_reconnecting() = shoot("17_call_reconnecting_en", false, ZuraThemeId.MIDNIGHT, manualClock = true,
         setup = { it!!.calls.previewForTest(callUi(CallPhase.RECONNECTING, video = false, ar = false, quality = NetQuality.POOR, net = NetType.CELLULAR)) }) { CallScreen(rule.activity.graph.s.calls) }
+
+    /** Delete a chat, then open it again from the contact (it is recreated) — used to crash. */
+    @Test fun reopenDeletedChat() {
+        val s = signIn(false)
+        runBlocking { s.chats.deleteChat(sara) }
+        rule.setContent { ZuraTheme(ZuraThemeId.MIDNIGHT) { Box(Modifier.fillMaxSize().zuraBackground()) { ChatScreen(sara, {}, {}) } } }
+        settle()
+        // Its name is back (recreated from the contact), and no crash.
+        org.junit.Assert.assertEquals(t(false, "Sara Benali", ""), s.vault.metaIndex.value[sara]?.title)
+    }
 }
