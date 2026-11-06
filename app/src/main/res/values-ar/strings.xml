@@ -439,4 +439,6 @@
     <string name="edit_draw">رسم</string>
     <string name="edit_text">نص</string>
     <string name="edit_move">تحريك</string>
+    <string name="notif_mark_read">تعليم كمقروءة</string>
+    <string name="notif_reply_failed">لم يُرسل الرد — افتح Zura لإرساله</string>
 </resources>

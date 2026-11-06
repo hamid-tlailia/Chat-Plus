@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
@@ -494,6 +495,22 @@ class ChatRepository(
             }
         }
         store.meta.value?.takeIf { it.unread > 0 }?.let { store.writeMeta(it.copy(unread = 0)) }
+    }
+
+    /**
+     * A reply typed straight into a message notification: their messages count as read (receipts
+     * as for opening the chat), the reply is sent like any message, and this returns once it has
+     * left the phone (or after ~8 s — it is then retried like any unsent message).
+     */
+    suspend fun replyFromNotification(chatId: String, text: String): Boolean = withContext(Dispatchers.IO) {
+        if (text.isBlank() || !vault.exists(chatId)) return@withContext false
+        markRead(chatId)
+        sendText(chatId, text)
+        val store = vault.chat(chatId)
+        kotlinx.coroutines.withTimeoutOrNull(8_000) {
+            store.messages.first { ms -> ms.none { it.senderId == me && it.status == MsgStatus.PENDING } }
+        }
+        true
     }
 
     suspend fun deleteChat(chatId: String): Long = withContext(Dispatchers.IO) { vault.deleteChat(chatId) }

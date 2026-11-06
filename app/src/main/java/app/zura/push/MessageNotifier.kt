@@ -97,6 +97,53 @@ class MessageNotifier(private val context: Context) {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(public)
             .setGroup("zura-messages")
+            // Reply right from the notification (and "mark as read"), without opening the app.
+            .addAction(replyAction(chatId))
+            .addAction(markReadAction(chatId))
+            .build()
+        runCatching { NotificationManagerCompat.from(context).notify(chatId.hashCode(), n) }
+    }
+
+    private fun actionIntent(action: String, chatId: String, mutable: Boolean): PendingIntent = PendingIntent.getBroadcast(
+        context, chatId.hashCode(),
+        Intent(context, NotificationActionReceiver::class.java).setAction(action)
+            .setData(android.net.Uri.parse("zura://chat/" + android.net.Uri.encode(chatId)))
+            .putExtra(NotificationActionReceiver.EXTRA_CHAT, chatId),
+        PendingIntent.FLAG_UPDATE_CURRENT or (if (mutable && Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else if (mutable) 0 else PendingIntent.FLAG_IMMUTABLE),
+    )
+
+    /** "Reply" with a text field (RemoteInput: the typed text has to be filled in → mutable). */
+    private fun replyAction(chatId: String): NotificationCompat.Action {
+        val input = androidx.core.app.RemoteInput.Builder(NotificationActionReceiver.KEY_TEXT)
+            .setLabel(context.getString(R.string.message_hint)).build()
+        return NotificationCompat.Action.Builder(R.drawable.ic_stat_zura, context.getString(R.string.action_reply), actionIntent(NotificationActionReceiver.ACTION_REPLY, chatId, mutable = true))
+            .addRemoteInput(input)
+            .setAllowGeneratedReplies(true)
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+            .setShowsUserInterface(false)
+            // On the lock screen the phone is unlocked first: chat keys only work unlocked.
+            .setAuthenticationRequired(true)
+            .build()
+    }
+
+    private fun markReadAction(chatId: String): NotificationCompat.Action =
+        NotificationCompat.Action.Builder(R.drawable.ic_stat_zura, context.getString(R.string.notif_mark_read), actionIntent(NotificationActionReceiver.ACTION_READ, chatId, mutable = false))
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ)
+            .setShowsUserInterface(false)
+            .setAuthenticationRequired(true)
+            .build()
+
+    /** A reply from the notification couldn't be sent (phone locked / account not ready): say so. */
+    fun replyFailed(chatId: String, text: String) {
+        ensureChannel()
+        synchronized(lines) { lines.remove(chatId) }
+        val n = NotificationCompat.Builder(context, channelFor(chatId)).setSmallIcon(R.drawable.ic_stat_zura)
+            .setContentTitle(context.getString(R.string.notif_reply_failed))
+            .setContentText(text)
+            .setOnlyAlertOnce(true).setSilent(true)
+            .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setContentIntent(openChat(chatId))
             .build()
         runCatching { NotificationManagerCompat.from(context).notify(chatId.hashCode(), n) }
     }
