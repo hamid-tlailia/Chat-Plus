@@ -95,6 +95,15 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
     // new reactions / messages appeared only after restarting the app.
     // (+ the chat's incarnation: after it was deleted, a new view model — never the one holding the old chat.)
     val vm = viewModel(key = "${System.identityHashCode(g.s)}:$chatId:${g.vault.incarnation(chatId)}") { ChatViewModel(g, chatId) }
+    // Photo editor (draw / text / rotate) for a staged photo, full screen above the chat.
+    vm.editingPhoto?.let { photo ->
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { vm.editingPhoto = null },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, dismissOnClickOutside = false),
+        ) {
+            ImageEditor(photo, onDone = { edited -> vm.replaceAttachment(photo, edited); vm.editingPhoto = null }, onCancel = { vm.editingPhoto = null })
+        }
+    }
     // A contact's chat that was deleted: opened again from People / their profile → give it back
     // its name and photo (it is recreated empty).
     LaunchedEffect(chatId) {
@@ -319,7 +328,10 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                 var walkieOpen by remember { mutableStateOf(false) }
                 if (walkieOpen) WalkieSheet(vm, meta?.title.orEmpty()) { walkieOpen = false }
                 if (vm.peerId != null && !blockedEither) {
-                    IconButton(onClick = { haptics.tick(); walkieOpen = true }) { Icon(app.zura.ui.ZuraIcons.Walkie, stringResource(R.string.walkie), tint = Zura.colors.text) }
+                    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+                    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+                    // Walkie-talkie while typing: the keyboard goes away so the talk button is in reach.
+                    IconButton(onClick = { haptics.tick(); keyboard?.hide(); focusManager.clearFocus(); walkieOpen = true }) { Icon(app.zura.ui.ZuraIcons.Walkie, stringResource(R.string.walkie), tint = Zura.colors.text) }
                     IconButton(onClick = { haptics.tick(); callVideo(ctx) }) { Icon(app.zura.ui.ZuraIcons.VideoCam, stringResource(R.string.video_call), tint = Zura.colors.text) }
                     IconButton(onClick = { haptics.tick(); callVoice(ctx) }) { Icon(Icons.Default.Call, stringResource(R.string.voice_call), tint = Zura.colors.text) }
                 }

@@ -435,4 +435,8 @@
     <string name="busy_missed">%1$s called while you were on another call</string>
     <string name="transfer_preparing">Preparing</string>
     <string name="transfer_sending">Sending</string>
+    <string name="edit_done">Done</string>
+    <string name="edit_draw">Draw</string>
+    <string name="edit_text">Text</string>
+    <string name="edit_move">Move</string>
 </resources>

@@ -288,6 +288,12 @@ class DesignScreenshots {
                 vm.replyTo = rule.activity.graph.s.vault.chat(sara).get("m6")
             }
         }) { ChatScreen(sara, {}, {}) }
+    @Test fun s24_photo_editor() {
+        val file = java.io.File(rule.activity.cacheDir, "edit.jpg").apply { writeBytes(gradientJpeg(1200, 900).second) }
+        shoot("24_photo_editor_en", false, ZuraThemeId.MIDNIGHT) {
+            app.zura.ui.chat.ImageEditor(app.zura.share.Attachment(android.net.Uri.fromFile(file), "image/jpeg", "edit.jpg"), {}, {})
+        }
+    }
     @Test fun s18_lock_ar() = shoot("18_app_lock_velvet_ar", true, ZuraThemeId.VELVET_GOLD, setup = {
         org.robolectric.Shadows.shadowOf(rule.activity.getSystemService(android.app.KeyguardManager::class.java)).setIsDeviceSecure(true)
         rule.activity.graph.appLock.setEnabled(true); rule.activity.graph.appLock.lockNow()

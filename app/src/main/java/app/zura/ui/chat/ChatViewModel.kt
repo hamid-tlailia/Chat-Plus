@@ -100,6 +100,13 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
 
     /** Photos / videos / files waiting for an optional caption (replying is off meanwhile). */
     val pending = androidx.compose.runtime.mutableStateListOf<app.zura.share.Attachment>()
+    /** A staged photo open in the editor (draw / text / rotate) before sending. */
+    var editingPhoto by mutableStateOf<app.zura.share.Attachment?>(null)
+    /** The editor's result takes the original's place (same position in the strip). */
+    fun replaceAttachment(old: app.zura.share.Attachment, new: app.zura.share.Attachment) {
+        val i = pending.indexOf(old)
+        if (i >= 0) pending[i] = new else pending += new
+    }
 
     init {
         // Items shared from another app land here, ready for a caption.

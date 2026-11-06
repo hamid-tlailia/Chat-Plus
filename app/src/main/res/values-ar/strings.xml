@@ -435,4 +435,8 @@
     <string name="busy_missed">اتصل بك %1$s وأنت في مكالمة أخرى</string>
     <string name="transfer_preparing">تجهيز</string>
     <string name="transfer_sending">إرسال</string>
+    <string name="edit_done">تم</string>
+    <string name="edit_draw">رسم</string>
+    <string name="edit_text">نص</string>
+    <string name="edit_move">تحريك</string>
 </resources>

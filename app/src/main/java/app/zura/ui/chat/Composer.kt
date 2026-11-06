@@ -320,8 +320,14 @@ private fun PendingStrip(vm: ChatViewModel) {
         androidx.compose.foundation.lazy.LazyRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(vm.pending.size, key = { vm.pending[it].uri.toString() }) { i ->
                 val a = vm.pending[i]
-                Box {
+                // A photo opens the editor (draw, text, rotate) — videos / files don't.
+                val editable = a.visual && !a.video
+                Box(if (editable) Modifier.clickable { vm.editingPhoto = a } else Modifier) {
                     AttachmentThumb(a)
+                    if (editable) Box(
+                        Modifier.align(Alignment.BottomStart).padding(3.dp).size(20.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("✏️", style = Zura.type.caption) }
                     Box(
                         Modifier.align(Alignment.TopEnd).padding(2.dp).size(20.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f))
                             .clickable { vm.unstage(a) },
