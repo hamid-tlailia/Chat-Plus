@@ -17,6 +17,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -311,7 +312,10 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                                 else -> "🔒 " + stringResource(R.string.e2ee_short)
                             },
                             style = Zura.type.caption, color = if (peerOnline) Zura.colors.accent else Zura.colors.textMuted,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            // Too long for the header ("last seen today at 8:52 PM"): it scrolls sideways
+                            // (in the reading direction) so the time can be read in full.
+                            maxLines = 1,
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1_500, repeatDelayMillis = 2_500, velocity = 28.dp),
                         )
                     }
                 }
