@@ -98,6 +98,7 @@ fun ProfileScreen(
     LaunchedEffect(userId) { if (!isMe && other == null) other = repo.loadProfile(userId) }
     val p: Profile? = if (isMe) mine else other
     val contact = contacts.firstOrNull { it.profile.id == userId }
+    val blockedMe by repo.blockedMe.collectAsStateWithLifecycle()
     val hue = (userId.hashCode() and 0xFFFF) % 360f
 
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).navigationBarsPadding()) {
@@ -112,7 +113,7 @@ fun ProfileScreen(
             if (isMe) Text(g.s.email, style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(top = 2.dp))
         }
         Spacer(Modifier.height(24.dp))
-        if (isMe) MyDetails(p) else if (p != null) TheirActions(p, contact != null, contact?.blocked == true, onOpenChat, onBack, onOpenMedia, onAllMedia, onStudio)
+        if (isMe) MyDetails(p) else if (p != null) TheirActions(p, contact != null, contact?.blocked == true, p.id in blockedMe, onOpenChat, onBack, onOpenMedia, onAllMedia, onStudio)
         Spacer(Modifier.height(32.dp))
     }
 }
@@ -224,7 +225,7 @@ private fun Field(value: String, onChange: (String) -> Unit, label: Int, prefix:
 
 @Composable
 private fun TheirActions(
-    p: Profile, isContact: Boolean, blocked: Boolean, onOpenChat: (String) -> Unit, onBack: () -> Unit,
+    p: Profile, isContact: Boolean, blocked: Boolean, blockedMe: Boolean, onOpenChat: (String) -> Unit, onBack: () -> Unit,
     onOpenMedia: (String, String) -> Unit, onAllMedia: (String, String?) -> Unit, onStudio: (String) -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -243,7 +244,8 @@ private fun TheirActions(
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ActionTile(ZuraIcons.Reply, stringResource(R.string.open_chat), Modifier.weight(1f)) { onOpenChat(chatId) }
             // Blocked: no calls offered (same as inside the chat).
-            if (!blocked) {
+            // No calls when either side blocked the other (the server refuses them anyway).
+            if (!blocked && !blockedMe) {
                 ActionTile(Icons.Default.Call, stringResource(R.string.voice_call), Modifier.weight(1f)) { haptics.tick(); voice(ctx) }
                 ActionTile(ZuraIcons.VideoCam, stringResource(R.string.video_call), Modifier.weight(1f)) { haptics.tick(); video(ctx) }
             }
@@ -320,7 +322,7 @@ private fun TheirActions(
                 Column(Modifier.padding(horizontal = 16.dp)) { app.zura.ui.settings.SoundRows(chatId = chatId, peerId = p.id) }
             }
             // Lost this chat's history on this phone (or part of it): ask the contact for their copy.
-            if (!blocked) {
+            if (!blocked && !blockedMe) {
                 Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))
                 Row(
                     Modifier.fillMaxWidth().clickable {

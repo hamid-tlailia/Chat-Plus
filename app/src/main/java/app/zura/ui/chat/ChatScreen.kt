@@ -265,11 +265,24 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
             val contactsList by g.s.contacts.contacts.collectAsStateWithLifecycle()
             val blockedMe by g.s.contacts.blockedMe.collectAsStateWithLifecycle()
             val iBlocked = peer != null && contactsList.any { it.profile.id == peer && it.blocked }
+            // Removed from contacts (by either side): the server refuses messages and calls until
+            // an invitation is accepted again — say so instead of a composer that can't send.
+            val contactsLoaded by g.s.contacts.loaded.collectAsStateWithLifecycle()
+            val invitesList by g.s.contacts.invites.collectAsStateWithLifecycle()
+            val notContact = peer != null && contactsLoaded && contactsList.none { it.profile.id == peer }
+            val invite = if (notContact) invitesList.firstOrNull { it.profile.id == peer } else null
             when {
                 peer != null && iBlocked -> BlockedBar(stringResource(R.string.you_blocked, meta?.title.orEmpty()), stringResource(R.string.unblock)) {
                     scope.launch { g.s.setBlocked(peer, false) }
                 }
                 peer != null && peer in blockedMe -> BlockedBar(stringResource(R.string.cant_message), null) {}
+                notContact && invite?.incoming == true -> BlockedBar(stringResource(R.string.not_contact_invited_you, meta?.title.orEmpty()), stringResource(R.string.accept)) {
+                    scope.launch { g.s.contacts.respond(invite.id, true) }
+                }
+                notContact && invite != null -> BlockedBar(stringResource(R.string.not_contact_pending, meta?.title.orEmpty()), null) {}
+                notContact -> BlockedBar(stringResource(R.string.not_contact, meta?.title.orEmpty()), stringResource(R.string.send_invite)) {
+                    scope.launch { g.s.contacts.sendInvite(peer!!, null); g.s.contacts.refresh() }
+                }
                 else -> Composer(vm, fmt, haptics)
             }
         }
@@ -321,7 +334,11 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                 }
                 val hdrContacts by g.s.contacts.contacts.collectAsStateWithLifecycle()
                 val hdrBlockedMe by g.s.contacts.blockedMe.collectAsStateWithLifecycle()
-                val blockedEither = vm.peerId?.let { id -> id in hdrBlockedMe || hdrContacts.any { it.profile.id == id && it.blocked } } == true
+                val hdrLoaded by g.s.contacts.loaded.collectAsStateWithLifecycle()
+                // Blocked either way, or no longer contacts (removed by either side) → no calls.
+                val blockedEither = vm.peerId?.let { id ->
+                    id in hdrBlockedMe || hdrContacts.any { it.profile.id == id && it.blocked } || (hdrLoaded && hdrContacts.none { it.profile.id == id })
+                } == true
                 var walkieOpen by remember { mutableStateOf(false) }
                 if (walkieOpen) WalkieSheet(vm, meta?.title.orEmpty()) { walkieOpen = false }
                 if (vm.peerId != null && !blockedEither) {
@@ -501,7 +518,7 @@ private fun watchScreenshots(a: android.app.Activity, onShot: () -> Unit): () ->
 @Composable
 private fun BlockedBar(text: String, action: String?, onAction: () -> Unit) {
     val c = Zura.colors
-    var busy by remember { mutableStateOf(false) }
+    var busy by remember(text) { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp)
             .glass(RoundedCornerShape(22.dp)).padding(16.dp),

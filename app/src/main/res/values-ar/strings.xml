@@ -441,4 +441,7 @@
     <string name="edit_move">تحريك</string>
     <string name="notif_mark_read">تعليم كمقروءة</string>
     <string name="notif_reply_failed">لم يُرسل الرد — افتح Zura لإرساله</string>
+    <string name="not_contact">%1$s لم يعد ضمن جهات اتصالك. لا يمكنكما المراسلة أو الاتصال حتى تُقبل دعوة.</string>
+    <string name="not_contact_pending">أُرسلت الدعوة إلى %1$s. يمكنكما المحادثة مجددًا بعد قبولها.</string>
+    <string name="not_contact_invited_you">%1$s دعاك لتصبحا جهتي اتصال مجددًا.</string>
 </resources>
