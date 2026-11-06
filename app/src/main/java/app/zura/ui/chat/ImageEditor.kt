@@ -14,6 +14,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +26,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -68,6 +72,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -163,15 +168,28 @@ fun ImageEditor(
                 Canvas(
                     Modifier.fillMaxSize().pointerInput(mode, color, brush) {
                         if (mode != Mode.DRAW) return@pointerInput
-                        detectDragGestures(
-                            onDragStart = { o -> val s = Stroke2(color, brush, mutableStateListOf(Offset(o.x / w, o.y / h))); strokes += s; history += s },
-                        ) { change, _ -> change.consume(); strokes.lastOrNull()?.points?.add(Offset(change.position.x / w, change.position.y / h)) }
+                        // From the first touch (no drag threshold): a single tap leaves a dot.
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            down.consume()
+                            val pw = size.width.toFloat(); val ph = size.height.toFloat()
+                            val s = Stroke2(color, brush, mutableStateListOf(Offset(down.position.x / pw, down.position.y / ph)))
+                            strokes += s; history += s
+                            while (true) {
+                                val ch = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                                if (!ch.pressed) break
+                                if (ch.positionChanged()) { ch.consume(); s.points.add(Offset(ch.position.x / pw, ch.position.y / ph)) }
+                            }
+                        }
                     },
                 ) {
                     strokes.forEach { s ->
+                        if (s.points.size == 1) { // a dot
+                            drawCircle(s.color, s.width * size.width / 2, Offset(s.points[0].x * size.width, s.points[0].y * size.height))
+                            return@forEach
+                        }
                         val p = Path()
                         s.points.forEachIndexed { i, pt -> if (i == 0) p.moveTo(pt.x * size.width, pt.y * size.height) else p.lineTo(pt.x * size.width, pt.y * size.height) }
-                        if (s.points.size == 1) p.lineTo(s.points[0].x * size.width + 0.1f, s.points[0].y * size.height)
                         drawPath(p, s.color, style = Stroke(width = s.width * size.width, cap = StrokeCap.Round, join = StrokeJoin.Round))
                     }
                 }
@@ -192,8 +210,8 @@ fun ImageEditor(
             }
         }
 
-        // Top bar: cancel · undo · rotate · done
-        Row(Modifier.fillMaxWidth().padding(top = top).padding(horizontal = 6.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Top bar: cancel · undo · rotate · done — hidden while writing a text (that has its own).
+        if (typing == null) Row(Modifier.fillMaxWidth().padding(top = top).padding(horizontal = 6.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onCancel) { Icon(Icons.Default.Close, stringResource(R.string.cancel), tint = Color.White) }
             Spacer(Modifier.weight(1f))
             ToolChip(app.zura.ui.ZuraIcons.Undo, enabled = history.isNotEmpty()) {
@@ -232,7 +250,7 @@ fun ImageEditor(
 
         // Bottom: tools, colours, brush size
         // Above the phone's gesture / navigation bar (its height comes in [insets]).
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = bottom + 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (typing == null) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = bottom + 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 ModeChip(app.zura.ui.ZuraIcons.Brush, stringResource(R.string.edit_draw), mode == Mode.DRAW) { haptics.tick(); mode = Mode.DRAW }
                 ModeChip(app.zura.ui.ZuraIcons.TextFields, stringResource(R.string.edit_text), false) {
@@ -251,23 +269,7 @@ fun ImageEditor(
                     }
                 }
             }
-            androidx.compose.foundation.lazy.LazyRow(
-                Modifier.fillMaxWidth().padding(top = 10.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                items(PALETTE.size) { i ->
-                    val col = PALETTE[i]
-                    val sel = col == color
-                    val grow by animateFloatAsState(if (sel) 1.25f else 1f, ZuraMotion.Bouncy, label = "col")
-                    Box(
-                        Modifier.padding(4.dp).size(26.dp).graphicsLayer { scaleX = grow; scaleY = grow }.clip(CircleShape).background(col)
-                            .border(2.dp, if (sel) Color.White else Color.White.copy(alpha = 0.3f), CircleShape)
-                            .clickable { haptics.tick(); color = col; typing?.color = col },
-                    )
-                }
-            }
+            ColorRow(color, Modifier.padding(top = 10.dp)) { haptics.tick(); color = it }
         }
 
         // Writing / editing a text sticker.
@@ -276,7 +278,8 @@ fun ImageEditor(
             var value by remember(t) { mutableStateOf(t.text) }
             val focus = remember { FocusRequester() }
             LaunchedEffect(t) { runCatching { focus.requestFocus() } }
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)).imePadding()) {
+            val imeUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }.imePadding()) {
                 BasicTextField(
                     value, { value = it },
                     textStyle = TextStyle(color = t.color, fontSize = Zura.type.title.fontSize, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
@@ -285,13 +288,15 @@ fun ImageEditor(
                 )
                 Row(Modifier.align(Alignment.TopEnd).padding(top = top).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (!t.isNew) ToolChip(androidx.compose.material.icons.Icons.Default.Delete, true) { texts.remove(t); history.remove(t); typing = null }
-                    ToolChip(Icons.Default.Done, true) {
+                    ToolChip(Icons.Default.Done, true, accent = true) {
                         val txt = value.trim()
                         if (txt.isEmpty()) { if (!t.isNew) { texts.remove(t); history.remove(t) } }
                         else { t.text = txt; if (t.isNew) { t.isNew = false; texts += t; history += t } }
                         typing = null
                     }
                 }
+                // The text's colour, right above the keyboard (or the navigation bar).
+                ColorRow(t.color, Modifier.align(Alignment.BottomCenter).padding(bottom = if (imeUp) 12.dp else bottom + 12.dp)) { haptics.tick(); color = it; t.color = it }
             }
         }
     }
@@ -319,11 +324,35 @@ private val BRUSHES = listOf(0.006f, 0.012f, 0.024f)
 
 /** Round tool button: a 24 dp icon, exactly centred in a 48 dp circle. */
 @Composable
-private fun ToolChip(icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, onClick: () -> Unit) {
+private fun ToolChip(icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, accent: Boolean = false, onClick: () -> Unit) {
+    val bg = if (accent) Zura.colors.accent else Color(0xFF2C2C2E).copy(alpha = if (enabled) 1f else 0.6f)
+    val fg = if (accent) Zura.colors.onAccent else Color.White.copy(alpha = if (enabled) 1f else 0.35f)
     Box(
-        Modifier.size(48.dp).clip(CircleShape).background(Color.White.copy(alpha = if (enabled) 0.16f else 0.06f)).clickable(enabled = enabled, onClick = onClick),
+        Modifier.size(48.dp).clip(CircleShape).background(bg).clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, null, tint = Color.White.copy(alpha = if (enabled) 1f else 0.35f), modifier = Modifier.size(24.dp)) }
+    ) { Icon(icon, null, tint = fg, modifier = Modifier.size(24.dp)) }
+}
+
+/** The colours (scroll if the screen is narrow); the chosen one grows. */
+@Composable
+private fun ColorRow(selected: Color, modifier: Modifier = Modifier, onPick: (Color) -> Unit) {
+    androidx.compose.foundation.lazy.LazyRow(
+        modifier.fillMaxWidth(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        items(PALETTE.size) { i ->
+            val col = PALETTE[i]
+            val sel = col == selected
+            val grow by animateFloatAsState(if (sel) 1.25f else 1f, ZuraMotion.Bouncy, label = "col")
+            Box(
+                Modifier.padding(4.dp).size(26.dp).graphicsLayer { scaleX = grow; scaleY = grow }.clip(CircleShape).background(col)
+                    .border(2.dp, if (sel) Color.White else Color.White.copy(alpha = 0.3f), CircleShape)
+                    .clickable { onPick(col) },
+            )
+        }
+    }
 }
 
 /** Tool mode: icon + label, centred in a pill. */
@@ -380,9 +409,14 @@ private fun render(ctx: android.content.Context, g: app.zura.AppGraph, base: Bit
     }
     strokes.forEach { s ->
         paint.color = s.color.toArgb(); paint.strokeWidth = s.width * w
+        if (s.points.size == 1) { // a dot
+            paint.style = android.graphics.Paint.Style.FILL
+            canvas.drawCircle(s.points[0].x * w, s.points[0].y * h, s.width * w / 2, paint)
+            paint.style = android.graphics.Paint.Style.STROKE
+            return@forEach
+        }
         val p = android.graphics.Path()
         s.points.forEachIndexed { i, pt -> if (i == 0) p.moveTo(pt.x * w, pt.y * h) else p.lineTo(pt.x * w, pt.y * h) }
-        if (s.points.size == 1) p.lineTo(s.points[0].x * w + 0.5f, s.points[0].y * h)
         canvas.drawPath(p, paint)
     }
     val tp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
