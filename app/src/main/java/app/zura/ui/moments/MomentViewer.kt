@@ -217,7 +217,8 @@ private val MOMENT_REACTIONS = listOf("❤️", "😂", "😮", "😢", "🔥", 
 /** Bottom of MY moment: "👁 12" (opens the list) and a delete button. */
 @Composable
 private fun MyMomentBar(item: app.zura.core.model.Message, modifier: Modifier, onViewers: () -> Unit, onDelete: () -> Unit) {
-    val count = item.seenBy.size
+    val count = (item.seenBy.keys + item.reactions.keys).size
+    val top = item.reactions.values.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(3).joinToString("") { it.key }
     val shown by androidx.compose.animation.core.animateIntAsState(count, androidx.compose.animation.core.tween(500), label = "views")
     Row(
         modifier.fillMaxWidth()
@@ -232,6 +233,7 @@ private fun MyMomentBar(item: app.zura.core.model.Message, modifier: Modifier, o
             Text("👁", fontSize = 16.sp)
             Spacer(Modifier.width(8.dp))
             Text(shown.toString(), color = Color.White, style = app.zura.ui.theme.Zura.type.headline)
+            if (top.isNotEmpty()) { Spacer(Modifier.width(10.dp)); Text(top, fontSize = 16.sp) }
         }
         Spacer(Modifier.weight(1f))
         Box(
@@ -246,7 +248,8 @@ private fun MyMomentBar(item: app.zura.core.model.Message, modifier: Modifier, o
 private fun ViewersPanel(item: app.zura.core.model.Message, onClose: () -> Unit) {
     val g = LocalContext.current.graph
     val fmt = ZuraFormat(LocalConfiguration.current.locales[0])
-    val viewers = item.seenBy.entries.sortedByDescending { it.value }
+    // Everyone who saw it (or reacted — that's seeing too), newest first; their emoji by their name.
+    val viewers = (item.seenBy.keys + item.reactions.keys).map { it to (item.seenBy[it] ?: 0L) }.sortedByDescending { it.second }
     Column(
         Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
             .background(Color(0xF0141418)).clickable(enabled = false) {}.navigationBarsPadding().padding(vertical = 14.dp),
@@ -257,7 +260,7 @@ private fun ViewersPanel(item: app.zura.core.model.Message, onClose: () -> Unit)
         }
         if (viewers.isEmpty()) Text(androidx.compose.ui.res.stringResource(app.zura.R.string.moment_no_views), color = Color.White.copy(alpha = 0.6f), style = app.zura.ui.theme.Zura.type.label, modifier = Modifier.padding(20.dp))
         androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 340.dp)) {
-            items(viewers.size, key = { viewers[it].key }) { i ->
+            items(viewers.size, key = { viewers[it].first }) { i ->
                 val (uid, at) = viewers[i]
                 val p = g.s.contacts.profile(uid)
                 Row(
@@ -267,7 +270,8 @@ private fun ViewersPanel(item: app.zura.core.model.Message, onClose: () -> Unit)
                     app.zura.ui.components.UserAvatar(p?.displayName ?: "", (uid.hashCode() and 0xFFFF) % 360f, p?.avatarPath, 40.dp)
                     Spacer(Modifier.width(12.dp))
                     Text(p?.displayName ?: g.moments.nameFor(uid) ?: "…", color = Color.White, style = app.zura.ui.theme.Zura.type.label, modifier = Modifier.weight(1f))
-                    Text(fmt.time(at), color = Color.White.copy(alpha = 0.6f), style = app.zura.ui.theme.Zura.type.caption)
+                    item.reactions[uid]?.let { Text(it, fontSize = 22.sp, modifier = Modifier.padding(end = 10.dp)) }
+                    if (at > 0) Text(fmt.time(at), color = Color.White.copy(alpha = 0.6f), style = app.zura.ui.theme.Zura.type.caption)
                 }
             }
         }
@@ -313,9 +317,19 @@ private fun MomentReplyBar(ownerId: String, item: app.zura.core.model.Message, m
                 .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))))
                 .navigationBarsPadding().imePadding().padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
+            // An emoji reaches only them, next to my name in their viewers (no chat message).
+            // Typing a reply (below) sends it to our chat.
+            val mine = item.reactions[g.s.uid]
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 MOMENT_REACTIONS.forEach { e ->
-                    Text(e, fontSize = 30.sp, modifier = Modifier.clip(CircleShape).clickable { haptics.confirm(); burst = e; send(e) }.padding(6.dp))
+                    val on = e == mine
+                    val grow by androidx.compose.animation.core.animateFloatAsState(if (on) 1.18f else 1f, app.zura.ui.components.ZuraMotion.Bouncy, label = "react")
+                    Text(
+                        e, fontSize = 30.sp,
+                        modifier = Modifier.graphicsLayer { scaleX = grow; scaleY = grow }.clip(CircleShape)
+                            .background(if (on) Color.White.copy(alpha = 0.22f) else Color.Transparent)
+                            .clickable { haptics.confirm(); burst = e; g.s.scope.launch { g.moments.react(ownerId, item.id, e) } }.padding(6.dp),
+                    )
                 }
             }
             Spacer(Modifier.height(8.dp))

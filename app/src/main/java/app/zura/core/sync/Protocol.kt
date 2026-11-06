@@ -110,6 +110,10 @@ sealed interface Frame {
     @Serializable @SerialName("moment_seen")
     data class MomentSeen(val id: String, val from: String, val at: Long) : Frame
 
+    /** Viewer → owner: an emoji on the moment (null = removed). Not a chat message: it shows by their name. */
+    @Serializable @SerialName("moment_react")
+    data class MomentReact(val id: String, val from: String, val emoji: String?, val at: Long) : Frame
+
     /** Owner → contacts: the moment was deleted — remove it. */
     @Serializable @SerialName("moment_del")
     data class MomentDelete(val id: String, val from: String) : Frame

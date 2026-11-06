@@ -117,6 +117,33 @@ class MomentsRepository(
         store.update(f.id) { m -> if (m.senderId == me && from !in m.seenBy) m.copy(seenBy = m.seenBy + (from to f.at.coerceAtMost(System.currentTimeMillis()))) else m }
     }
 
+    /** Someone reacted to my moment (their name + emoji in my viewers; a notification). */
+    var onReaction: ((from: String, emoji: String, momentId: String) -> Unit)? = null
+
+    /**
+     * React to a contact's moment with an emoji: it reaches only them and shows next to my name in
+     * their viewers — no chat message (a typed reply still goes to the chat).
+     */
+    suspend fun react(owner: String, id: String, emoji: String) = withContext(Dispatchers.IO) {
+        store.update(id) { it.copy(reactions = it.reactions + (me to emoji), status = MsgStatus.READ) }
+        scope.launch {
+            if (transport.sendWithRetry(owner, Frame.MomentReact(id, me, emoji, System.currentTimeMillis()))) backend.push(owner, "sync")
+        }
+    }
+
+    suspend fun onReact(from: String, f: Frame.MomentReact) = withContext(Dispatchers.IO) {
+        if (f.from != from || from !in contacts()) return@withContext
+        val at = f.at.coerceAtMost(System.currentTimeMillis())
+        val m = store.update(f.id) { m ->
+            if (m.senderId != me) m
+            else m.copy(
+                reactions = if (f.emoji == null) m.reactions - from else m.reactions + (from to f.emoji),
+                seenBy = if (from in m.seenBy) m.seenBy else m.seenBy + (from to at), // reacting = seen
+            )
+        }
+        if (m?.senderId == me && f.emoji != null) onReaction?.invoke(from, f.emoji, f.id)
+    }
+
     /** A contact deleted their moment. */
     suspend fun onDeleted(from: String, f: Frame.MomentDelete) = withContext(Dispatchers.IO) {
         if (f.from != from) return@withContext

@@ -421,4 +421,10 @@
     <string name="chat_media">الوسائط</string>
     <string name="chat_media_all">عرض الكل</string>
     <string name="chat_media_none">لا صور أو فيديوهات بعد</string>
+    <string name="notif_invite">دعاك %1$s</string>
+    <string name="notif_invite_body">افتح Zura للقبول أو الرفض.</string>
+    <string name="notif_invite_ok">قبل %1$s دعوتك</string>
+    <string name="notif_invite_ok_body">قل مرحباً 👋</string>
+    <string name="notif_moment_react">تفاعل %1$s بـ %2$s على لحظتك</string>
+    <string name="social_channel">الدعوات والتفاعلات</string>
 </resources>

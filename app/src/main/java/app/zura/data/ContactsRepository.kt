@@ -153,6 +153,7 @@ class ContactsRepository(
             profiles[other]?.let { Invite(r.id, incoming = r.toId == me, profile = it, message = r.message, createdAt = r.createdAt) }
         }.sortedByDescending { it.createdAt }
         refreshBlockedMe()
+        runCatching { onRefreshed?.invoke(_contacts.value, _invites.value) }
         // One failing conversation must never block the others.
         _contacts.value.forEach { c -> runCatching { ensureChat(c.profile) }.onFailure { app.zura.DiagLog.record("ensureChat ${c.profile.id.take(8)}", it) } }
     }
@@ -211,8 +212,19 @@ class ContactsRepository(
         decodeList(SearchHit.serializer(), backend.client.postgrest.rpc("discover_profiles").data)
     }
 
+    /** Sent → their phone is woken to show "X invited you" (the server checks the invitation is real and fresh). */
     suspend fun sendInvite(uid: String, message: String?) = rpc("send_invite") { put("p_to", uid); put("p_message", message?.take(280)) }
-    suspend fun respond(inviteId: String, accept: Boolean) = rpc("respond_invite") { put("p_id", inviteId); put("p_accept", accept) }
+        .also { r -> if (r.isSuccess) scope.launch { runCatching { backend.push(uid, "invite") } } }
+
+    /** Accepted → the inviter's phone shows "X accepted your invitation". */
+    suspend fun respond(inviteId: String, accept: Boolean): Result<Unit> {
+        val from = _invites.value.firstOrNull { it.id == inviteId && it.incoming }?.profile?.id
+        return rpc("respond_invite") { put("p_id", inviteId); put("p_accept", accept) }
+            .also { r -> if (r.isSuccess && accept && from != null) scope.launch { kotlinx.coroutines.delay(800); runCatching { backend.push(from, "invite_ok") } } }
+    }
+
+    /** After every refresh: new invitations / accepted ones → notifications (see AccountSession). */
+    var onRefreshed: ((contacts: List<Contact>, invites: List<Invite>) -> Unit)? = null
     suspend fun cancel(inviteId: String) = rpc("cancel_invite") { put("p_id", inviteId) }
     suspend fun setBlocked(uid: String, blocked: Boolean) = rpc("set_blocked") { put("p_peer", uid); put("p_blocked", blocked) }
     suspend fun remove(uid: String) = rpc("remove_contact") { put("p_peer", uid) }

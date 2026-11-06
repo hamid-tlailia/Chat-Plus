@@ -143,6 +143,36 @@ class MessageNotifier(private val context: Context) {
         nm.cancel(chatId.hashCode())
     }
 
+    // ---------------------------------------------------------------- social (no message content)
+
+    /** "X invited you" → opens People (invitations). */
+    fun showInvite(inviteId: String, name: String, note: String?) =
+        social(("inv$inviteId").hashCode(), context.getString(R.string.notif_invite, name), note?.takeIf { it.isNotBlank() } ?: context.getString(R.string.notif_invite_body), openPeople())
+
+    /** "X accepted your invitation" → opens our new chat. */
+    fun showInviteAccepted(peerId: String, name: String, chatId: String) =
+        social(("ok$peerId").hashCode(), context.getString(R.string.notif_invite_ok, name), context.getString(R.string.notif_invite_ok_body), openChat(chatId))
+
+    /** "X reacted ❤️ to your moment". */
+    fun showMomentReaction(name: String, emoji: String, momentId: String) =
+        social(("mr$momentId$name").hashCode(), context.getString(R.string.notif_moment_react, name, emoji), null, openChat(null))
+
+    private fun social(id: Int, title: String, text: String?, open: PendingIntent) {
+        if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel(SOCIAL, context.getString(R.string.social_channel), NotificationManager.IMPORTANCE_HIGH))
+        val n = NotificationCompat.Builder(context, SOCIAL).setSmallIcon(R.drawable.ic_stat_zura)
+            .setContentTitle(title).apply { text?.let { setContentText(it) } }
+            .setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setContentIntent(open).build()
+        runCatching { NotificationManagerCompat.from(context).notify(id, n) }
+    }
+
+    private fun openPeople(): PendingIntent = PendingIntent.getActivity(
+        context, "people".hashCode(),
+        Intent(context, MainActivity::class.java).setAction(Intent.ACTION_VIEW).putExtra(MainActivity.EXTRA_OPEN, MainActivity.OPEN_PEOPLE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
     /** Messages channel with this chat's tone / vibration (Settings → Sounds, or the contact's page). */
     private fun channelFor(chatId: String?): String =
         runCatching { (context.applicationContext as app.zura.ZuraApp).graph.sounds.messageChannel(context, chatId, CHANNEL) }.getOrDefault(CHANNEL)
@@ -154,6 +184,7 @@ class MessageNotifier(private val context: Context) {
 
     private companion object {
         const val CHANNEL = "messages"
+        const val SOCIAL = "social"
         const val LOCKED_ID = 7100
     }
 }

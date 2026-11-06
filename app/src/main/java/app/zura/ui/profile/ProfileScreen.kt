@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.zura.R
+import androidx.compose.ui.graphics.graphicsLayer
 import app.zura.ui.components.appear
 import app.zura.account.Profile
 import app.zura.data.ContactsRepository
@@ -83,7 +84,7 @@ import java.io.ByteArrayOutputStream
 fun ProfileScreen(
     userId: String, onBack: () -> Unit, onOpenChat: (String) -> Unit,
     onOpenMedia: (chatId: String, messageId: String) -> Unit = { _, _ -> },
-    onAllMedia: (chatId: String) -> Unit = {},
+    onAllMedia: (chatId: String, kind: String?) -> Unit = { _, _ -> },
     onStudio: (chatId: String) -> Unit = {},
 ) {
     val ctx = LocalContext.current
@@ -224,7 +225,7 @@ private fun Field(value: String, onChange: (String) -> Unit, label: Int, prefix:
 @Composable
 private fun TheirActions(
     p: Profile, isContact: Boolean, blocked: Boolean, onOpenChat: (String) -> Unit, onBack: () -> Unit,
-    onOpenMedia: (String, String) -> Unit, onAllMedia: (String) -> Unit, onStudio: (String) -> Unit,
+    onOpenMedia: (String, String) -> Unit, onAllMedia: (String, String?) -> Unit, onStudio: (String) -> Unit,
 ) {
     val ctx = LocalContext.current
     val g = ctx.graph
@@ -250,13 +251,7 @@ private fun TheirActions(
         Spacer(Modifier.height(16.dp))
         // This chat's photos & videos.
         Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().appear(1).glass(RoundedCornerShape(22.dp), solid = 0.5f).padding(top = 14.dp, bottom = 4.dp)) {
-            app.zura.ui.profile.ChatMediaStrip(chatId, onOpen = { onOpenMedia(chatId, it) }, onAll = { onAllMedia(chatId) })
-        }
-        Spacer(Modifier.height(16.dp))
-        // This chat's colours (the app theme stays as it is).
-        Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().appear(2).glass(RoundedCornerShape(22.dp), solid = 0.5f).padding(vertical = 14.dp)) {
-            Text("🎨  " + stringResource(R.string.chat_colors), style = Zura.type.label, color = c.text, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp))
-            app.zura.ui.profile.ChatColorsPicker(chatId) { onStudio(chatId) }
+            app.zura.ui.profile.ChatMediaStrip(chatId, onOpen = { onOpenMedia(chatId, it) }, onAll = { kind -> onAllMedia(chatId, kind) })
         }
         Spacer(Modifier.height(16.dp))
     }
@@ -270,6 +265,19 @@ private fun TheirActions(
             }
         }
         if (isContact) {
+            // 2 · This chat's message colours (only this chat; the app theme stays as it is).
+            var showColors by remember { mutableStateOf(false) }
+            val turn by androidx.compose.animation.core.animateFloatAsState(if (showColors) 180f else 0f, label = "arrow")
+            Box(Modifier.fillMaxWidth().height(1.dp).background(c.divider))
+            Row(Modifier.fillMaxWidth().clickable { showColors = !showColors }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("🎨", style = Zura.type.headline)
+                Spacer(Modifier.width(12.dp))
+                Text(stringResource(R.string.chat_colors), style = Zura.type.label, color = c.text, modifier = Modifier.weight(1f))
+                Text("▼", style = Zura.type.caption, color = c.textMuted, modifier = Modifier.graphicsLayer { rotationZ = turn })
+            }
+            androidx.compose.animation.AnimatedVisibility(showColors) {
+                Column(Modifier.padding(bottom = 12.dp)) { app.zura.ui.profile.ChatColorsPicker(chatId) { onStudio(chatId) } }
+            }
             // Disappearing messages for this chat.
             val chatMeta by remember(chatId) { g.chats.meta(chatId) }.collectAsStateWithLifecycle(null)
             var pickTimer by remember { mutableStateOf(false) }

@@ -82,7 +82,7 @@ private enum class Sort { NEWEST, OLDEST, LARGEST }
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 /** [chatId]: only that chat's media (from its profile); null = every chat. */
-fun MediaVaultScreen(onBack: () -> Unit, onOpenMedia: (chatId: String, messageId: String) -> Unit, chatId: String? = null) {
+fun MediaVaultScreen(onBack: () -> Unit, onOpenMedia: (chatId: String, messageId: String) -> Unit, chatId: String? = null, initialKind: String? = null) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val c = Zura.colors
@@ -90,7 +90,7 @@ fun MediaVaultScreen(onBack: () -> Unit, onOpenMedia: (chatId: String, messageId
     val scope = rememberCoroutineScope()
     val fmt = remember { ZuraFormat(java.util.Locale.getDefault()) }
     var all by remember { mutableStateOf<List<ChatRepository.MediaItem>?>(null) }
-    var kind by remember { mutableStateOf(Kind.ALL) }
+    var kind by remember { mutableStateOf(initialKind?.let { k -> Kind.entries.firstOrNull { it.name == k } } ?: Kind.ALL) }
     var sort by remember { mutableStateOf(Sort.NEWEST) }
     var selected by remember { mutableStateOf(setOf<String>()) }
     var confirm by remember { mutableStateOf(false) }

@@ -96,6 +96,7 @@ class AccountSession(
             when (f) {
                 is Frame.MomentPost -> moments.handle(from, f)
                 is Frame.MomentSeen -> moments.onSeen(from, f)
+                is Frame.MomentReact -> moments.onReact(from, f)
                 is Frame.MomentDelete -> moments.onDeleted(from, f)
                 is Frame.Block -> if (f.from == from) contacts.markBlockedMe(from, f.blocked)
                 // Live voice only from accepted, unblocked contacts.
@@ -202,6 +203,30 @@ class AccountSession(
 
     fun contactIds(): List<String> = contacts.contacts.value.filterNot { it.blocked }.map { it.profile.id }
 
+    /**
+     * New invitation → "X invited you"; someone I invited is now a contact → "X accepted". Remembers
+     * what it already told (per account), so a refresh or a restart never repeats a notification.
+     */
+    @Synchronized private fun socialNotices(cs: List<app.zura.account.Contact>, invs: List<app.zura.account.Invite>) {
+        val prefs = app.getSharedPreferences("zura_social_$short", android.content.Context.MODE_PRIVATE)
+        val first = !prefs.getBoolean("init", false)
+        val known = prefs.getStringSet("seen_inv", emptySet()).orEmpty()
+        val pendingOut = prefs.getStringSet("out", emptySet()).orEmpty()
+        val dayAgo = System.currentTimeMillis() - 86_400_000L
+        invs.filter { it.incoming && it.id !in known }.forEach { inv ->
+            // First run after the update: only invitations from the last day (no burst of old ones).
+            val at = runCatching { java.time.Instant.parse(inv.createdAt).toEpochMilli() }.getOrDefault(0L)
+            if (!first || at > dayAgo) notifier.showInvite(inv.id, inv.profile.displayName, inv.message)
+        }
+        if (!first) cs.filter { it.profile.id in pendingOut && !it.blocked }.forEach { c ->
+            notifier.showInviteAccepted(c.profile.id, c.profile.displayName, ContactsRepository.dmChatId(uid, c.profile.id))
+        }
+        prefs.edit().putBoolean("init", true)
+            .putStringSet("seen_inv", (known + invs.filter { it.incoming }.map { it.id }).toSet().let { s -> if (s.size > 200) s.toList().takeLast(200).toSet() else s })
+            .putStringSet("out", invs.filter { !it.incoming }.map { it.profile.id }.toSet())
+            .apply()
+    }
+
     /** First run after sign-in: publish E2EE identity, start social graph sync. */
     fun bootstrap(notesTitle: String) {
         // Chat-list index + work deferred while the phone was locked (persisted across kills / reboots).
@@ -219,6 +244,8 @@ class AccountSession(
         scope.launch { contacts.contacts.collect { cs -> if (cs.isNotEmpty()) CallService.rememberNames(app, cs.associate { it.profile.id to it.profile.displayName }) } }
         // Locked-chat ids for notifications decrypted while the phone (and the index) is locked.
         scope.launch { chats.chats.collect { list -> if (list.isNotEmpty()) notifier.rememberLocked(list.filter { it.locked }.map { it.id }.toSet()) } }
+        contacts.onRefreshed = { cs, invs -> socialNotices(cs, invs) }
+        moments.onReaction = { from, emoji, id -> notifier.showMomentReaction(contacts.profile(from)?.displayName ?: "", emoji, id) }
         contacts.start()
         scope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(4_000)

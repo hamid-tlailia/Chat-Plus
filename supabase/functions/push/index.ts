@@ -23,7 +23,10 @@ const sa: ServiceAccount | null = (() => {
   try { return JSON.parse(Deno.env.get("FCM_SERVICE_ACCOUNT") ?? "null"); } catch { return null; }
 })();
 
-const KINDS = new Set(["msg", "call", "call_end"]);
+// invite: "X invited you" — allowed only for a pending invitation from the caller to the recipient,
+// sent in the last 10 minutes (no repeated nagging). invite_ok: "X accepted" — needs mutual contacts.
+// sync: wake the app to pull its inbox without showing anything (moment reactions, history restore).
+const KINDS = new Set(["msg", "call", "call_end", "invite", "invite_ok", "sync"]);
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -95,21 +98,26 @@ Deno.serve(async (req: Request) => {
     return json({ error: "payload too large" }, 413);
   }
 
-  // Must be mutual, non-blocked contacts. Both lookups run at once (one round-trip, not two);
-  // nothing is sent unless the contact check passes.
+  // Must be mutual, non-blocked contacts (or, for "invite", a fresh pending invitation). Both lookups
+  // run at once (one round-trip, not two); nothing is sent unless the check passes.
+  const isInvite = kind === "invite";
   const [{ data: rows, error }, { data: tokens }] = await Promise.all([
-    admin.from("contacts").select("owner_id,peer_id,blocked")
-      .or(`and(owner_id.eq.${me},peer_id.eq.${to}),and(owner_id.eq.${to},peer_id.eq.${me})`),
+    isInvite
+      ? admin.from("invitations").select("id").eq("from_id", me).eq("to_id", to).eq("status", "pending")
+          .gte("created_at", new Date(Date.now() - 10 * 60_000).toISOString()).limit(1)
+      : admin.from("contacts").select("owner_id,peer_id,blocked")
+          .or(`and(owner_id.eq.${me},peer_id.eq.${to}),and(owner_id.eq.${to},peer_id.eq.${me})`),
     admin.from("device_tokens").select("token").eq("user_id", to),
   ]);
   if (error) return json({ error: "db" }, 500);
-  if (!rows || rows.length !== 2 || rows.some((r) => r.blocked)) return json({ error: "forbidden" }, 403);
+  if (isInvite) { if (!rows?.length) return json({ error: "forbidden" }, 403); }
+  else if (!rows || rows.length !== 2 || rows.some((r: { blocked?: boolean }) => r.blocked)) return json({ error: "forbidden" }, 403);
 
   if (!sa || !bearerP) return json({ sent: 0, configured: false });
   if (!tokens?.length) return json({ sent: 0, configured: true });
 
   const bearer = await bearerP;
-  const isCall = kind !== "msg";
+  const isCall = kind === "call" || kind === "call_end";
   let sent = 0;
   await Promise.all(tokens.map(async ({ token }) => {
     const r = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
@@ -123,7 +131,8 @@ Deno.serve(async (req: Request) => {
             // HIGH bypasses Doze (calls always; messages for recipients who look offline).
             // NORMAL for recipients who look online: delivered promptly on an awake phone, and not
             // counted against the app when it ends without a notification (they got it live).
-            priority: isCall || body.priority !== "normal" ? "HIGH" : "NORMAL",
+            // "sync" never shows a notification: NORMAL, so Android doesn't count it against us.
+            priority: isCall || (kind !== "sync" && body.priority !== "normal") ? "HIGH" : "NORMAL",
             // A call invite is useless after it stops ringing. Messages are NOT collapsed: each push
             // may carry its own sealed message, shown on a locked phone right away.
             ttl: isCall ? "40s" : "86400s",

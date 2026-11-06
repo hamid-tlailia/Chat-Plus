@@ -11,6 +11,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -118,6 +120,24 @@ object ZuraPalettes {
         ZuraThemeId.OLED -> Oled
         ZuraThemeId.LIGHT -> Light
         ZuraThemeId.PEARL -> Pearl
+    }
+}
+
+/**
+ * "Read" ticks: a vivid colour chosen against MY bubble, so read (✓✓ coloured) never looks like
+ * delivered (✓✓ dimmed). Light bubbles → deep blue; blue bubbles → mint; purple / pink → cyan;
+ * everything else → sky blue.
+ */
+fun readTickFor(mine: Color): Color {
+    if (mine.luminance() > 0.42f) return Color(0xFF1D4ED8)
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(mine.toArgb(), hsv)
+    val (h, sat) = hsv[0] to hsv[1]
+    return when {
+        sat < 0.18f -> Color(0xFF38BDF8)          // grey / black bubbles
+        h in 185f..262f -> Color(0xFF6EFFC4)      // blue / indigo
+        h in 262f..345f -> Color(0xFF5EEBFF)      // violet / pink
+        else -> Color(0xFF38BDF8)                 // red, orange, green
     }
 }
 

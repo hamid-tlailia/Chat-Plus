@@ -93,6 +93,11 @@ class ZuraMessagingService : FirebaseMessagingService() {
                     session.calls.onPushInvite(invite)
                 }
                 "call_end" -> data["c"]?.let { session.calls.onPushCancelled(it, from) }
+                // Something that isn't a message (moment reaction, history restore…): just pull the
+                // inbox — no "new message" notification. A locked phone does it after unlock.
+                "sync" -> if (app.zura.security.DeviceLock.chatKeysUsable(this@ZuraMessagingService)) withTimeoutOrNull(8_000) { session.transport.syncInbox() }
+                // Invitation sent to me / accepted: refresh the social graph — it notifies what's new.
+                "invite", "invite_ok" -> withTimeoutOrNull(8_000) { runCatching { session.contacts.refresh() } }
             }
         } } finally {
             // Call push that didn't become a call (blocked, expired, account not ready): silence it.

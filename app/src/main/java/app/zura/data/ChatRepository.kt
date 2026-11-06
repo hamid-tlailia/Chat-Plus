@@ -267,11 +267,11 @@ class ChatRepository(
         }
     }
 
-    /** One chat's photos & videos (ready ones), newest first — for its profile. */
+    /** One chat's media (photos, videos, voice, files — ready ones), newest first — for its profile. */
     suspend fun mediaOf(chatId: String): List<Message> = withContext(Dispatchers.IO) {
         if (!vault.exists(chatId)) return@withContext emptyList()
         vault.chat(chatId).messages.value
-            .filter { (it.kind == MsgKind.IMAGE || it.kind == MsgKind.VIDEO) && it.media?.isPlaceholder == false }
+            .filter { it.media?.isPlaceholder == false && it.kind != MsgKind.CALL && it.kind != MsgKind.EVENT }
             .sortedByDescending { it.sentAt }
     }
 

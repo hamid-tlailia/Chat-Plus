@@ -1,14 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Adaptive-icon foreground: a dark disc (exactly the 72dp circular mask) with the gold Z.
-     Drawing the circle ourselves keeps the icon round even on launchers whose mask is a
-     squircle or square (MIUI, some Samsung themes). -->
+<!-- Adaptive-icon foreground: just the gold Z, centred well inside the 66dp safe zone — no ring,
+     nothing near the launcher's mask edge. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#0B0B10"
-        android:pathData="M54,18a36,36 0,1 1,0 72a36,36 0,1 1,0 -72z" />
-    <path android:strokeColor="#40D4AF6A" android:strokeWidth="1"
-        android:pathData="M54,20.5a33.5,33.5 0,1 1,0 67a33.5,33.5 0,1 1,0 -67z" />
     <path android:fillColor="#D4AF6A"
         android:pathData="M38,40h32v5.5L46.5,65h23.5v5.5H38V65l23.5,-19.5H38z" />
 </vector>

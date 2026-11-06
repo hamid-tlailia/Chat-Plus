@@ -421,4 +421,10 @@
     <string name="chat_media">Media</string>
     <string name="chat_media_all">See all</string>
     <string name="chat_media_none">No photos or videos yet</string>
+    <string name="notif_invite">%1$s invited you</string>
+    <string name="notif_invite_body">Open Zura to accept or decline.</string>
+    <string name="notif_invite_ok">%1$s accepted your invitation</string>
+    <string name="notif_invite_ok_body">Say hello 👋</string>
+    <string name="notif_moment_react">%1$s reacted %2$s to your moment</string>
+    <string name="social_channel">Invitations &amp; reactions</string>
 </resources>

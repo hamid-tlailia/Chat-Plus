@@ -70,8 +70,8 @@ sealed interface Route {
     data object Settings : Route
     /** One section of the settings (appearance, privacy, …). */
     data class SettingsPage(val key: String) : Route
-    /** Media vault; [chatId] = one chat's media only. */
-    data class Vault(val chatId: String? = null) : Route
+    /** Media vault; [chatId] = one chat's media only, opened on [kind] (PHOTOS, VIDEOS, AUDIO, FILES). */
+    data class Vault(val chatId: String? = null, val kind: String? = null) : Route
     /** Theme Studio; [chatId] = design that chat's style. */
     data class Studio(val chatId: String? = null) : Route
     data class Moments(val startOwner: String) : Route
@@ -98,6 +98,7 @@ class Navigator(start: Route) {
 class MainActivity : ComponentActivity() {
 
     private val deepLink = MutableStateFlow<String?>(null)
+    private val openScreen = MutableStateFlow<String?>(null)
 
     override fun attachBaseContext(newBase: Context) = super.attachBaseContext(LocaleEngine.wrap(newBase))
 
@@ -111,6 +112,7 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
         deepLink.value = intent.getStringExtra(EXTRA_CHAT)
+        openScreen.value = intent.getStringExtra(EXTRA_OPEN)
         deepLink.value?.let(::prewarm)
         handleAnswer(intent)
         handleAuthLink(intent)
@@ -168,6 +170,8 @@ class MainActivity : ComponentActivity() {
         }
         val link by deepLink.collectAsStateWithLifecycle()
         LaunchedEffect(link) { link?.let { nav.reset(Route.Chats, Route.Chat(it), instant = true); deepLink.value = null } }
+        val open by openScreen.collectAsStateWithLifecycle()
+        LaunchedEffect(open) { if (open == OPEN_PEOPLE) { nav.reset(Route.Chats, Route.People, instant = true); openScreen.value = null } }
         LaunchedEffect(session) {
             session.chats.chats.debounce(2_000).collect { DirectShare.publish(this@MainActivity, it) }
         }
@@ -266,6 +270,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_CHAT)?.let { deepLink.value = it; prewarm(it) }
+        intent.getStringExtra(EXTRA_OPEN)?.let { openScreen.value = it }
         handleAnswer(intent)
         handleAuthLink(intent)
     }
@@ -279,7 +284,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    companion object { const val EXTRA_CHAT = "zura.chat" }
+    companion object {
+        const val EXTRA_CHAT = "zura.chat"
+        /** Open a screen from a notification ([OPEN_PEOPLE] = contacts & invitations). */
+        const val EXTRA_OPEN = "zura.open"
+        const val OPEN_PEOPLE = "people"
+    }
 }
 
 @Composable
@@ -314,7 +324,7 @@ internal fun NavHost(nav: Navigator) {
                 nav.pop(); if (below != Route.Chat(chatId)) nav.push(Route.Chat(chatId))
             },
                 onOpenMedia = { chatId, id -> nav.push(Route.Media(chatId, id)) },
-                onAllMedia = { nav.push(Route.Vault(it)) },
+                onAllMedia = { id, kind -> nav.push(Route.Vault(id, kind)) },
                 onStudio = { nav.push(Route.Studio(it)) },
             )
             is Route.Chat -> ChatScreen(route.id, onBack = { nav.pop() }, onOpenMedia = { nav.push(Route.Media(route.id, it)) }, onOpenProfile = { nav.push(Route.Profile(it)) })
@@ -329,7 +339,7 @@ internal fun NavHost(nav: Navigator) {
                 onVault = { nav.push(Route.Vault()) },
             )
             is Route.Studio -> app.zura.ui.theme.ThemeStudioScreen(onBack = { nav.pop() }, chatId = route.chatId)
-            is Route.Vault -> app.zura.ui.vault.MediaVaultScreen(onBack = { nav.pop() }, onOpenMedia = { chatId, id -> nav.push(Route.Media(chatId, id)) }, chatId = route.chatId)
+            is Route.Vault -> app.zura.ui.vault.MediaVaultScreen(onBack = { nav.pop() }, onOpenMedia = { chatId, id -> nav.push(Route.Media(chatId, id)) }, chatId = route.chatId, initialKind = route.kind)
             is Route.Moments -> MomentViewer(route.startOwner, onClose = { nav.pop() })
             is Route.Media -> MediaViewer(route.chatId, route.messageId, onClose = { nav.pop() })
         }

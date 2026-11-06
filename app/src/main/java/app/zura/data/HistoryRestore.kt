@@ -71,7 +71,7 @@ class HistoryRestore(
         prefs.edit().putLong(REQ + chatId, System.currentTimeMillis()).apply()
         _state.update { it + (chatId to State.REQUESTED) }
         val ok = transport.sendWithRetry(peer, Frame.HistoryRequest(chatId, me, System.currentTimeMillis()), attempts = 3)
-        if (ok) scope.launch { backend.push(peer, "msg") } // wake their phone: it pulls the request from its inbox
+        if (ok) scope.launch { backend.push(peer, "sync") } // wake their phone: it pulls the request from its inbox
         else {
             prefs.edit().remove(REQ + chatId).apply()
             _state.update { it + (chatId to State.FAILED) }
@@ -170,7 +170,7 @@ class HistoryRestore(
         batches += cur
         var ok = true
         batches.forEachIndexed { i, b -> if (ok) ok = transport.sendWithRetry(to, Frame.HistoryChunk(chatId, me, i, i == batches.lastIndex, b)) }
-        if (ok) scope.launch { backend.push(to, "msg") }
+        if (ok) scope.launch { backend.push(to, "sync") }
         DiagLog.record("history", detail = "sent ${out.size} messages (${uploaded.size} media) in ${batches.size} batches → ${if (ok) "ok" else "FAILED"}")
         withContext(Dispatchers.Main) {
             android.widget.Toast.makeText(app, if (ok) app.getString(R.string.history_sent_toast, nameOf(to) ?: "") else app.getString(R.string.history_restore_failed), android.widget.Toast.LENGTH_SHORT).show()

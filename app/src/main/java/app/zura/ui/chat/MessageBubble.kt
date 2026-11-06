@@ -334,15 +334,19 @@ val LocalShowReadTicks = androidx.compose.runtime.staticCompositionLocalOf { tru
 private fun StatusTick(s: MsgStatus, muted: Color) {
     val showRead = LocalShowReadTicks.current
     val c = Zura.colors
-    val scale by animateFloatAsState(1f, ZuraMotion.Bouncy, label = "tick")
+    val read = s == MsgStatus.READ && showRead
+    // Turning read: a small pop, so the change catches the eye.
+    val scale = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(read) { if (read) { scale.snapTo(1.35f); scale.animateTo(1f, ZuraMotion.Bouncy) } }
     val (icon, tint) = when (s) {
         MsgStatus.PENDING -> ZuraIcons.Clock to muted
-        MsgStatus.SENT -> Icons.Default.Done to muted
-        MsgStatus.DELIVERED -> ZuraIcons.DoneAll to muted
-        MsgStatus.READ -> ZuraIcons.DoneAll to if (showRead) c.read else muted
+        MsgStatus.SENT -> Icons.Default.Done to muted.copy(alpha = muted.alpha * 0.85f)
+        MsgStatus.DELIVERED -> ZuraIcons.DoneAll to muted.copy(alpha = muted.alpha * 0.85f)
+        // Read: a vivid colour that stands out on THIS chat's bubble (never a pale near-white).
+        MsgStatus.READ -> ZuraIcons.DoneAll to if (showRead) app.zura.ui.theme.readTickFor(c.bubbleMine) else muted
         MsgStatus.FAILED -> Icons.Default.Warning to c.danger
     }
-    Icon(icon, s.name, tint = tint, modifier = Modifier.size(15.dp).graphicsLayer { scaleX = scale; scaleY = scale })
+    Icon(icon, s.name, tint = tint, modifier = Modifier.size(if (read) 17.dp else 15.dp).graphicsLayer { scaleX = scale.value; scaleY = scale.value })
 }
 
 @Composable

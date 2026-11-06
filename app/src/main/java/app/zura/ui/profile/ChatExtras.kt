@@ -116,28 +116,51 @@ fun bubbleName(s: BubbleStyle) = when (s) {
     BubbleStyle.GRAPHITE -> R.string.bubbles_graphite
 }
 
-/** This chat's photos & videos, newest first: a strip in its profile ("See all" → the full grid). */
+/**
+ * This chat's media, organised by type: chips with counts (photos · videos · voice & audio ·
+ * files), each opening the full grid on that type; below, the latest photos & videos.
+ */
 @Composable
-fun ChatMediaStrip(chatId: String, onOpen: (String) -> Unit, onAll: () -> Unit) {
+fun ChatMediaStrip(chatId: String, onOpen: (String) -> Unit, onAll: (kind: String?) -> Unit) {
     val g = LocalContext.current.graph
     val c = Zura.colors
     val media by produceState<List<Message>?>(null, chatId) { value = g.chats.mediaOf(chatId) }
+    val all = media
+    fun isAudio(m: Message) = m.kind == MsgKind.VOICE || m.media?.mime?.startsWith("audio/") == true
+    val visual = all.orEmpty().filter { it.kind == MsgKind.IMAGE || it.kind == MsgKind.VIDEO }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("🖼️  " + stringResource(R.string.chat_media), style = Zura.type.label, color = c.text, modifier = Modifier.weight(1f))
-        media?.let { Text(it.size.toString(), style = Zura.type.caption, color = c.textMuted) }
-        if (!media.isNullOrEmpty()) Text(
-            "  " + stringResource(R.string.chat_media_all) + forward(), style = Zura.type.label, color = c.accent,
-            modifier = Modifier.clip(CircleShape).clickable(onClick = onAll).padding(vertical = 4.dp),
+        if (!all.isNullOrEmpty()) Text(
+            all.size.toString() + "  " + stringResource(R.string.chat_media_all) + forward(), style = Zura.type.label, color = c.accent,
+            modifier = Modifier.clip(CircleShape).clickable { onAll(null) }.padding(vertical = 4.dp),
         )
     }
-    val list = media
-    when {
-        list == null -> Box(Modifier.fillMaxWidth().padding(16.dp))
-        list.isEmpty() -> Text(stringResource(R.string.chat_media_none), style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(16.dp))
-        else -> LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(list.take(30), key = { it.id }) { m ->
-                Thumb(chatId, m, Modifier.appear(list.indexOf(m)).clickable { onOpen(m.id) })
+    if (all == null) { Box(Modifier.fillMaxWidth().padding(16.dp)); return }
+    if (all.isEmpty()) { Text(stringResource(R.string.chat_media_none), style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(16.dp)); return }
+    // By type.
+    val types = listOf(
+        Triple("PHOTOS", "📷 " + stringResource(R.string.vault_photos), all.count { it.kind == MsgKind.IMAGE }),
+        Triple("VIDEOS", "🎬 " + stringResource(R.string.vault_videos), all.count { it.kind == MsgKind.VIDEO }),
+        Triple("AUDIO", "🎙️ " + stringResource(R.string.vault_audio), all.count { isAudio(it) }),
+        Triple("FILES", "📄 " + stringResource(R.string.vault_files), all.count { it.kind == MsgKind.FILE && !isAudio(it) }),
+    ).filter { it.third > 0 }
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(types.size) { i ->
+            val (key, label, n) = types[i]
+            Row(
+                Modifier.appear(i).clip(CircleShape).background(c.surfaceHigh).clickable { onAll(key) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(label, style = Zura.type.label, color = c.text)
+                Box(Modifier.padding(start = 8.dp).clip(CircleShape).background(c.accent.copy(alpha = 0.18f)).padding(horizontal = 7.dp, vertical = 1.dp)) {
+                    Text(n.toString(), style = Zura.type.caption, color = c.accent)
+                }
             }
+        }
+    }
+    if (visual.isNotEmpty()) LazyRow(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(visual.take(30), key = { it.id }) { m ->
+            Thumb(chatId, m, Modifier.appear(visual.indexOf(m)).clickable { onOpen(m.id) })
         }
     }
 }
