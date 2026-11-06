@@ -24,12 +24,15 @@ import android.os.VibratorManager
 object Ringer {
     private var ringtone: Ringtone? = null
     private var vibrating = false
+    /** Started for this ring (also when the phone is silent and nothing plays). */
+    private var active = false
     private var vibrator: Vibrator? = null
 
-    val isRinging: Boolean @Synchronized get() = ringtone?.isPlaying == true || vibrating
+    val isRinging: Boolean @Synchronized get() = active
 
     @Synchronized fun start(context: Context, peerId: String? = null) {
-        if (isRinging) return // never stack a second ringtone
+        if (active) return // never stack a second ringtone (nor re-log a silent one)
+        active = true
         val c = context.applicationContext
         val am = c.getSystemService(AudioManager::class.java) ?: return
         val sounds = runCatching { (c as app.zura.ZuraApp).graph.sounds }.getOrNull()
@@ -58,6 +61,7 @@ object Ringer {
     }
 
     @Synchronized fun stop() {
+        active = false
         runCatching { ringtone?.stop() }
         ringtone = null
         if (vibrating) runCatching { vibrator?.cancel() }

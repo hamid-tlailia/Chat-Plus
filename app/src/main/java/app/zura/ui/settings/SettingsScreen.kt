@@ -112,6 +112,19 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}, onPage: (Stri
                 MenuRow("🎨", 0xFF8B7CFF, stringResource(R.string.settings_appearance),
                     if (auto) "☀️ " + stringResource(themeName(day)) + " · 🌙 " + stringResource(themeName(night)) else stringResource(themeName(theme))) { onPage(PAGE_APPEARANCE) }
                 MenuDivider()
+                // Language: right here (a sheet with the two choices), not hidden in a page.
+                val lang = remember { LocaleEngine.current(ctx) }
+                var pickLang by remember { androidx.compose.runtime.mutableStateOf(false) }
+                MenuRow("🌐", 0xFF14B8A6, stringResource(R.string.language),
+                    stringResource(if (lang == LocaleEngine.Lang.EN) R.string.lang_en else R.string.lang_ar)) { pickLang = true }
+                if (pickLang) app.zura.ui.components.PickerSheet(
+                    title = stringResource(R.string.language), hint = null,
+                    options = LocaleEngine.Lang.entries.map { it to (if (it == LocaleEngine.Lang.EN) "English" else "العربية") },
+                    selected = lang,
+                    onPick = { l -> pickLang = false; if (l != lang) LocaleEngine.set(ctx as Activity, l) },
+                    onDismiss = { pickLang = false },
+                )
+                MenuDivider()
                 MenuRow("🔔", 0xFFF59E0B, stringResource(R.string.settings_notifications), stringResource(R.string.settings_notifications_sub)) { onPage(PAGE_NOTIFICATIONS) }
             }
         }
@@ -180,25 +193,7 @@ fun SettingsPageScreen(page: String, onBack: () -> Unit, onProfile: () -> Unit, 
             }
         }
         when (page) {
-            PAGE_APPEARANCE -> {
-                item { Section(R.string.theme, n++) { ThemeSection() } }
-                item {
-                    Section(R.string.language, n++) {
-                        val current = remember { LocaleEngine.current(ctx) }
-                        Row(Modifier.fillMaxWidth().clip(CircleShape).background(c.surfaceHigh).padding(4.dp)) {
-                            LocaleEngine.Lang.entries.forEach { l ->
-                                val sel = l == current
-                                Box(
-                                    Modifier.weight(1f).clip(CircleShape).background(if (sel) c.accent else c.surfaceHigh)
-                                        .clickable(enabled = !sel) { haptics.tick(); LocaleEngine.set(ctx as Activity, l) }
-                                        .padding(vertical = 10.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) { Text(stringResource(if (l == LocaleEngine.Lang.EN) R.string.lang_en else R.string.lang_ar), color = if (sel) c.onAccent else c.text, style = Zura.type.label) }
-                            }
-                        }
-                    }
-                }
-            }
+            PAGE_APPEARANCE -> item { Section(R.string.theme, n++) { ThemeSection() } }
             PAGE_NOTIFICATIONS -> item {
                 Section(R.string.sounds, n++) {
                     SoundRows(chatId = null, peerId = null)

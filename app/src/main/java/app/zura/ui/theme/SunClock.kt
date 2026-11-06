@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import app.zura.data.SettingsStore
+import app.zura.DiagLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,7 +33,9 @@ object SunClock {
     /** Sunrise / sunset on [date] (null = the sun doesn't rise / set that day: polar). */
     fun times(lat: Double, lon: Double, date: LocalDate): Pair<Instant?, Instant?> {
         val rad = Math.PI / 180
-        val jd = date.toEpochDay() + 2440588.0 // Julian day at noon UTC
+        // Julian date at 00:00 UTC of [date]. (Using noon here made n round up to TOMORROW: the
+        // app compared "now" with tomorrow's sunrise / sunset and stayed on the night theme.)
+        val jd = date.toEpochDay() + 2440587.5
         val n = Math.ceil(jd - 2451545.0 + 0.0008)
         val jStar = n - lon / 360.0
         val m = (357.5291 + 0.98560028 * jStar) % 360
@@ -78,6 +81,7 @@ object SunClock {
 /** Keeps [SettingsStore.daylight] true between sunrise and sunset while the automatic theme is on. */
 class ThemeClock(private val app: Context, private val settings: SettingsStore, private val scope: CoroutineScope) {
     private val _today = MutableStateFlow<SunClock.Day?>(null)
+    private var lastLogged: Boolean? = null
     /** Today's sunrise / sunset (for the settings screen). */
     val today: StateFlow<SunClock.Day?> = _today.asStateFlow()
 
@@ -94,6 +98,11 @@ class ThemeClock(private val app: Context, private val settings: SettingsStore, 
                     val noon = java.time.ZonedDateTime.now().withHour(12)
                     val decl = 23.44 * sin(Math.toRadians(360.0 / 365 * (noon.dayOfYear - 81)))
                     90 - kotlin.math.abs(day.place.lat - decl) > 0
+                }
+                if (up != lastLogged) {
+                    lastLogged = up
+                    val tf = java.time.format.DateTimeFormatter.ofPattern("HH:mm").withZone(java.time.ZoneId.systemDefault())
+                    DiagLog.record("theme", detail = "auto → ${if (up) "day" else "night"} (sunrise ${rise?.let(tf::format)}, sunset ${set?.let(tf::format)}, place ${if (day.place.estimated) "from time zone" else "approx. location"})")
                 }
                 settings.setDaylight(up)
                 // Sleep until the next sunrise / sunset (re-checked at least every 30 min: travel, time-zone change).

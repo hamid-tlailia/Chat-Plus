@@ -38,8 +38,8 @@ android {
         applicationId = "app.zura"
         minSdk = 26
         targetSdk = 35
-        versionCode = 38
-        versionName = "0.9.20"
+        versionCode = 39
+        versionName = "0.9.21"
         // Supabase project "zura". The publishable key is designed to ship in clients:
         // every table is protected by Row Level Security, the key alone grants nothing.
         buildConfigField("String", "SUPABASE_URL", "\"https://vsilugnplrtguvwlmzjc.supabase.co\"")
