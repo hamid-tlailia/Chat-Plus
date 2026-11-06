@@ -98,7 +98,13 @@ import kotlin.math.roundToInt
  * All positions are kept as fractions of the image, so the result matches what's on screen.
  */
 @Composable
-fun ImageEditor(source: Attachment, onDone: (Attachment) -> Unit, onCancel: () -> Unit) {
+fun ImageEditor(
+    source: Attachment, onDone: (Attachment) -> Unit, onCancel: () -> Unit,
+    /** The phone's status / navigation bar sizes (measured by the screen that opens the editor). */
+    insets: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(),
+) {
+    val top = insets.calculateTopPadding()
+    val bottom = insets.calculateBottomPadding()
     val ctx = LocalContext.current
     val g = ctx.graph
     val haptics = rememberHaptics()
@@ -121,7 +127,7 @@ fun ImageEditor(source: Attachment, onDone: (Attachment) -> Unit, onCancel: () -
     Box(Modifier.fillMaxSize().background(Color.Black).clickable(enabled = false) {}) {
         val bmp = base
         if (bmp == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
-        else BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(top = 64.dp, bottom = 132.dp), contentAlignment = Alignment.Center) {
+        else BoxWithConstraints(Modifier.fillMaxSize().padding(top = top + 64.dp, bottom = bottom + 150.dp), contentAlignment = Alignment.Center) {
             // The photo fitted on screen; everything is drawn in its coordinates (fractions).
             val ratio = bmp.width.toFloat() / bmp.height
             val boxRatio = constraints.maxWidth.toFloat() / constraints.maxHeight
@@ -164,7 +170,7 @@ fun ImageEditor(source: Attachment, onDone: (Attachment) -> Unit, onCancel: () -
         }
 
         // Top bar: cancel · undo · rotate · done
-        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 6.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(top = top).padding(horizontal = 6.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onCancel) { Icon(Icons.Default.Close, stringResource(R.string.cancel), tint = Color.White) }
             Spacer(Modifier.weight(1f))
             ToolChip(app.zura.ui.ZuraIcons.Undo, enabled = history.isNotEmpty()) {
@@ -202,7 +208,8 @@ fun ImageEditor(source: Attachment, onDone: (Attachment) -> Unit, onCancel: () -
         }
 
         // Bottom: tools, colours, brush size
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        // Above the phone's gesture / navigation bar (its height comes in [insets]).
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = bottom + 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 ModeChip(app.zura.ui.ZuraIcons.Brush, stringResource(R.string.edit_draw), mode == Mode.DRAW) { haptics.tick(); mode = Mode.DRAW }
                 ModeChip(app.zura.ui.ZuraIcons.TextFields, stringResource(R.string.edit_text), false) {
@@ -253,7 +260,7 @@ fun ImageEditor(source: Attachment, onDone: (Attachment) -> Unit, onCancel: () -
                     cursorBrush = SolidColor(Color.White),
                     modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(24.dp).focusRequester(focus),
                 )
-                Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.align(Alignment.TopEnd).padding(top = top).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (!t.isNew) ToolChip(androidx.compose.material.icons.Icons.Default.Delete, true) { texts.remove(t); history.remove(t); typing = null }
                     ToolChip(Icons.Default.Done, true) {
                         val txt = value.trim()

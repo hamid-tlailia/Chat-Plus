@@ -659,10 +659,7 @@ private fun TransferRing(p: app.zura.media.Transfers.Progress, modifier: Modifie
             progress = { shown }, modifier = Modifier.fillMaxSize().padding(6.dp), color = Color.White, strokeWidth = 3.dp,
             trackColor = Color.White.copy(alpha = 0.25f),
         )
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("${(shown * 100).toInt()}%", style = Zura.type.caption, color = Color.White)
-            Text(stringResource(if (p.compressing) R.string.transfer_preparing else R.string.transfer_sending), style = Zura.type.caption.copy(fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp)), color = Color.White.copy(alpha = 0.8f))
-        }
+        Text("${(shown * 100).toInt()}%", style = Zura.type.label, color = Color.White)
     }
 }
 

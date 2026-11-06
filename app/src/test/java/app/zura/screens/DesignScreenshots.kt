@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.graphics.asImageBitmap
@@ -291,7 +292,8 @@ class DesignScreenshots {
     @Test fun s24_photo_editor() {
         val file = java.io.File(rule.activity.cacheDir, "edit.jpg").apply { writeBytes(gradientJpeg(1200, 900).second) }
         shoot("24_photo_editor_en", false, ZuraThemeId.MIDNIGHT) {
-            app.zura.ui.chat.ImageEditor(app.zura.share.Attachment(android.net.Uri.fromFile(file), "image/jpeg", "edit.jpg"), {}, {})
+            app.zura.ui.chat.ImageEditor(app.zura.share.Attachment(android.net.Uri.fromFile(file), "image/jpeg", "edit.jpg"), {}, {},
+                insets = androidx.compose.foundation.layout.PaddingValues(top = 32.dp, bottom = 48.dp))
         }
     }
     @Test fun s18_lock_ar() = shoot("18_app_lock_velvet_ar", true, ZuraThemeId.VELVET_GOLD, setup = {

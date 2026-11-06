@@ -205,8 +205,14 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
                 val placeholder = if (a.video) g.videoCompressor.placeholder(a.uri) else g.imageCompressor.placeholder(a.uri, a.mime)
                 val msg = runCatching { g.chats.beginMedia(chatId, if (a.video) MsgKind.VIDEO else MsgKind.IMAGE, placeholder, caption) }.getOrNull() ?: return@launch
                 runCatching {
-                    val ref = if (a.video) g.videoCompressor.import(chatId, a.uri) { f -> app.zura.media.Transfers.set(msg.id, true, f) }
-                    else g.imageCompressor.import(chatId, a.uri)
+                    val ref = try {
+                        if (a.video) g.videoCompressor.import(chatId, a.uri) { f -> app.zura.media.Transfers.set(msg.id, true, f) }
+                        else g.imageCompressor.import(chatId, a.uri)
+                    } finally {
+                        // Compression is over: never leave its percentage behind (Saved notes has no
+                        // upload step to clear it — the ring stayed at "93 %" after sending).
+                        app.zura.media.Transfers.clear(msg.id)
+                    }
                     g.chats.completeMedia(chatId, msg.id, ref)
                 }.onFailure { app.zura.media.Transfers.clear(msg.id); g.chats.failMedia(chatId, msg.id) }
             } else runCatching {
