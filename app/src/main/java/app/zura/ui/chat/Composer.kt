@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -94,6 +95,15 @@ import kotlin.math.roundToInt
 
 @Composable
 fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Modifier = Modifier) {
+    // Replying (swipe, or the menu) / editing: straight into the text field, keyboard up.
+    val inputFocus = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    androidx.compose.runtime.LaunchedEffect(vm.replyTo?.id, vm.editing?.id) {
+        if (vm.replyTo != null || vm.editing != null) {
+            kotlinx.coroutines.delay(60) // let the reply banner settle first
+            runCatching { inputFocus.requestFocus(); keyboard?.show() }
+        }
+    }
     val ctx = LocalContext.current
     val c = Zura.colors
     val live by vm.recorder.live.collectAsStateWithLifecycle()
@@ -144,7 +154,7 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
                 }
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(if (vm.editing != null) R.string.action_edit else R.string.action_reply), style = Zura.type.caption, color = c.accent)
-                    Text(target?.text ?: target?.let { stringResource(kindLabel(it.kind)) } ?: "", style = Zura.type.label, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(target?.let { quoteLabel(it) } ?: "", style = Zura.type.label, color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 IconButton(onClick = {
                     if (vm.editing != null) vm.draft = androidx.compose.ui.text.input.TextFieldValue("")
@@ -180,7 +190,7 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
                             cursorBrush = SolidColor(c.accent),
                             maxLines = 6,
                             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                            modifier = Modifier.weight(1f).padding(vertical = 14.dp).padding(end = 14.dp),
+                            modifier = Modifier.weight(1f).padding(vertical = 14.dp).padding(end = 14.dp).focusRequester(inputFocus),
                             decorationBox = { inner ->
                                 if (vm.draft.text.isEmpty()) Text(stringResource(if (vm.pending.isNotEmpty()) R.string.add_caption else R.string.message_hint), style = Zura.type.body, color = c.textMuted)
                                 inner()

@@ -387,8 +387,10 @@ class ChatRepository(
             if (ref.remoteBlobId == null) {
                 // Upload the vault file as-is: it is already ciphertext under a per-file key.
                 val path = "$me/${UUID.randomUUID()}"
-                runCatching { backend.upload("blobs", path, vault.mediaFile(msg.chatId, ref)) }
-                    .onFailure { app.zura.DiagLog.record("blob upload", it); store.upsert(msg.copy(status = notSent())); return }
+                runCatching {
+                    try { backend.upload("blobs", path, vault.mediaFile(msg.chatId, ref)) { f -> app.zura.media.Transfers.set(msg.id, false, f) } }
+                    finally { app.zura.media.Transfers.clear(msg.id) }
+                }.onFailure { app.zura.DiagLog.record("blob upload", it); store.upsert(msg.copy(status = notSent())); return }
                 wire = msg.copy(media = ref.copy(remoteBlobId = path))
                 store.upsert(wire)
             }
@@ -417,9 +419,11 @@ class ChatRepository(
         // Always a wake-up push ("online" can be stale: an app swiped away may not get its "offline"
         // out). Peers who look online get NORMAL priority — prompt on an awake phone and not held
         // against us if they already had it live; everyone else HIGH (bypasses Doze).
+        // An answered call's log line is no news: a silent sync (a locked phone showed "New message").
+        val pushKind = if (wire.kind == MsgKind.CALL && wire.text?.contains("missed=1") != true) "sync" else "msg"
         if (ok) peersOf(wire.chatId).filter { sealedFor[it] == null }.forEach { peer ->
             val online = isOnline(peer)
-            scope.launch { backend.push(peer, "msg", emptyMap(), normalPriority = online) }
+            scope.launch { backend.push(peer, pushKind, emptyMap(), normalPriority = online) }
         }
     }
 
@@ -525,8 +529,11 @@ class ChatRepository(
                     store.meta.value?.let { store.writeMeta(it.copy(disappearMs = ms.takeIf { v -> v != 0L })) }
                 }
                 store.upsert(msg)
-                touchMeta(store, msg, unreadDelta = 1)
-                store.meta.value?.let { onIncoming(it, msg) }
+                // A call log line from the other phone: only a MISSED call notifies / counts as unread
+                // (an answered call used to arrive as "Missed voice call" after hanging up).
+                val quietCall = f.kind == MsgKind.CALL && f.text?.contains("missed=1") != true
+                touchMeta(store, msg, unreadDelta = if (quietCall) 0 else 1)
+                if (!quietCall) store.meta.value?.let { onIncoming(it, msg) }
                 typingMap.update { m -> m + (f.chatId to (m[f.chatId].orEmpty() - from)) }
                 receipt(from, Frame.Receipt(f.chatId, me, listOf(f.id), MsgStatus.DELIVERED))
                 } finally { inFlight.remove(f.id) }

@@ -1,5 +1,6 @@
 package app.zura.media
 
+import kotlinx.coroutines.launch
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -34,12 +35,12 @@ import kotlin.math.roundToInt
 @OptIn(UnstableApi::class)
 class VideoCompressor(private val context: Context, private val vault: VaultStore) {
 
-    suspend fun import(chatId: String, uri: Uri, shortSide: Int = 720): MediaRef {
+    suspend fun import(chatId: String, uri: Uri, shortSide: Int = 720, onProgress: (Float) -> Unit = {}): MediaRef {
         val meta = probe(uri)
         val out = vault.paths.newTemp("mp4")
         try {
             val (w, h) = target(meta.width, meta.height, shortSide)
-            transcode(uri, out.absolutePath, w, h)
+            transcode(uri, out.absolutePath, w, h, onProgress)
             return withContext(Dispatchers.IO) {
                 out.inputStream().buffered().use {
                     vault.importMedia(chatId, it, "video/mp4", w, h, meta.durationMs, preview = meta.preview)
@@ -50,8 +51,17 @@ class VideoCompressor(private val context: Context, private val vault: VaultStor
         }
     }
 
-    private suspend fun transcode(uri: Uri, path: String, w: Int, h: Int) = withContext(Dispatchers.Main) {
-        suspendCancellableCoroutine { cont ->
+    private suspend fun transcode(uri: Uri, path: String, w: Int, h: Int, onProgress: (Float) -> Unit) = withContext(Dispatchers.Main) {
+        var started: Transformer? = null
+        // How far the encoder is (polled; Transformer reports it on request).
+        val poll = launch {
+            val holder = androidx.media3.transformer.ProgressHolder()
+            while (true) {
+                kotlinx.coroutines.delay(250)
+                started?.let { t -> if (t.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE) onProgress(holder.progress / 100f) }
+            }
+        }
+        try { suspendCancellableCoroutine { cont ->
             val transformer = Transformer.Builder(context)
                 .setVideoMimeType(MimeTypes.VIDEO_H264)
                 .setAudioMimeType(MimeTypes.AUDIO_AAC)
@@ -70,8 +80,9 @@ class VideoCompressor(private val context: Context, private val vault: VaultStor
                 .setEffects(Effects(emptyList(), listOf(Presentation.createForWidthAndHeight(w, h, Presentation.LAYOUT_SCALE_TO_FIT))))
                 .build()
             transformer.start(item, path)
+            started = transformer
             cont.invokeOnCancellation { transformer.cancel() }
-        }
+        } } finally { poll.cancel() }
     }
 
     /** Fast frame + size so the video bubble appears before transcoding finishes. */

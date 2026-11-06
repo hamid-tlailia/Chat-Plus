@@ -216,7 +216,8 @@ class CallService : Service() {
         /** [channelRings]: only when no service runs to play the ringtone ([Ringer]) — the notification rings itself. */
         fun build(c: Context, ui: CallUi, channelRings: Boolean = false): Notification {
             ensureChannels(c)
-            val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+            // Tapping the call notification shows the call screen (also when it was folded into the bar).
+            val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java).putExtra(MainActivity.EXTRA_SHOW_CALL, true), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             val person = Person.Builder().setName(ui.peerName.ifBlank { "Zura" }).setImportant(true).build()
             // Every button carries ITS call id: a stale notification can't act on another call.
             fun action(a: String) = PendingIntent.getService(

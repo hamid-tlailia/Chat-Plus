@@ -427,4 +427,12 @@
     <string name="notif_invite_ok_body">Say hello 👋</string>
     <string name="notif_moment_react">%1$s reacted %2$s to your moment</string>
     <string name="social_channel">Invitations &amp; reactions</string>
+    <string name="saving">Saving…</string>
+    <string name="save_done">Saved to your gallery</string>
+    <string name="save_failed">Couldn\'t save — try again</string>
+    <string name="call_minimize">Back to chats</string>
+    <string name="call_return">Tap to return to the call</string>
+    <string name="busy_missed">%1$s called while you were on another call</string>
+    <string name="transfer_preparing">Preparing</string>
+    <string name="transfer_sending">Sending</string>
 </resources>

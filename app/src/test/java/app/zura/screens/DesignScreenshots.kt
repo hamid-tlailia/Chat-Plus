@@ -276,6 +276,18 @@ class DesignScreenshots {
         setup = { it!!.calls.previewForTest(callUi(CallPhase.INCOMING, video = true, ar = false)) }) { CallScreen(rule.activity.graph.s.calls) }
     @Test fun s16_call_active_ar() = shoot("16_call_active_voice_ar", true, ZuraThemeId.MIDNIGHT, manualClock = true,
         setup = { it!!.calls.previewForTest(callUi(CallPhase.ACTIVE, video = false, ar = true, net = NetType.CELLULAR)) }) { CallScreen(rule.activity.graph.s.calls) }
+    @Test fun s22_call_folded() = shoot("22_call_folded_en", false, ZuraThemeId.MIDNIGHT, manualClock = true,
+        setup = { it!!.calls.previewForTest(callUi(CallPhase.ACTIVE, video = false, ar = false, net = NetType.CELLULAR)); it.calls.fold(true) }) {
+        Box(Modifier.fillMaxSize()) { ChatListScreen({}, {}, {}, {}); CallScreen(rule.activity.graph.s.calls) }
+    }
+    @Test fun s23_reply_voice_progress() = shoot("23_reply_voice_progress_en", false, ZuraThemeId.MIDNIGHT,
+        setup = { app.zura.media.Transfers.set("m3", false, 0.42f) },
+        after = {
+            rule.runOnUiThread {
+                val vm = androidx.lifecycle.ViewModelProvider(rule.activity.viewModelStore, androidx.lifecycle.ViewModelProvider.NewInstanceFactory())["${System.identityHashCode(rule.activity.graph.s)}:$sara:${rule.activity.graph.vault.incarnation(sara)}", app.zura.ui.chat.ChatViewModel::class.java]
+                vm.replyTo = rule.activity.graph.s.vault.chat(sara).get("m6")
+            }
+        }) { ChatScreen(sara, {}, {}) }
     @Test fun s18_lock_ar() = shoot("18_app_lock_velvet_ar", true, ZuraThemeId.VELVET_GOLD, setup = {
         org.robolectric.Shadows.shadowOf(rule.activity.getSystemService(android.app.KeyguardManager::class.java)).setIsDeviceSecure(true)
         rule.activity.graph.appLock.setEnabled(true); rule.activity.graph.appLock.lockNow()

@@ -226,7 +226,7 @@ private fun Tile(i: ChatRepository.MediaItem, sel: Boolean, fmt: ZuraFormat, mod
     val g = LocalContext.current.graph
     val ref = i.m.media ?: return
     val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
-    val full by if (i.m.kind == MsgKind.IMAGE) rememberVaultImage(g.images, i.chatId, ref, 240) else remember { mutableStateOf(null) }
+    val full by if (i.m.kind == MsgKind.IMAGE) rememberVaultImage(g.images, i.chatId, ref, 240) else app.zura.media.rememberVideoFrame(g.images, i.chatId, ref, 240)
     Box(
         modifier.aspectRatio(1f).clip(RoundedCornerShape(12.dp)).background(c.surfaceHigh)
             .then(if (sel) Modifier.border(3.dp, c.accent, RoundedCornerShape(12.dp)) else Modifier),

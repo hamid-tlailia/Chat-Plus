@@ -170,7 +170,7 @@ private fun Thumb(chatId: String, m: Message, modifier: Modifier) {
     val g = LocalContext.current.graph
     val ref = m.media ?: return
     val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
-    val full by if (m.kind == MsgKind.IMAGE) rememberVaultImage(g.images, chatId, ref, 240) else remember { androidx.compose.runtime.mutableStateOf(null) }
+    val full by if (m.kind == MsgKind.IMAGE) rememberVaultImage(g.images, chatId, ref, 240) else app.zura.media.rememberVideoFrame(g.images, chatId, ref, 240)
     Box(modifier.size(84.dp).clip(RoundedCornerShape(14.dp)).background(Zura.colors.surfaceHigh), contentAlignment = Alignment.Center) {
         (full ?: preview)?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         if (m.kind == MsgKind.VIDEO) Box(

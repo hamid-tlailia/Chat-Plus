@@ -279,6 +279,21 @@ fun rememberQuoteThumb(q: Message?): androidx.compose.ui.graphics.ImageBitmap? {
     return sharp ?: blurred
 }
 
+/**
+ * What a reply shows of the message it answers: its text — or, for a voice message / video,
+ * "🎤 Voice message · 0:23 · 7:36 PM" (how long, and when).
+ */
+@Composable
+fun quoteLabel(q: Message): String {
+    val fmt = ZuraFormat(androidx.compose.ui.platform.LocalConfiguration.current.locales[0])
+    val text = q.text?.takeIf { it.isNotBlank() }
+    val timed = q.kind == MsgKind.VOICE || q.kind == MsgKind.VIDEO || (q.kind == MsgKind.FILE && q.media?.mime?.startsWith("audio/") == true)
+    if (!timed) return text ?: stringResource(kindLabel(q.kind))
+    val icon = if (q.kind == MsgKind.VIDEO) "🎬 " else "🎤 "
+    val dur = q.media?.durationMs?.takeIf { it > 0 }?.let { fmt.duration(it) }
+    return listOfNotNull(icon + (text ?: stringResource(kindLabel(q.kind))), dur, fmt.time(q.sentAt)).joinToString(" · ")
+}
+
 /** Tap on a quote → scroll to the original message (set by the chat screen). */
 val LocalJumpTo = androidx.compose.runtime.staticCompositionLocalOf<(String) -> Unit> { {} }
 /** The message just jumped to: flashes briefly so the eye finds it. */
@@ -299,7 +314,7 @@ private fun Quote(q: Message, onFill: Color) {
             Spacer(Modifier.width(8.dp))
         }
         Text(
-            q.text ?: stringResource(kindLabel(q.kind)), color = onFill.copy(alpha = 0.85f),
+            quoteLabel(q), color = onFill.copy(alpha = 0.85f),
             style = Zura.type.label.copy(textDirection = TextDirection.Content), maxLines = 2, overflow = TextOverflow.Ellipsis,
         )
     }
@@ -357,7 +372,13 @@ private fun VisualContent(m: Message, fmt: ZuraFormat, shape: RoundedCornerShape
     val ratio = if (ref.width > 0 && ref.height > 0) (ref.width.toFloat() / ref.height).coerceIn(0.8f, 1.78f) else 1f
     val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
     val pending = ref.isPlaceholder
-    val full by if (m.kind == MsgKind.IMAGE && !pending) rememberVaultImage(g.images, m.chatId, ref, 720) else remember { androidx.compose.runtime.mutableStateOf(null) }
+    val full by when {
+        pending -> remember { androidx.compose.runtime.mutableStateOf(null) }
+        m.kind == MsgKind.IMAGE -> rememberVaultImage(g.images, m.chatId, ref, 720)
+        // A real frame of the video (not just the blurred micro-preview).
+        else -> app.zura.media.rememberVideoFrame(g.images, m.chatId, ref, 720)
+    }
+    val transfer = app.zura.media.Transfers.progress.collectAsStateWithLifecycle().value[m.id]
     val fade by animateFloatAsState(if (full != null) 1f else 0f, label = "img")
     Box(Modifier.width(240.dp).aspectRatio(ratio).clip(shape).background(Zura.colors.surfaceHigh)) {
         // 1) micro-preview painted on frame 1 (from the record, zero I/O), softened
@@ -369,7 +390,9 @@ private fun VisualContent(m: Message, fmt: ZuraFormat, shape: RoundedCornerShape
         }
         // 2) full image cross-fades over it once decrypted + decoded off-thread
         full?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fade }) }
-        if (pending && m.status != MsgStatus.FAILED) {
+        if (transfer != null && m.status != MsgStatus.FAILED) {
+            TransferRing(transfer, Modifier.align(Alignment.Center))
+        } else if (pending && m.status != MsgStatus.FAILED) {
             // Compressing + encrypting: the photo is already in the chat, just not sent yet.
             androidx.compose.material3.CircularProgressIndicator(
                 Modifier.align(Alignment.Center).size(44.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.35f)).padding(8.dp),
@@ -627,9 +650,27 @@ private fun ThemeFileCard(m: Message, onFill: Color) {
     }
 }
 
+/** Preparing / sending a video or photo: a ring that fills, with the percentage and what's happening. */
+@Composable
+private fun TransferRing(p: app.zura.media.Transfers.Progress, modifier: Modifier) {
+    val shown by animateFloatAsState(p.fraction, androidx.compose.animation.core.tween(250), label = "transfer")
+    Box(modifier.size(64.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+        androidx.compose.material3.CircularProgressIndicator(
+            progress = { shown }, modifier = Modifier.fillMaxSize().padding(6.dp), color = Color.White, strokeWidth = 3.dp,
+            trackColor = Color.White.copy(alpha = 0.25f),
+        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("${(shown * 100).toInt()}%", style = Zura.type.caption, color = Color.White)
+            Text(stringResource(if (p.compressing) R.string.transfer_preparing else R.string.transfer_sending), style = Zura.type.caption.copy(fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp)), color = Color.White.copy(alpha = 0.8f))
+        }
+    }
+}
+
 @Composable
 private fun FileContent(m: Message, onFill: Color, fmt: ZuraFormat) {
     val ref = m.media ?: return
+    val transfer = app.zura.media.Transfers.progress.collectAsStateWithLifecycle().value[m.id]
+    Column {
     Row(Modifier.padding(start = 10.dp, end = 14.dp, top = 10.dp).widthIn(min = 200.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(onFill.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
             Icon(ZuraIcons.File, null, tint = onFill)
@@ -637,8 +678,20 @@ private fun FileContent(m: Message, onFill: Color, fmt: ZuraFormat) {
         Spacer(Modifier.width(10.dp))
         Column {
             Text(ref.originalName ?: stringResource(R.string.file), style = Zura.type.label, color = onFill, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(fmt.size(ref.size), style = Zura.type.caption, color = onFill.copy(alpha = 0.65f))
+            Text(
+                if (transfer != null) "${stringResource(R.string.transfer_sending)} · ${(transfer.fraction * 100).toInt()}% · ${fmt.size(ref.size)}" else fmt.size(ref.size),
+                style = Zura.type.caption, color = onFill.copy(alpha = 0.65f),
+            )
         }
+    }
+    // Sending a file: a bar that fills.
+    if (transfer != null) {
+        val shown by animateFloatAsState(transfer.fraction, androidx.compose.animation.core.tween(250), label = "file")
+        androidx.compose.material3.LinearProgressIndicator(
+            progress = { shown }, modifier = Modifier.padding(start = 10.dp, end = 14.dp, top = 8.dp).widthIn(min = 200.dp).clip(CircleShape),
+            color = onFill, trackColor = onFill.copy(alpha = 0.2f),
+        )
+    }
     }
 }
 

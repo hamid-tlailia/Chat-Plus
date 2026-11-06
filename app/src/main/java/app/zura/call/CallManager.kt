@@ -265,7 +265,7 @@ class CallManager(
         stage("push invite decrypted (${System.currentTimeMillis() - inv.at} ms after dialing)")
         if (s.callId == inv.callId) return@withContext
         if (wasEnded(inv.callId)) { stage("invite for an ended call ignored"); return@withContext }
-        if (s.inCall) { transport.signal(inv.from, Frame.CallEnd(inv.callId, me, "busy")); return@withContext }
+        if (s.inCall) { busy(inv.from, inv.callId); return@withContext }
         // Ring FIRST, no network: the server only delivers call pushes between mutual, unblocked
         // contacts, and the name comes from the on-device copy. (Waiting for a contacts refresh
         // here used to miss Android's short "may start ringing" window after a push.)
@@ -340,6 +340,28 @@ class CallManager(
     /** After ENDED is shown briefly, return to idle so the UI can dismiss. */
     fun dismiss() = scope.launch(rtc) { if (_ui.value.phase == CallPhase.ENDED) _ui.value = CallUi(net = network.type.value) }
 
+    /**
+     * The call (by id) whose screen is folded into the small bar so the app can be used during
+     * it. Keyed by call: a new call always starts full screen, and rebuilding the screen
+     * (rotation, theme, language) never unfolds it by itself.
+     */
+    val foldedCall = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    fun fold(on: Boolean) { foldedCall.value = if (on) _ui.value.callId else null }
+
+    /**
+     * A second call while I'm on one: never rings — the caller hears "busy" (live and durably), and
+     * the missed call reaches me as their call-log line with a notification.
+     */
+    private fun busy(from: String, callId: String) {
+        if (callId in busyAnswered) return
+        busyAnswered += callId
+        stage("second call from ${from.take(8)} while in a call → busy")
+        val end = Frame.CallEnd(callId, me, "busy")
+        scope.launch { transport.signal(from, end) }
+        scope.launch { transport.sendWithRetry(from, end, attempts = 2) }
+    }
+    private val busyAnswered = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
+
     // ================================================================= signalling (incoming)
 
     suspend fun handle(from: String, f: Frame) = withContext(rtc) {
@@ -372,7 +394,7 @@ class CallManager(
                 // An old offer (e.g. read late from the inbox after the call ended) must never ring.
                 if (f.at != 0L && System.currentTimeMillis() - f.at > 45_000) { stage("stale offer ignored"); return@withContext }
                 if (wasEnded(f.callId)) { stage("offer for an ended call ignored"); return@withContext }
-                if (s.inCall) { transport.signal(from, Frame.CallEnd(f.callId, me, "busy")); return@withContext }
+                if (s.inCall) { busy(from, f.callId); return@withContext }
                 val p = contacts.profile(from)
                 pendingOffer = f
                 pendingIce.clear(); remoteSet = false

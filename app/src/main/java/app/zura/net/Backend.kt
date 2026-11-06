@@ -103,10 +103,11 @@ class Backend {
 
     // ---------------------------------------------------------------- storage (streaming, no buffering)
 
-    suspend fun upload(bucket: String, path: String, file: File, mime: String = "application/octet-stream") = withContext(Dispatchers.IO) {
+    suspend fun upload(bucket: String, path: String, file: File, mime: String = "application/octet-stream", onProgress: ((Float) -> Unit)? = null) = withContext(Dispatchers.IO) {
         ensureFresh()
+        val body = if (onProgress == null) file.asRequestBody(mime.toMediaType()) else ProgressBody(file, mime.toMediaType(), onProgress)
         val req = authed("/storage/v1/object/$bucket/$path").header("x-upsert", "true")
-            .post(file.asRequestBody(mime.toMediaType())).build()
+            .post(body).build()
         http.newCall(req).execute().use { check(it.isSuccessful) { "upload ${it.code}: ${it.body?.string()}" } }
     }
 
@@ -180,6 +181,26 @@ class Backend {
         http.newCall(req).execute().use { r ->
             check(r.isSuccessful) { "function $name ${r.code}" }
             json.parseToJsonElement(r.body!!.string())
+        }
+    }
+}
+
+/** A file upload that reports how much has gone out (for the bubble's progress ring). */
+private class ProgressBody(private val file: File, private val type: okhttp3.MediaType?, private val onProgress: (Float) -> Unit) : okhttp3.RequestBody() {
+    override fun contentType() = type
+    override fun contentLength() = file.length()
+    override fun writeTo(sink: okio.BufferedSink) {
+        val total = contentLength().coerceAtLeast(1)
+        var sent = 0L
+        file.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                sink.write(buf, 0, n)
+                sent += n
+                onProgress(sent.toFloat() / total)
+            }
         }
     }
 }

@@ -1,5 +1,7 @@
 package app.zura.ui.call
 
+import app.zura.ui.components.appear
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -98,6 +100,16 @@ fun CallScreen(calls: CallManager) {
     LaunchedEffect(s.phase) { if (s.phase == CallPhase.ENDED) { haptics.reject(); delay(1_600); calls.dismiss() } }
     LaunchedEffect(s.callId) { app.zura.DiagLog.record("call", detail = "call screen shown (${s.phase.name.lowercase()})") }
 
+    // Fold the call into a bar (button, or Back) to use the app during the call; tap the bar to return.
+    val folded by calls.foldedCall.collectAsStateWithLifecycle()
+    val minimized = folded != null && folded == s.callId
+    val canMinimize = s.phase != CallPhase.INCOMING && s.phase != CallPhase.ENDED
+    androidx.activity.compose.BackHandler(enabled = !minimized && canMinimize) { haptics.tick(); calls.fold(true) }
+    if (minimized && s.phase != CallPhase.INCOMING) {
+        CallBar(s) { haptics.tick(); calls.fold(false) }
+        return
+    }
+
     // Foreground follows the theme (dark text on the light theme); over live video it is always white.
     val fg = if (showRemoteVideo) Color.White else Zura.colors.text
     androidx.compose.runtime.CompositionLocalProvider(LocalCallFg provides fg, LocalOverVideo provides showRemoteVideo) {
@@ -108,6 +120,12 @@ fun CallScreen(calls: CallManager) {
             Box(Modifier.fillMaxWidth().height(200.dp).align(Alignment.TopCenter).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent))))
             Box(Modifier.fillMaxWidth().height(220.dp).align(Alignment.BottomCenter).background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))))
         } else Backdrop(s)
+
+        // Back to the app during the call (the call goes on; a bar brings it back).
+        if (canMinimize) androidx.compose.material3.IconButton(
+            onClick = { haptics.tick(); calls.fold(true) },
+            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(6.dp),
+        ) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.KeyboardArrowDown, stringResource(R.string.call_minimize), tint = LocalCallFg.current) }
 
         // Top: network + status
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -209,6 +227,32 @@ private fun StatusLine(s: CallUi) {
         CallPhase.IDLE -> ""
     }
     Text(text, style = Zura.type.label, color = if (s.phase == CallPhase.RECONNECTING) Color(0xFFE0A100) else LocalCallFg.current.copy(alpha = 0.75f))
+}
+
+/**
+ * The call, folded: a green bar at the top (name · timer, gently pulsing) while I use the app.
+ * Tap → the call screen comes back.
+ */
+@Composable
+private fun CallBar(s: CallUi, onReturn: () -> Unit) {
+    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "bar")
+    val glow by pulse.animateFloat(0.55f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "dot")
+    Box(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 6.dp), contentAlignment = Alignment.TopCenter) {
+        Row(
+            Modifier.appear().clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFF16A34A))
+                .clickable(onClickLabel = stringResource(R.string.call_return), onClick = onReturn)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(8.dp).graphicsLayer { alpha = glow }.clip(androidx.compose.foundation.shape.CircleShape).background(Color.White))
+            Spacer(Modifier.width(10.dp))
+            androidx.compose.material3.Icon(if (s.video) app.zura.ui.ZuraIcons.VideoCam else androidx.compose.material.icons.Icons.Default.Call, null, tint = Color.White, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(s.peerName, style = Zura.type.label, color = Color.White, maxLines = 1)
+            Spacer(Modifier.width(10.dp))
+            androidx.compose.runtime.CompositionLocalProvider(LocalCallFg provides Color.White) { StatusLine(s) }
+        }
+    }
 }
 
 /** Network type + live link quality ("Wi-Fi · ▂▄▆", "Weak connection", "No internet"). */

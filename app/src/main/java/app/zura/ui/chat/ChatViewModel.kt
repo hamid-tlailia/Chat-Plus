@@ -198,9 +198,10 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
                 val placeholder = if (a.video) g.videoCompressor.placeholder(a.uri) else g.imageCompressor.placeholder(a.uri, a.mime)
                 val msg = runCatching { g.chats.beginMedia(chatId, if (a.video) MsgKind.VIDEO else MsgKind.IMAGE, placeholder, caption) }.getOrNull() ?: return@launch
                 runCatching {
-                    val ref = if (a.video) g.videoCompressor.import(chatId, a.uri) else g.imageCompressor.import(chatId, a.uri)
+                    val ref = if (a.video) g.videoCompressor.import(chatId, a.uri) { f -> app.zura.media.Transfers.set(msg.id, true, f) }
+                    else g.imageCompressor.import(chatId, a.uri)
                     g.chats.completeMedia(chatId, msg.id, ref)
-                }.onFailure { g.chats.failMedia(chatId, msg.id) }
+                }.onFailure { app.zura.media.Transfers.clear(msg.id); g.chats.failMedia(chatId, msg.id) }
             } else runCatching {
                 val dur = if (a.mime.startsWith("audio/")) app.zura.media.AudioMeta.durationMs(g.app, a.uri) else 0L
                 val ref = g.app.contentResolver.openInputStream(a.uri)!!.use {

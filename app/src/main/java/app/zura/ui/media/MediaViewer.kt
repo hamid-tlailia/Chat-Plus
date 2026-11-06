@@ -1,5 +1,6 @@
 package app.zura.ui.media
 
+import androidx.compose.material.icons.filled.Done
 import android.view.SurfaceView
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Image
@@ -110,7 +111,25 @@ fun MediaViewer(chatId: String, messageId: String, onClose: () -> Unit) {
             Spacer(Modifier.weight(1f))
             if (ref != null) {
                 IconButton(onClick = { scope.launch { ctx.startActivity(g.exporter.shareOut(chatId, ref)) } }) { Icon(Icons.Default.Share, null, tint = Color.White) }
-                IconButton(onClick = { scope.launch { g.exporter.saveToDevice(chatId, ref) } }) { Icon(ZuraIcons.Download, null, tint = Color.White) }
+                // Save: a spinner while it copies, then ✓ — and it says where it went.
+                var saving by remember { mutableStateOf(false) }
+                var saved by remember(ref.fileName) { mutableStateOf(false) }
+                IconButton(enabled = !saving, onClick = {
+                    saving = true
+                    scope.launch {
+                        val ok = g.exporter.saveToDevice(chatId, ref)
+                        saving = false; saved = ok
+                        android.widget.Toast.makeText(ctx, if (ok) app.zura.R.string.save_done else app.zura.R.string.save_failed, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    androidx.compose.animation.Crossfade(when { saving -> 1; saved -> 2; else -> 0 }, label = "save") { st ->
+                        when (st) {
+                            1 -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                            2 -> Icon(Icons.Default.Done, null, tint = Color(0xFF6EFFC4))
+                            else -> Icon(ZuraIcons.Download, null, tint = Color.White)
+                        }
+                    }
+                }
             }
         }
     }

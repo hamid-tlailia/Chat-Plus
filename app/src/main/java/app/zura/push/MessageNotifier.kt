@@ -52,7 +52,7 @@ class MessageNotifier(private val context: Context) {
                 MsgKind.VIDEO -> R.string.video
                 MsgKind.VOICE -> R.string.voice_message
                 MsgKind.FILE -> R.string.file
-                MsgKind.CALL -> R.string.missed_voice_call
+                MsgKind.CALL -> if (text?.contains("video") == true) R.string.missed_video_call else R.string.missed_voice_call
                 MsgKind.EVENT -> R.string.screenshot_event
                 MsgKind.TEXT -> R.string.message_hint
             },

@@ -131,25 +131,73 @@ class Walkie(private val transport: SupabaseTransport, private val me: String, p
     private val player = Dispatchers.IO.limitedParallelism(1)
     private var idle: Job? = null
 
+    /*
+     * Jitter buffer. Chunks arrive in network bursts (several 100 ms chunks per request, then a
+     * pause). Writing each straight to the speaker made the voice stutter in the pauses and —
+     * after a slow patch — run further and further behind. Now: chunks are put back in order
+     * (by seq), ~300 ms are held before speaking starts, a steady player feeds the speaker in real
+     * time, a gap re-fills a short cushion instead of stuttering, and if more than 700 ms piles up
+     * the oldest audio is dropped so the voice catches up with "live".
+     */
+    private val queue = java.util.concurrent.ConcurrentLinkedDeque<ShortArray>()
+    private val reorder = java.util.TreeMap<Int, ShortArray>()
+    private var nextSeq = -1
+    @Volatile private var ended = true
+    private var playJob: Job? = null
+
+    private fun queuedMs() = queue.sumOf { it.size } / (RATE / 1000)
+
     fun onFrame(from: String, f: Frame.Walkie) {
         val fresh = _talking.value != from
         _talking.value = from
         idle?.cancel()
-        if (f.end) { _talking.value = null; return }
+        if (f.end) { ended = true; _talking.value = null; return }
         val pcm = runCatching { Base64.decode(f.audio, Base64.NO_WRAP) }.getOrNull() ?: return
         val out = ShortArray(pcm.size) { i -> MuLaw.decode(pcm[i]) }
+        synchronized(reorder) {
+            if (fresh || f.seq == 0 || nextSeq < 0) { reorder.clear(); queue.clear(); nextSeq = f.seq }
+            if (f.seq >= nextSeq) reorder[f.seq] = out // older than what already played: too late
+            // Release everything that is now in order; a gap that doesn't fill within 3 chunks is skipped.
+            while (true) {
+                val c = reorder.remove(nextSeq)
+                if (c != null) { queue.add(c); nextSeq++ }
+                else if (reorder.size > 3) nextSeq = reorder.firstKey()
+                else break
+            }
+        }
+        ended = false
+        if (playJob?.isActive != true) playJob = scope.launch(player) { play() }
+        // No "end" (connection dropped)? Clear the indicator after a short silence.
+        idle = scope.launch { delay(1_500); _talking.value = null; ended = true }
+    }
+
+    private suspend fun play() {
+        val min = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val t = track ?: AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-            .setBufferSizeInBytes(CHUNK * 8)
+            // Small device buffer: the jitter buffer above does the smoothing, the speaker stays near-live.
+            .setBufferSizeInBytes(maxOf(min, RATE * 2 / 5))
             .setTransferMode(AudioTrack.MODE_STREAM)
-            .build().also { it.play(); track = it }
-        // Start of a burst: a short cushion (120 ms) so small network jitter between the 100 ms
-        // chunks doesn't make the voice stutter.
-        val cushion = if (fresh) ShortArray(RATE * 120 / 1000) else null
-        scope.launch(player) { runCatching { cushion?.let { t.write(it, 0, it.size) }; t.write(out, 0, out.size) } } // one thread → chunks stay in order
-        // No "end" (connection dropped)? Clear the indicator after a short silence.
-        idle = scope.launch { delay(1_500); _talking.value = null }
+            .build().also { track = it }
+        runCatching { t.play() }
+        suspend fun fill(targetMs: Int, maxWaitMs: Long) {
+            val until = System.currentTimeMillis() + maxWaitMs
+            while (queuedMs() < targetMs && !ended && System.currentTimeMillis() < until) delay(10)
+        }
+        fill(TARGET_MS, 600)
+        while (true) {
+            val chunk = queue.poll()
+            if (chunk == null) {
+                if (ended) break
+                fill(REFILL_MS, 400) // a network gap: re-fill a little instead of stuttering
+                if (queue.isEmpty() && ended) break
+                continue
+            }
+            // Fallen behind (a burst after a slow patch): drop the oldest audio, stay near-live.
+            while (queuedMs() > MAX_BEHIND_MS) queue.poll()
+            runCatching { t.write(chunk, 0, chunk.size) }
+        }
     }
 
     fun release() {
@@ -163,6 +211,10 @@ class Walkie(private val transport: SupabaseTransport, private val me: String, p
         const val RATE = 8_000
         /** 100 ms of 16-bit mono at 8 kHz (smaller chunks = less delay before the first sound). */
         const val CHUNK = RATE / 10 * 2
+        /** Jitter buffer: held before speaking starts / re-filled after a gap / most we lag behind. */
+        const val TARGET_MS = 300
+        const val REFILL_MS = 160
+        const val MAX_BEHIND_MS = 700
         /** At most 5 minutes kept locally. */
         const val MAX_BYTES = RATE * 2 * 300
     }

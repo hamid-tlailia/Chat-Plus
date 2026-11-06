@@ -177,7 +177,8 @@ class MainActivity : ComponentActivity() {
         }
         val call by session.calls.ui.collectAsStateWithLifecycle()
         val locked by graph.appLock.locked.collectAsStateWithLifecycle()
-        BackHandler(enabled = nav.stack.size > 1 && call.phase == app.zura.call.CallPhase.IDLE) { nav.pop() }
+        val foldedCall by session.calls.foldedCall.collectAsStateWithLifecycle()
+        BackHandler(enabled = nav.stack.size > 1 && (call.phase == app.zura.call.CallPhase.IDLE || (foldedCall != null && foldedCall == call.callId))) { nav.pop() }
         Box(Modifier.fillMaxSize()) {
             // Locked: chats are not even composed — nothing to leak.
             if (locked) app.zura.security.LockScreen(graph.appLock)
@@ -271,6 +272,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         intent.getStringExtra(EXTRA_CHAT)?.let { deepLink.value = it; prewarm(it) }
         intent.getStringExtra(EXTRA_OPEN)?.let { openScreen.value = it }
+        if (intent.getBooleanExtra(EXTRA_SHOW_CALL, false)) graph.session.value?.calls?.fold(false)
         handleAnswer(intent)
         handleAuthLink(intent)
     }
@@ -289,6 +291,8 @@ class MainActivity : ComponentActivity() {
         /** Open a screen from a notification ([OPEN_PEOPLE] = contacts & invitations). */
         const val EXTRA_OPEN = "zura.open"
         const val OPEN_PEOPLE = "people"
+        /** From the call notification: unfold the call screen. */
+        const val EXTRA_SHOW_CALL = "zura.show_call"
     }
 }
 

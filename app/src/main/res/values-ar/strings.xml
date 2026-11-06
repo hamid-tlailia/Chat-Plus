@@ -427,4 +427,12 @@
     <string name="notif_invite_ok_body">قل مرحباً 👋</string>
     <string name="notif_moment_react">تفاعل %1$s بـ %2$s على لحظتك</string>
     <string name="social_channel">الدعوات والتفاعلات</string>
+    <string name="saving">جارٍ الحفظ…</string>
+    <string name="save_done">تم الحفظ في المعرض</string>
+    <string name="save_failed">تعذّر الحفظ — حاول مجدداً</string>
+    <string name="call_minimize">العودة للمحادثات</string>
+    <string name="call_return">اضغط للعودة إلى المكالمة</string>
+    <string name="busy_missed">اتصل بك %1$s وأنت في مكالمة أخرى</string>
+    <string name="transfer_preparing">تجهيز</string>
+    <string name="transfer_sending">إرسال</string>
 </resources>

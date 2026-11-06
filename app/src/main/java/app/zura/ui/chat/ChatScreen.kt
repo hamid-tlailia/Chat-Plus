@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -176,7 +177,18 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
             val index = itemsNow.indexOfFirst { it.key == id }
             if (index >= 0) scope.launch {
                 flashId = null
-                list.animateScrollToItem(index, scrollOffset = -200)
+                // (A negative offset made the list overshoot and bounce back — the "shake".)
+                if (list.layoutInfo.visibleItemsInfo.none { it.index == index }) {
+                    // Far away: jump near it first (a long fling stutters), then glide the rest.
+                    if (kotlin.math.abs(index - list.firstVisibleItemIndex) > 12) list.scrollToItem((index - 3).coerceAtLeast(0))
+                    list.animateScrollToItem(index)
+                }
+                // Then centre it with one smooth motion.
+                list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }?.let { info ->
+                    val li = list.layoutInfo
+                    val delta = (info.offset + info.size / 2) - (li.viewportStartOffset + li.viewportEndOffset) / 2
+                    if (kotlin.math.abs(delta) > 8) list.animateScrollBy(delta.toFloat(), androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                }
                 flashId = id
             }
         }
@@ -395,9 +407,10 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                 onCopy = { copy(ctx, m); vm.focused = null },
                 onDownload = {
                     vm.focused = null
+                    Toast.makeText(ctx, R.string.saving, Toast.LENGTH_SHORT).show()
                     scope.launch {
                         val ok = m.media?.let { g.exporter.saveToDevice(chatId, it) } == true
-                        if (ok) Toast.makeText(ctx, R.string.saved_to_gallery, Toast.LENGTH_SHORT).show()
+                        Toast.makeText(ctx, if (ok) R.string.save_done else R.string.save_failed, Toast.LENGTH_SHORT).show()
                     }
                 },
                 onDeleteMe = { confirmDel = m; vm.focused = null },
