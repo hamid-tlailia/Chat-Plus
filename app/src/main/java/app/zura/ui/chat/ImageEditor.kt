@@ -37,6 +37,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -166,18 +167,19 @@ fun ImageEditor(source: Attachment, onDone: (Attachment) -> Unit, onCancel: () -
         Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 6.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onCancel) { Icon(Icons.Default.Close, stringResource(R.string.cancel), tint = Color.White) }
             Spacer(Modifier.weight(1f))
-            ToolChip("↶", enabled = history.isNotEmpty()) {
+            ToolChip(app.zura.ui.ZuraIcons.Undo, enabled = history.isNotEmpty()) {
                 haptics.tick()
                 when (val last = history.removeLastOrNull()) { is Stroke2 -> strokes.remove(last); is TextItem -> texts.remove(last) }
             }
-            ToolChip("⟳", enabled = base != null) {
+            Spacer(Modifier.width(10.dp))
+            ToolChip(app.zura.ui.ZuraIcons.RotateRight, enabled = base != null) {
                 haptics.tick()
                 base = base?.let { rotate90(it) }
                 // Everything turns with the photo: (x, y) → (1 − y, x).
                 strokes.forEach { s -> s.points.replaceAll { Offset(1f - it.y, it.x) } }
                 texts.forEach { t -> val x = t.x; t.x = 1f - t.y; t.y = x }
             }
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(10.dp))
             Box(
                 Modifier.clip(CircleShape).background(Zura.colors.accent).clickable(enabled = base != null && !saving) {
                     val b = base ?: return@clickable
@@ -202,12 +204,12 @@ fun ImageEditor(source: Attachment, onDone: (Attachment) -> Unit, onCancel: () -
         // Bottom: tools, colours, brush size
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(bottom = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                ModeChip("✏️ " + stringResource(R.string.edit_draw), mode == Mode.DRAW) { haptics.tick(); mode = Mode.DRAW }
-                ModeChip("Aa " + stringResource(R.string.edit_text), false) {
+                ModeChip(app.zura.ui.ZuraIcons.Brush, stringResource(R.string.edit_draw), mode == Mode.DRAW) { haptics.tick(); mode = Mode.DRAW }
+                ModeChip(app.zura.ui.ZuraIcons.TextFields, stringResource(R.string.edit_text), false) {
                     haptics.tick(); mode = Mode.MOVE
                     typing = TextItem("", color, 0.5f, 0.5f, 0.07f).also { it.isNew = true }
                 }
-                ModeChip("✋ " + stringResource(R.string.edit_move), mode == Mode.MOVE) { haptics.tick(); mode = Mode.MOVE }
+                ModeChip(app.zura.ui.ZuraIcons.Move, stringResource(R.string.edit_move), mode == Mode.MOVE) { haptics.tick(); mode = Mode.MOVE }
             }
             // Brush sizes (drawing only), then the colours (scroll if the screen is narrow).
             AnimatedVisibility(mode == Mode.DRAW) {
@@ -252,8 +254,8 @@ fun ImageEditor(source: Attachment, onDone: (Attachment) -> Unit, onCancel: () -
                     modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(24.dp).focusRequester(focus),
                 )
                 Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (!t.isNew) ToolChip("🗑", true) { texts.remove(t); history.remove(t); typing = null }
-                    ToolChip("✓", true) {
+                    if (!t.isNew) ToolChip(androidx.compose.material.icons.Icons.Default.Delete, true) { texts.remove(t); history.remove(t); typing = null }
+                    ToolChip(Icons.Default.Done, true) {
                         val txt = value.trim()
                         if (txt.isEmpty()) { if (!t.isNew) { texts.remove(t); history.remove(t) } }
                         else { t.text = txt; if (t.isNew) { t.isNew = false; texts += t; history += t } }
@@ -285,20 +287,28 @@ private val PALETTE = listOf(
 /** Brush widths as a fraction of the image width. */
 private val BRUSHES = listOf(0.006f, 0.012f, 0.024f)
 
+/** Round tool button: a 24 dp icon, exactly centred in a 48 dp circle. */
 @Composable
-private fun ToolChip(label: String, enabled: Boolean, onClick: () -> Unit) {
+private fun ToolChip(icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, onClick: () -> Unit) {
     Box(
-        Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = if (enabled) 0.16f else 0.06f)).clickable(enabled = enabled, onClick = onClick),
+        Modifier.size(48.dp).clip(CircleShape).background(Color.White.copy(alpha = if (enabled) 0.16f else 0.06f)).clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Text(label, color = Color.White.copy(alpha = if (enabled) 1f else 0.4f), style = Zura.type.headline) }
+    ) { Icon(icon, null, tint = Color.White.copy(alpha = if (enabled) 1f else 0.35f), modifier = Modifier.size(24.dp)) }
 }
 
+/** Tool mode: icon + label, centred in a pill. */
 @Composable
-private fun ModeChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.clip(RoundedCornerShape(20.dp)).background(if (selected) Color.White else Color.White.copy(alpha = 0.14f))
-            .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 9.dp),
-    ) { Text(label, color = if (selected) Color.Black else Color.White, style = Zura.type.label) }
+private fun ModeChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+    val fg = if (selected) Color.Black else Color.White
+    Row(
+        Modifier.clip(RoundedCornerShape(22.dp)).background(if (selected) Color.White else Color.White.copy(alpha = 0.14f))
+            .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = fg, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(label, color = fg, style = Zura.type.label)
+    }
 }
 
 /** The photo, upright (EXIF applied), at most 2560 px on its long edge, editable (software bitmap). */
