@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.zura.R
+import app.zura.ui.components.appear
 import app.zura.account.Profile
 import app.zura.data.ContactsRepository
 import app.zura.graph
@@ -79,7 +80,12 @@ import java.io.ByteArrayOutputStream
  * Someone else's: message, voice/video call, security code, block, remove.
  */
 @Composable
-fun ProfileScreen(userId: String, onBack: () -> Unit, onOpenChat: (String) -> Unit) {
+fun ProfileScreen(
+    userId: String, onBack: () -> Unit, onOpenChat: (String) -> Unit,
+    onOpenMedia: (chatId: String, messageId: String) -> Unit = { _, _ -> },
+    onAllMedia: (chatId: String) -> Unit = {},
+    onStudio: (chatId: String) -> Unit = {},
+) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val repo = g.s.contacts
@@ -105,7 +111,7 @@ fun ProfileScreen(userId: String, onBack: () -> Unit, onOpenChat: (String) -> Un
             if (isMe) Text(g.s.email, style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(top = 2.dp))
         }
         Spacer(Modifier.height(24.dp))
-        if (isMe) MyDetails(p) else if (p != null) TheirActions(p, contact != null, contact?.blocked == true, onOpenChat, onBack)
+        if (isMe) MyDetails(p) else if (p != null) TheirActions(p, contact != null, contact?.blocked == true, onOpenChat, onBack, onOpenMedia, onAllMedia, onStudio)
         Spacer(Modifier.height(32.dp))
     }
 }
@@ -216,7 +222,10 @@ private fun Field(value: String, onChange: (String) -> Unit, label: Int, prefix:
 // ─────────────────────────────────────────────────────── someone else
 
 @Composable
-private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpenChat: (String) -> Unit, onBack: () -> Unit) {
+private fun TheirActions(
+    p: Profile, isContact: Boolean, blocked: Boolean, onOpenChat: (String) -> Unit, onBack: () -> Unit,
+    onOpenMedia: (String, String) -> Unit, onAllMedia: (String) -> Unit, onStudio: (String) -> Unit,
+) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val c = Zura.colors
@@ -239,8 +248,19 @@ private fun TheirActions(p: Profile, isContact: Boolean, blocked: Boolean, onOpe
             }
         }
         Spacer(Modifier.height(16.dp))
+        // This chat's photos & videos.
+        Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().appear(1).glass(RoundedCornerShape(22.dp), solid = 0.5f).padding(top = 14.dp, bottom = 4.dp)) {
+            app.zura.ui.profile.ChatMediaStrip(chatId, onOpen = { onOpenMedia(chatId, it) }, onAll = { onAllMedia(chatId) })
+        }
+        Spacer(Modifier.height(16.dp))
+        // This chat's colours (the app theme stays as it is).
+        Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().appear(2).glass(RoundedCornerShape(22.dp), solid = 0.5f).padding(vertical = 14.dp)) {
+            Text("🎨  " + stringResource(R.string.chat_colors), style = Zura.type.label, color = c.text, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp))
+            app.zura.ui.profile.ChatColorsPicker(chatId) { onStudio(chatId) }
+        }
+        Spacer(Modifier.height(16.dp))
     }
-    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().glass(RoundedCornerShape(22.dp), solid = 0.5f)) {
+    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().appear(3).glass(RoundedCornerShape(22.dp), solid = 0.5f)) {
         Row(Modifier.fillMaxWidth().clickable { showSafety = true }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(ZuraIcons.Shield, null, tint = c.accent)
             Spacer(Modifier.width(12.dp))

@@ -1,5 +1,6 @@
 package app.zura
 
+import app.zura.ui.theme.ThemeClock
 import android.app.Application
 import android.content.Context
 import app.zura.account.AccountManager
@@ -26,6 +27,8 @@ class AppGraph(val app: Application) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + kotlinx.coroutines.CoroutineExceptionHandler { _, t -> DiagLog.record("background task", t) })
 
     val settings by lazy { SettingsStore(app.getSharedPreferences("zura", Context.MODE_PRIVATE)) }
+    /** Automatic day / night theme (sunrise / sunset). */
+    val themeClock by lazy { ThemeClock(app, settings, scope) }
     /** Notification tones, ringtones and vibration (global + per chat / person). */
     val sounds by lazy { Sounds(app.getSharedPreferences("zura_sounds", Context.MODE_PRIVATE)) }
     val keys: KeyWrapper by lazy { keyOverride ?: AndroidKeystoreWrapper() }

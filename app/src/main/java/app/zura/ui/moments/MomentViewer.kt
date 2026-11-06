@@ -69,6 +69,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Delete
+import app.zura.ui.components.appear
 
 /**
  * Immersive Moments viewer: pager across people (cube-ish depth via graphicsLayer), segmented
@@ -123,11 +126,13 @@ private fun GroupPlayer(group: MomentGroup, active: Boolean, onNextGroup: () -> 
     var index by remember(group.ownerId) { mutableIntStateOf(group.items.indexOfFirst { it.status != app.zura.core.model.MsgStatus.READ }.coerceAtLeast(0)) }
     var paused by remember { mutableStateOf(false) }
     var replying by remember { mutableStateOf(false) } // typing a reply pauses the moment
+    var showViewers by remember { mutableStateOf(false) } // my moment: viewer list open (pauses)
+    var confirmDelete by remember { mutableStateOf(false) }
     val progress = remember(group.ownerId, index) { Animatable(0f) }
     val item = group.items.getOrNull(index) ?: return
 
-    LaunchedEffect(active, index, paused, replying) {
-        if (!active || paused || replying) return@LaunchedEffect
+    LaunchedEffect(active, index, paused, replying, showViewers, confirmDelete) {
+        if (!active || paused || replying || showViewers || confirmDelete) return@LaunchedEffect
         g.moments.markSeen(item.id)
         val total = if (item.kind == MsgKind.VIDEO) item.media?.durationMs?.coerceIn(1000, 30_000) ?: 5000L else 5000L
         val remaining = ((1f - progress.value) * total).toInt()
@@ -179,6 +184,24 @@ private fun GroupPlayer(group: MomentGroup, active: Boolean, onNextGroup: () -> 
         }
         // Someone else's moment: react or reply — it reaches them as a message (with a notification).
         if (!group.mine) MomentReplyBar(group.ownerId, item, Modifier.align(Alignment.BottomCenter)) { replying = it }
+        // My moment: who saw it, and delete.
+        else MyMomentBar(item, Modifier.align(Alignment.BottomCenter), onViewers = { showViewers = true }, onDelete = { haptics.heavy(); confirmDelete = true })
+        androidx.compose.animation.AnimatedVisibility(
+            showViewers, Modifier.align(Alignment.BottomCenter),
+            enter = androidx.compose.animation.slideInVertically { it } + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.slideOutVertically { it } + androidx.compose.animation.fadeOut(),
+        ) { ViewersPanel(item) { showViewers = false } }
+        if (confirmDelete) app.zura.ui.components.ConfirmSheet(
+            title = androidx.compose.ui.res.stringResource(app.zura.R.string.moment_delete),
+            message = androidx.compose.ui.res.stringResource(app.zura.R.string.moment_delete_hint),
+            actions = listOf(app.zura.ui.components.ConfirmAction(androidx.compose.ui.res.stringResource(app.zura.R.string.delete), danger = true) {
+                val id = item.id
+                g.s.scope.launch { g.moments.delete(id) }
+                if (group.items.size <= 1) onNextGroup() else if (index >= group.items.lastIndex) index = (index - 1).coerceAtLeast(0)
+            }),
+            cancelLabel = androidx.compose.ui.res.stringResource(app.zura.R.string.cancel),
+            onDismiss = { confirmDelete = false },
+        )
         item.text?.takeIf { it.isNotBlank() }?.let {
             Text(
                 it, color = Color.White, style = app.zura.ui.theme.Zura.type.body.copy(textDirection = TextDirection.Content),
@@ -190,6 +213,67 @@ private fun GroupPlayer(group: MomentGroup, active: Boolean, onNextGroup: () -> 
 }
 
 private val MOMENT_REACTIONS = listOf("❤️", "😂", "😮", "😢", "🔥", "👏")
+
+/** Bottom of MY moment: "👁 12" (opens the list) and a delete button. */
+@Composable
+private fun MyMomentBar(item: app.zura.core.model.Message, modifier: Modifier, onViewers: () -> Unit, onDelete: () -> Unit) {
+    val count = item.seenBy.size
+    val shown by androidx.compose.animation.core.animateIntAsState(count, androidx.compose.animation.core.tween(500), label = "views")
+    Row(
+        modifier.fillMaxWidth()
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))))
+            .navigationBarsPadding().padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.16f)).clickable(onClick = onViewers).padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("👁", fontSize = 16.sp)
+            Spacer(Modifier.width(8.dp))
+            Text(shown.toString(), color = Color.White, style = app.zura.ui.theme.Zura.type.headline)
+        }
+        Spacer(Modifier.weight(1f))
+        Box(
+            Modifier.size(46.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.16f)).clickable(onClick = onDelete),
+            contentAlignment = Alignment.Center,
+        ) { Icon(androidx.compose.material.icons.Icons.Default.Delete, androidx.compose.ui.res.stringResource(app.zura.R.string.moment_delete), tint = Color.White) }
+    }
+}
+
+/** Who saw my moment, newest first (names from my contacts; nothing leaves the phone). */
+@Composable
+private fun ViewersPanel(item: app.zura.core.model.Message, onClose: () -> Unit) {
+    val g = LocalContext.current.graph
+    val fmt = ZuraFormat(LocalConfiguration.current.locales[0])
+    val viewers = item.seenBy.entries.sortedByDescending { it.value }
+    Column(
+        Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
+            .background(Color(0xF0141418)).clickable(enabled = false) {}.navigationBarsPadding().padding(vertical = 14.dp),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("👁  " + androidx.compose.ui.res.stringResource(app.zura.R.string.moment_viewers) + " · " + fmt.count(viewers.size), color = Color.White, style = app.zura.ui.theme.Zura.type.headline, modifier = Modifier.weight(1f))
+            IconButton(onClick = onClose) { Icon(Icons.Default.Close, null, tint = Color.White) }
+        }
+        if (viewers.isEmpty()) Text(androidx.compose.ui.res.stringResource(app.zura.R.string.moment_no_views), color = Color.White.copy(alpha = 0.6f), style = app.zura.ui.theme.Zura.type.label, modifier = Modifier.padding(20.dp))
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 340.dp)) {
+            items(viewers.size, key = { viewers[it].key }) { i ->
+                val (uid, at) = viewers[i]
+                val p = g.s.contacts.profile(uid)
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).appear(i),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    app.zura.ui.components.UserAvatar(p?.displayName ?: "", (uid.hashCode() and 0xFFFF) % 360f, p?.avatarPath, 40.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Text(p?.displayName ?: g.moments.nameFor(uid) ?: "…", color = Color.White, style = app.zura.ui.theme.Zura.type.label, modifier = Modifier.weight(1f))
+                    Text(fmt.time(at), color = Color.White.copy(alpha = 0.6f), style = app.zura.ui.theme.Zura.type.caption)
+                }
+            }
+        }
+        Text(androidx.compose.ui.res.stringResource(app.zura.R.string.moment_viewers_privacy), color = Color.White.copy(alpha = 0.45f), style = app.zura.ui.theme.Zura.type.caption, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+    }
+}
 
 @Composable
 private fun MomentReplyBar(ownerId: String, item: app.zura.core.model.Message, modifier: Modifier, onTyping: (Boolean) -> Unit) {

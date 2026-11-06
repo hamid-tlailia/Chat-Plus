@@ -45,6 +45,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.lazy.itemsIndexed
+import app.zura.ui.components.appear
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.mutableStateOf
@@ -98,6 +101,9 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
     val revealed by g.chats.lockedRevealed.collectAsStateWithLifecycle()
     val chatsLoaded by g.chats.chatsLoaded.collectAsStateWithLifecycle()
     val skeleton = app.zura.ui.components.shimmerBrush()
+    // The list cascades in when the screen first appears (not on every scroll).
+    var intro by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(1_000); intro = false }
     val deviceAuth = app.zura.security.rememberDeviceAuth()
 
     val pickMoment = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -154,8 +160,8 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
                 }
             }
             // One-time index build after an update: elegant placeholders instead of an empty list.
-            items(chats.filter { !it.locked || revealed }, key = { it.id }, contentType = { "chat" }) { c ->
-                SwipeToPin(c.pinned, onToggle = { haptics.confirm(); g.scope.launch { runCatching { g.chats.setPinned(c.id, !c.pinned) } } }, modifier = Modifier.animateItem()) {
+            itemsIndexed(chats.filter { !it.locked || revealed }, key = { _, c -> c.id }, contentType = { _, _ -> "chat" }) { i, c ->
+                SwipeToPin(c.pinned, onToggle = { haptics.confirm(); g.scope.launch { runCatching { g.chats.setPinned(c.id, !c.pinned) } } }, modifier = Modifier.animateItem().appear(i, enabled = intro)) {
                     ChatRow(
                         c, fmt, typing = c.id in typing,
                         onClick = { onOpen(c.id) },

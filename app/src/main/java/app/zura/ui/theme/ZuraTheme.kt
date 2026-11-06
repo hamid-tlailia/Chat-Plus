@@ -17,7 +17,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 
-enum class ZuraThemeId { MIDNIGHT, OLED, VELVET_GOLD, LIGHT }
+/** Order = how they're offered: dark first, then light. */
+enum class ZuraThemeId { MIDNIGHT, SAPPHIRE, EMERALD, VELVET_GOLD, OLED, LIGHT, PEARL }
 
 /**
  * Message colours, chosen independently of the app theme: a gradient for my bubbles and a calm
@@ -70,57 +71,53 @@ data class ZuraPalette(
 )
 
 object ZuraPalettes {
-    val Midnight = ZuraPalette(
-        isDark = true,
-        bg = Color(0xFF0B0B10), bgAccent = Color(0xFF14121F),
-        surface = Color(0xFF15151D), surfaceHigh = Color(0xFF1E1E29),
-        glass = Color(0xB31A1A24), glassStroke = Color(0x22FFFFFF),
-        accent = Color(0xFF8B7CFF), accentAlt = Color(0xFF5CC8FF), onAccent = Color.White,
-        text = Color(0xFFF2F1F7), textMuted = Color(0xFF8E8C9E),
-        bubbleMine = Color(0xFF6D5DF6), bubbleMineAlt = Color(0xFF4F8BFF), onBubbleMine = Color.White,
-        bubbleTheirs = Color(0xFF1C1C26), onBubbleTheirs = Color(0xFFF2F1F7),
-        divider = Color(0x14FFFFFF), danger = Color(0xFFFF5C7A), read = Color(0xFF7FE3FF),
+    private fun pal(
+        dark: Boolean, bg: Long, bgAccent: Long, surface: Long, surfaceHigh: Long, glass: Long, glassStroke: Long,
+        accent: Long, accentAlt: Long, onAccent: Long, text: Long, textMuted: Long,
+        mine: Long, mineAlt: Long, onMine: Long, theirs: Long, onTheirs: Long, divider: Long, danger: Long, read: Long,
+    ) = ZuraPalette(
+        dark, Color(bg), Color(bgAccent), Color(surface), Color(surfaceHigh), Color(glass), Color(glassStroke),
+        Color(accent), Color(accentAlt), Color(onAccent), Color(text), Color(textMuted),
+        Color(mine), Color(mineAlt), Color(onMine), Color(theirs), Color(onTheirs), Color(divider), Color(danger), Color(read),
     )
-    /** True black: AMOLED pixels fully off → measurably lower power on dark UIs. */
-    val Oled = ZuraPalette(
-        isDark = true,
-        bg = Color.Black, bgAccent = Color.Black,
-        surface = Color(0xFF0A0A0A), surfaceHigh = Color(0xFF141414),
-        glass = Color(0xCC0A0A0A), glassStroke = Color(0x1AFFFFFF),
-        accent = Color(0xFFFFFFFF), accentAlt = Color(0xFFB0B0B0), onAccent = Color.Black,
-        text = Color(0xFFEDEDED), textMuted = Color(0xFF777777),
-        bubbleMine = Color(0xFF1F1F1F), bubbleMineAlt = Color(0xFF2A2A2A), onBubbleMine = Color.White,
-        bubbleTheirs = Color(0xFF0E0E0E), onBubbleTheirs = Color(0xFFEDEDED),
-        divider = Color(0x12FFFFFF), danger = Color(0xFFFF4D4D), read = Color(0xFFFFFFFF),
-    )
-    val VelvetGold = ZuraPalette(
-        isDark = true,
-        bg = Color(0xFF120D0F), bgAccent = Color(0xFF231419),
-        surface = Color(0xFF1C1416), surfaceHigh = Color(0xFF281C1F),
-        glass = Color(0xB3241A1D), glassStroke = Color(0x33E8C77E),
-        accent = Color(0xFFE8C77E), accentAlt = Color(0xFFB8873B), onAccent = Color(0xFF1A1206),
-        text = Color(0xFFF6EDE3), textMuted = Color(0xFFA48F86),
-        bubbleMine = Color(0xFFC9A15A), bubbleMineAlt = Color(0xFF9C6F2C), onBubbleMine = Color(0xFF1A1206),
-        bubbleTheirs = Color(0xFF2A1E21), onBubbleTheirs = Color(0xFFF6EDE3),
-        divider = Color(0x1AE8C77E), danger = Color(0xFFFF6F61), read = Color(0xFF6B3E00),
-    )
-    val Light = ZuraPalette(
-        isDark = false,
-        bg = Color(0xFFFAFAFC), bgAccent = Color(0xFFF1F0F7),
-        surface = Color(0xFFFFFFFF), surfaceHigh = Color(0xFFF3F3F7),
-        glass = Color(0xCCFFFFFF), glassStroke = Color(0x14000000),
-        accent = Color(0xFF111111), accentAlt = Color(0xFF555555), onAccent = Color.White,
-        text = Color(0xFF111114), textMuted = Color(0xFF8A8A93),
-        bubbleMine = Color(0xFF111114), bubbleMineAlt = Color(0xFF2B2B33), onBubbleMine = Color.White,
-        bubbleTheirs = Color(0xFFF0F0F4), onBubbleTheirs = Color(0xFF111114),
-        divider = Color(0x0F000000), danger = Color(0xFFE5484D), read = Color(0xFF7FE3FF),
-    )
+
+    /** Ink-violet night with a lilac → sky accent. */
+    val Midnight = pal(true, 0xFF09090F, 0xFF17132B, 0xFF13131D, 0xFF1D1C2B, 0xB8171624, 0x24FFFFFF,
+        0xFF8F80FF, 0xFF6ACBFF, 0xFFFFFFFF, 0xFFF4F2FA, 0xFF918EA6,
+        0xFF6E5FF5, 0xFF4B86FF, 0xFFFFFFFF, 0xFF1C1B29, 0xFFF4F2FA, 0x14FFFFFF, 0xFFFF5C7A, 0xFF8BE8FF)
+    /** Deep navy with brushed silver — calm and formal. */
+    val Sapphire = pal(true, 0xFF060A16, 0xFF0F1A36, 0xFF0D1426, 0xFF162038, 0xB80E1730, 0x2EC9D6F2,
+        0xFFC9D6F2, 0xFF5B8CFF, 0xFF0A1226, 0xFFEFF3FB, 0xFF8B97B3,
+        0xFF3D6BFF, 0xFF2343B8, 0xFFFFFFFF, 0xFF141E36, 0xFFEFF3FB, 0x17C9D6F2, 0xFFFF6B7F, 0xFFAEE4FF)
+    /** Forest-dark emerald with gold leaf. */
+    val Emerald = pal(true, 0xFF06110D, 0xFF0D2219, 0xFF0F1A15, 0xFF17261F, 0xB8102019, 0x33D9BA75,
+        0xFFD9BA75, 0xFF2FAE83, 0xFF13100A, 0xFFEEF4EF, 0xFF8EA399,
+        0xFF1E8A66, 0xFF0E5C45, 0xFFFFFFFF, 0xFF15241D, 0xFFEEF4EF, 0x1AD9BA75, 0xFFFF6F61, 0xFFB9F5DD)
+    /** Burgundy velvet and champagne gold. */
+    val VelvetGold = pal(true, 0xFF110B0D, 0xFF26141B, 0xFF1B1316, 0xFF271B1F, 0xB3221719, 0x3DE9CB86,
+        0xFFE9CB86, 0xFFB88A3E, 0xFF1A1206, 0xFFF7EEE4, 0xFFA9938A,
+        0xFFD1AA62, 0xFFA0712E, 0xFF1A1206, 0xFF2B1E22, 0xFFF7EEE4, 0x1FE9CB86, 0xFFFF6F61, 0xFF6B3E00)
+    /** True black: AMOLED pixels fully off → measurably lower power on dark UIs. Platinum details. */
+    val Oled = pal(true, 0xFF000000, 0xFF000000, 0xFF0A0A0A, 0xFF151515, 0xCC0A0A0A, 0x1FFFFFFF,
+        0xFFF2F2F2, 0xFFA8A8A8, 0xFF000000, 0xFFEDEDED, 0xFF7A7A7A,
+        0xFF262626, 0xFF161616, 0xFFFFFFFF, 0xFF0F0F0F, 0xFFEDEDED, 0x14FFFFFF, 0xFFFF4D4D, 0xFFFFFFFF)
+    /** Porcelain white with ink. */
+    val Light = pal(false, 0xFFFBFBFD, 0xFFEFEEF6, 0xFFFFFFFF, 0xFFF2F2F7, 0xD9FFFFFF, 0x1A000000,
+        0xFF1A1A22, 0xFF4A4A58, 0xFFFFFFFF, 0xFF121216, 0xFF85858F,
+        0xFF1A1A22, 0xFF3A3A48, 0xFFFFFFFF, 0xFFEEEEF3, 0xFF121216, 0x0F000000, 0xFFE5484D, 0xFF9FE6FF)
+    /** Ivory and champagne: a warm, luxurious day theme. */
+    val Pearl = pal(false, 0xFFFBF8F2, 0xFFF1E8D8, 0xFFFFFDF8, 0xFFF4EDE1, 0xD9FFFCF5, 0x26B08D57,
+        0xFF9C7A3C, 0xFFCDAA6A, 0xFFFFFFFF, 0xFF2A2118, 0xFF8C7E6C,
+        0xFFB89558, 0xFF8E6A2E, 0xFFFFFFFF, 0xFFF0E7D6, 0xFF2A2118, 0x14B08D57, 0xFFD9534F, 0xFFFFF1C9)
 
     fun of(id: ZuraThemeId) = when (id) {
         ZuraThemeId.MIDNIGHT -> Midnight
-        ZuraThemeId.OLED -> Oled
+        ZuraThemeId.SAPPHIRE -> Sapphire
+        ZuraThemeId.EMERALD -> Emerald
         ZuraThemeId.VELVET_GOLD -> VelvetGold
+        ZuraThemeId.OLED -> Oled
         ZuraThemeId.LIGHT -> Light
+        ZuraThemeId.PEARL -> Pearl
     }
 }
 

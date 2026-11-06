@@ -72,7 +72,7 @@ class AccountSession(
     /** Stealth mode for this account (read receipts, typing, last seen; per-contact ghost). */
     val privacy = Privacy(app.getSharedPreferences("zura_priv_$short", android.content.Context.MODE_PRIVATE))
     val chats = ChatRepository(vault, transport, backend, uid, scope, privacy)
-    val moments = MomentsRepository(vault, chats, transport, backend, uid, { contactIds() }, scope, nameOf = { contacts.profile(it)?.displayName })
+    val moments = MomentsRepository(vault, chats, transport, backend, uid, { contactIds() }, scope, nameOf = { contacts.profile(it)?.displayName }, tellSeen = { privacy.receiptsTo(it) })
     val walkie by lazy { Walkie(transport, uid, scope) }
     /** Restoring a chat's history from the contact's phone (with their approval). */
     val history by lazy { HistoryRestore(app, vault, transport, backend, chats, uid, scope) { contacts.profile(it)?.displayName } }
@@ -95,6 +95,8 @@ class AccountSession(
         transport.onFrame = { from, f ->
             when (f) {
                 is Frame.MomentPost -> moments.handle(from, f)
+                is Frame.MomentSeen -> moments.onSeen(from, f)
+                is Frame.MomentDelete -> moments.onDeleted(from, f)
                 is Frame.Block -> if (f.from == from) contacts.markBlockedMe(from, f.blocked)
                 // Live voice only from accepted, unblocked contacts.
                 is Frame.Walkie -> if (f.from == from && contacts.contacts.value.any { it.profile.id == from } && !contacts.isBlocked(from)) walkie.onFrame(from, f)

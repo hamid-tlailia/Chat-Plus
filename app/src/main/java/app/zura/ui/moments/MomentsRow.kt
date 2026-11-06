@@ -1,5 +1,6 @@
 package app.zura.ui.moments
 
+import app.zura.ui.components.appear
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,7 +53,8 @@ fun MomentsRow(groups: List<MomentGroup>, myName: String, onAdd: () -> Unit, onO
             )
         }
         items(groups.filterNot { it.mine }, key = { it.ownerId }) { g ->
-            RingItem(g.name, g, g.name, g.hue, badge = false, onClick = { onOpen(g.ownerId) }, onBadge = {})
+            // Stories slide in one after another when the list first shows.
+            androidx.compose.foundation.layout.Box(Modifier.appear(groups.indexOf(g))) { RingItem(g.name, g, g.name, g.hue, badge = false, onClick = { onOpen(g.ownerId) }, onBadge = {}) }
         }
     }
 }

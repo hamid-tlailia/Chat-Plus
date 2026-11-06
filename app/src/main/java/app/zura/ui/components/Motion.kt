@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 
 /**
  * Motion vocabulary. Everything interactive uses springs (velocity-preserving, interruptible —
@@ -29,6 +30,22 @@ object ZuraMotion {
     /** Press feedback: very stiff so it tracks the finger. */
     val Press = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 1600f)
     val SnappyOffset = spring(dampingRatio = 0.9f, stiffness = 700f, visibilityThreshold = IntOffset(1, 1))
+}
+
+/**
+ * Entrance: the element fades in and rises 18 dp on its first composition, staggered by [index]
+ * (lists cascade in instead of popping all at once). Draw-layer only — no relayout, no jank.
+ */
+@Composable
+fun Modifier.appear(index: Int = 0, enabled: Boolean = true): Modifier {
+    if (!enabled) return this
+    val p = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(index.coerceIn(0, 12) * 35L)
+        p.animateTo(1f, androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    }
+    val dy = with(androidx.compose.ui.platform.LocalDensity.current) { 18.dp.toPx() }
+    return graphicsLayer { alpha = p.value; translationY = (1f - p.value) * dy }
 }
 
 /** Scales content to 96% while pressed — applied in the draw layer, so zero relayout. */

@@ -68,8 +68,12 @@ sealed interface Route {
     data object Chats : Route
     data class Chat(val id: String) : Route
     data object Settings : Route
-    data object Vault : Route
-    data object Studio : Route
+    /** One section of the settings (appearance, privacy, …). */
+    data class SettingsPage(val key: String) : Route
+    /** Media vault; [chatId] = one chat's media only. */
+    data class Vault(val chatId: String? = null) : Route
+    /** Theme Studio; [chatId] = design that chat's style. */
+    data class Studio(val chatId: String? = null) : Route
     data class Moments(val startOwner: String) : Route
     data class Media(val chatId: String, val messageId: String) : Route
     data object People : Route
@@ -100,7 +104,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         val g = graph
-        val dark = ZuraPalettes.of(g.settings.theme.value).isDark
+        val dark = ZuraPalettes.of(g.settings.effectiveTheme.value).isDark
         enableEdgeToEdge(
             statusBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
             navigationBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
@@ -130,20 +134,9 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val theme by g.settings.theme.collectAsStateWithLifecycle()
+            // The app theme (manual, or day / night by the sun). Each chat adds its own bubble style.
+            val theme by g.settings.effectiveTheme.collectAsStateWithLifecycle()
             val auth by g.accounts.state.collectAsStateWithLifecycle()
-            val bubbles by g.settings.bubbles.collectAsStateWithLifecycle()
-            val custom by g.settings.customTheme.collectAsStateWithLifecycle()
-            val useCustom by g.settings.useCustom.collectAsStateWithLifecycle()
-            val files by g.settings.themeFiles.collectAsStateWithLifecycle()
-            val active = custom.takeIf { useCustom }
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            val font = remember(active != null, files) { if (active != null) app.zura.ui.theme.CustomTheme.fontFamily(ctx) else null }
-            val wall by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, active != null, files) {
-                value = if (active == null) null else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    app.zura.ui.theme.CustomTheme.wallFile(ctx).takeIf { it.exists() }?.let { android.graphics.BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() }
-                }
-            }
             // Status / navigation bar icons follow the theme live (dark theme → light icons).
             val view = androidx.compose.ui.platform.LocalView.current
             val isDark = ZuraPalettes.of(theme).isDark
@@ -153,7 +146,7 @@ class MainActivity : ComponentActivity() {
                     isAppearanceLightNavigationBars = !isDark
                 }
             }
-            ZuraTheme(theme, bubbles, active, font, wall) {
+            ZuraTheme(theme) {
                 Box(Modifier.fillMaxSize().zuraBackground()) {
                     when (val a = auth) {
                         AuthState.Loading -> SplashScreen()
@@ -319,16 +312,24 @@ internal fun NavHost(nav: Navigator) {
                 // Came from that chat → just go back to it; otherwise open it.
                 val below = nav.stack.getOrNull(nav.stack.lastIndex - 1)
                 nav.pop(); if (below != Route.Chat(chatId)) nav.push(Route.Chat(chatId))
-            })
+            },
+                onOpenMedia = { chatId, id -> nav.push(Route.Media(chatId, id)) },
+                onAllMedia = { nav.push(Route.Vault(it)) },
+                onStudio = { nav.push(Route.Studio(it)) },
+            )
             is Route.Chat -> ChatScreen(route.id, onBack = { nav.pop() }, onOpenMedia = { nav.push(Route.Media(route.id, it)) }, onOpenProfile = { nav.push(Route.Profile(it)) })
             Route.Settings -> SettingsScreen(
                 onBack = { nav.pop() },
                 onProfile = { ctxGraph.session.value?.let { nav.push(Route.Profile(it.uid)) } },
-                onVault = { nav.push(Route.Vault) },
-                onStudio = { nav.push(Route.Studio) },
+                onPage = { nav.push(Route.SettingsPage(it)) },
             )
-            Route.Studio -> app.zura.ui.theme.ThemeStudioScreen(onBack = { nav.pop() })
-            Route.Vault -> app.zura.ui.vault.MediaVaultScreen(onBack = { nav.pop() }, onOpenMedia = { chatId, id -> nav.push(Route.Media(chatId, id)) })
+            is Route.SettingsPage -> app.zura.ui.settings.SettingsPageScreen(
+                route.key, onBack = { nav.pop() },
+                onProfile = { ctxGraph.session.value?.let { nav.push(Route.Profile(it.uid)) } },
+                onVault = { nav.push(Route.Vault()) },
+            )
+            is Route.Studio -> app.zura.ui.theme.ThemeStudioScreen(onBack = { nav.pop() }, chatId = route.chatId)
+            is Route.Vault -> app.zura.ui.vault.MediaVaultScreen(onBack = { nav.pop() }, onOpenMedia = { chatId, id -> nav.push(Route.Media(chatId, id)) }, chatId = route.chatId)
             is Route.Moments -> MomentViewer(route.startOwner, onClose = { nav.pop() })
             is Route.Media -> MediaViewer(route.chatId, route.messageId, onClose = { nav.pop() })
         }

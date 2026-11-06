@@ -78,7 +78,8 @@ private val PRESETS = listOf(
 
 /** Design your own theme: colours, bubble shape, font and wallpaper — then apply or share it. */
 @Composable
-fun ThemeStudioScreen(onBack: () -> Unit) {
+/** [chatId]: opened from that chat's profile → "Apply" makes it that chat's style. */
+fun ThemeStudioScreen(onBack: () -> Unit, chatId: String? = null) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val haptics = rememberHaptics()
@@ -221,7 +222,9 @@ fun ThemeStudioScreen(onBack: () -> Unit) {
             ) { Text(stringResource(R.string.theme_share), style = Zura.type.label, color = p.text) }
             Box(
                 Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(26.dp)).background(p.accent).clickable {
-                    haptics.confirm(); g.settings.saveCustom(t); onBack()
+                    haptics.confirm(); g.settings.saveCustom(t, apply = false)
+                    chatId?.let { g.settings.setChatStyle(it, app.zura.data.SettingsStore.STYLE_CUSTOM) }
+                    onBack()
                 },
                 contentAlignment = Alignment.Center,
             ) { Text(stringResource(R.string.theme_apply), style = Zura.type.label, color = p.onAccent) }

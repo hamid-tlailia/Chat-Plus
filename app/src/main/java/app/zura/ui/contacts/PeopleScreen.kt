@@ -1,5 +1,6 @@
 package app.zura.ui.contacts
 
+import app.zura.ui.components.appear
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -263,7 +264,7 @@ private fun ContactsList(
         if (!loaded && contacts.isEmpty()) items(5, key = { "sk$it" }) { app.zura.ui.components.SkeletonRow(app.zura.ui.components.shimmerBrush()) }
         else if (contacts.isEmpty() && people.isNullOrEmpty()) item { Empty(stringResource(R.string.start_chat_hint)) }
         items(contacts, key = { it.profile.id }) { ct ->
-            Box {
+            Box(Modifier.appear(contacts.indexOf(ct))) {
                 PersonRow(
                     ct.profile.displayName, app.zura.i18n.handle(ct.profile.username), ct.profile.avatarPath, ct.profile.id,
                     modifier = Modifier.combinedClickable(onClick = { onOpenChat(ContactsRepository.dmChatId(repo.me, ct.profile.id)) }, onLongClick = { menu = ct }),

@@ -69,7 +69,12 @@ fun Modifier.glass(shape: Shape = RoundedCornerShape(24.dp), solid: Float = 0f):
 @Composable
 fun Modifier.zuraBackground(): Modifier {
     val c = Zura.colors
-    return background(Brush.linearGradient(listOf(c.bg, c.bgAccent, c.bg)))
+    // Base gradient + a soft glow of the theme's accent from the top corner: depth, not decoration.
+    val glow = c.accent.copy(alpha = if (c.isDark) 0.09f else 0.07f)
+    return drawBehind {
+        drawRect(Brush.linearGradient(listOf(c.bg, c.bgAccent, c.bg), end = androidx.compose.ui.geometry.Offset(size.width, size.height)))
+        drawRect(Brush.radialGradient(listOf(glow, Color.Transparent), center = androidx.compose.ui.geometry.Offset(size.width * 0.9f, 0f), radius = size.maxDimension * 0.75f))
+    }
 }
 
 /** Monogram avatar: hue derived from chat id, gradient fill, optional story ring. */

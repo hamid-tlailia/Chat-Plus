@@ -613,7 +613,8 @@ private fun ThemeFileCard(m: Message, onFill: Color) {
                     }
                     busy = false
                     if (t != null) {
-                        g.settings.saveCustom(t); g.settings.themeFiles.value++
+                        // A theme someone sent in this chat: it becomes THIS chat's style.
+                        g.settings.saveCustom(t, apply = false); g.settings.setChatStyle(m.chatId, app.zura.data.SettingsStore.STYLE_CUSTOM); g.settings.themeFiles.value++
                         android.widget.Toast.makeText(ctx, R.string.theme_applied, android.widget.Toast.LENGTH_SHORT).show()
                     } else android.widget.Toast.makeText(ctx, R.string.theme_bad_file, android.widget.Toast.LENGTH_SHORT).show()
                 }

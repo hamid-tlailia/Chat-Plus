@@ -68,7 +68,7 @@ class ShareReceiverActivity : ComponentActivity() {
 
         setContent {
             val g = graph
-            val theme by g.settings.theme.collectAsStateWithLifecycle()
+            val theme by g.settings.effectiveTheme.collectAsStateWithLifecycle()
             // Shared from another app while Zura was closed: the account is still opening — wait
             // for it (reading the chats right away crashed, so sharing seemed to do nothing).
             val auth by g.accounts.state.collectAsStateWithLifecycle()

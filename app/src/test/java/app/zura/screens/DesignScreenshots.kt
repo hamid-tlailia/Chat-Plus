@@ -249,6 +249,11 @@ class DesignScreenshots {
         rule.onNodeWithText("🐙", substring = true).assertExists()
     }
 
+    @Test fun s20_appearance_auto() = shoot("20_appearance_auto_en", false, ZuraThemeId.MIDNIGHT, setup = { rule.activity.graph.settings.setAutoTheme(true) }) {
+        app.zura.ui.settings.SettingsPageScreen(app.zura.ui.settings.PAGE_APPEARANCE, {}, {}, {})
+    }
+    @Test fun s21_profile_chat() = shoot("21_profile_chat_pearl_ar", true, ZuraThemeId.PEARL) { app.zura.ui.profile.ProfileScreen(SARA, {}, {}) }
+
     @Test fun s01_chats_midnight_en() = shoot("01_chats_midnight_en", false, ZuraThemeId.MIDNIGHT) { ChatListScreen({}, {}, {}, {}) }
     @Test fun s02_chat_midnight_en() = shoot("02_chat_midnight_en", false, ZuraThemeId.MIDNIGHT) { ChatScreen(sara, {}, {}) }
     @Test fun s03_actions_midnight_en() = shoot("03_actions_midnight_en", false, ZuraThemeId.MIDNIGHT, after = {

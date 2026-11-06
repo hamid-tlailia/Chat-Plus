@@ -81,6 +81,12 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun ChatScreen(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit, onOpenProfile: (String) -> Unit = {}) {
+    // This chat's own bubble colours / Studio style (chosen in its profile) over the app theme.
+    app.zura.ui.theme.ChatStyle(chatId) { ChatScreenContent(chatId, onBack, onOpenMedia, onOpenProfile) }
+}
+
+@Composable
+private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (String) -> Unit, onOpenProfile: (String) -> Unit) {
     val ctx = LocalContext.current
     val g = ctx.graph
     // Keyed by the account session too: the view model outlives screens (activity scope), and one

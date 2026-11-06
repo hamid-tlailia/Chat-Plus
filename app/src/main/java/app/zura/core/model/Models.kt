@@ -58,6 +58,8 @@ data class Message(
     val ttlMs: Long? = null,
     /** This message reacts / replies to a moment (story): a small preview of it travels along. */
     val moment: MomentQuote? = null,
+    /** My own moment: who has seen it (userId → when). Told end-to-end encrypted by each viewer. */
+    val seenBy: Map<String, Long> = emptyMap(),
 )
 
 @Serializable

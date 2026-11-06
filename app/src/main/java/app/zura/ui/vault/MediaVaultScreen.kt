@@ -1,5 +1,6 @@
 package app.zura.ui.vault
 
+import app.zura.ui.components.appear
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -80,7 +81,8 @@ private enum class Sort { NEWEST, OLDEST, LARGEST }
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MediaVaultScreen(onBack: () -> Unit, onOpenMedia: (chatId: String, messageId: String) -> Unit) {
+/** [chatId]: only that chat's media (from its profile); null = every chat. */
+fun MediaVaultScreen(onBack: () -> Unit, onOpenMedia: (chatId: String, messageId: String) -> Unit, chatId: String? = null) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val c = Zura.colors
@@ -93,7 +95,7 @@ fun MediaVaultScreen(onBack: () -> Unit, onOpenMedia: (chatId: String, messageId
     var selected by remember { mutableStateOf(setOf<String>()) }
     var confirm by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
-    LaunchedEffect(reload) { all = g.chats.allMedia() }
+    LaunchedEffect(reload) { all = g.chats.allMedia().filter { chatId == null || it.chatId == chatId } }
 
     BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
 
@@ -156,13 +158,14 @@ fun MediaVaultScreen(onBack: () -> Unit, onOpenMedia: (chatId: String, messageId
             ) {
                 items(list, key = ::key, span = { i -> if (i.m.kind == MsgKind.IMAGE || i.m.kind == MsgKind.VIDEO) GridItemSpan(1) else GridItemSpan(maxLineSpan) }) { i ->
                     val k = key(i)
+                    val idx = list.indexOf(i)
                     val sel = k in selected
                     val click = {
                         if (selected.isNotEmpty()) selected = if (sel) selected - k else selected + k
                         else if (i.m.kind == MsgKind.IMAGE || i.m.kind == MsgKind.VIDEO) onOpenMedia(i.chatId, i.m.id)
                         else scope.launch { i.m.media?.let { runCatching { ctx.startActivity(g.exporter.shareOut(i.chatId, it)) } } }
                     }
-                    val mod = Modifier.combinedClickable(onClick = { click() }, onLongClick = { haptics.heavy(); selected = selected + k })
+                    val mod = Modifier.appear(idx.coerceAtMost(12)).combinedClickable(onClick = { click() }, onLongClick = { haptics.heavy(); selected = selected + k })
                     if (i.m.kind == MsgKind.IMAGE || i.m.kind == MsgKind.VIDEO) Tile(i, sel, fmt, mod)
                     else FileRow(i, sel, fmt, mod)
                 }

@@ -267,6 +267,14 @@ class ChatRepository(
         }
     }
 
+    /** One chat's photos & videos (ready ones), newest first — for its profile. */
+    suspend fun mediaOf(chatId: String): List<Message> = withContext(Dispatchers.IO) {
+        if (!vault.exists(chatId)) return@withContext emptyList()
+        vault.chat(chatId).messages.value
+            .filter { (it.kind == MsgKind.IMAGE || it.kind == MsgKind.VIDEO) && it.media?.isPlaceholder == false }
+            .sortedByDescending { it.sentAt }
+    }
+
     /** Locked chats stay hidden / closed until the user authenticates; re-locks when the app leaves the screen. */
     val lockedRevealed = MutableStateFlow(false)
 

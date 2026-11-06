@@ -106,6 +106,14 @@ sealed interface Frame {
     @Serializable @SerialName("call_media")
     data class CallMedia(val callId: String, val from: String, val videoOn: Boolean, val muted: Boolean, val screen: Boolean = false) : Frame
 
+    /** Viewer → owner: "I saw your moment" (not sent while hiding read receipts from them). */
+    @Serializable @SerialName("moment_seen")
+    data class MomentSeen(val id: String, val from: String, val at: Long) : Frame
+
+    /** Owner → contacts: the moment was deleted — remove it. */
+    @Serializable @SerialName("moment_del")
+    data class MomentDelete(val id: String, val from: String) : Frame
+
     // ── Chat-history restore (a phone lost a chat's history: the contact sends their copy back,
     //    end-to-end encrypted like everything else, and only after they approve).
 

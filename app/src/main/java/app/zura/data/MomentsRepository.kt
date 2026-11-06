@@ -45,6 +45,8 @@ class MomentsRepository(
     private val scope: CoroutineScope,
     /** Display name for a user id (contacts and me), so a moment never shows a raw id. */
     private val nameOf: (String) -> String? = { null },
+    /** May this person learn that I saw their moment? (stealth mode / ghost → no) */
+    private val tellSeen: (String) -> Boolean = { true },
 ) {
     private val store by lazy {
         vault.chat(STORE).also { s ->
@@ -73,9 +75,10 @@ class MomentsRepository(
         .stateIn(scope, SharingStarted.Lazily, emptyList())
 
     suspend fun post(media: MediaRef, kind: MsgKind, caption: String?) = withContext(Dispatchers.IO) {
-        val m = Message(UUID.randomUUID().toString(), STORE, me, System.currentTimeMillis(), kind, caption, media, MsgStatus.READ)
-        store.upsert(m)
         val path = "$me/${UUID.randomUUID()}"
+        // The server path is kept on my copy: deleting the moment removes it from the server too.
+        val m = Message(UUID.randomUUID().toString(), STORE, me, System.currentTimeMillis(), kind, caption, media.copy(remoteBlobId = path), MsgStatus.READ)
+        store.upsert(m)
         runCatching {
             backend.upload("blobs", path, vault.mediaFile(STORE, media))
             val frame = Frame.MomentPost(m.id, me, "", m.sentAt, media.copy(remoteBlobId = path), caption)
@@ -84,15 +87,43 @@ class MomentsRepository(
     }
 
     suspend fun markSeen(id: String) = withContext(Dispatchers.IO) {
-        store.get(id)?.takeIf { it.status != MsgStatus.READ }?.let { store.upsert(it.copy(status = MsgStatus.READ)) }
+        val m = store.get(id)?.takeIf { it.status != MsgStatus.READ } ?: return@withContext
+        store.upsert(m.copy(status = MsgStatus.READ))
+        // Tell the owner (their view count) — unless I hide my read receipts from them.
+        if (m.senderId != me && tellSeen(m.senderId)) scope.launch { transport.sendWithRetry(m.senderId, Frame.MomentSeen(id, me, System.currentTimeMillis())) }
     }
 
-    suspend fun delete(id: String) = withContext(Dispatchers.IO) { store.purge(listOf(id)) }
+    /** Delete one of MY moments: here, on my contacts' phones, and its file on the server. */
+    suspend fun delete(id: String) = withContext(Dispatchers.IO) {
+        val m = store.get(id)
+        store.purge(listOf(id))
+        if (m != null && m.senderId == me) {
+            m.media?.remoteBlobId?.let { scope.launch { backend.delete("blobs", it) } }
+            contacts().forEach { c -> scope.launch { transport.sendWithRetry(c, Frame.MomentDelete(id, me)) } }
+        }
+    }
 
     suspend fun expire(): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        store.purge(store.messages.value.filter { now - it.sentAt >= TTL_MS }.map { it.id })
+        val old = store.messages.value.filter { now - it.sentAt >= TTL_MS }
+        // My expired moments: their server copies go too.
+        old.filter { it.senderId == me }.mapNotNull { it.media?.remoteBlobId }.forEach { backend.delete("blobs", it) }
+        store.purge(old.map { it.id })
     }
+
+    /** A contact saw my moment. */
+    suspend fun onSeen(from: String, f: Frame.MomentSeen) = withContext(Dispatchers.IO) {
+        if (f.from != from || from !in contacts()) return@withContext
+        store.update(f.id) { m -> if (m.senderId == me && from !in m.seenBy) m.copy(seenBy = m.seenBy + (from to f.at.coerceAtMost(System.currentTimeMillis()))) else m }
+    }
+
+    /** A contact deleted their moment. */
+    suspend fun onDeleted(from: String, f: Frame.MomentDelete) = withContext(Dispatchers.IO) {
+        if (f.from != from) return@withContext
+        if (store.get(f.id)?.senderId == from) store.purge(listOf(f.id))
+    }
+
+    fun nameFor(uid: String) = nameOf(uid)
 
     suspend fun handle(from: String, f: Frame.MomentPost) = withContext(Dispatchers.IO) {
         if (f.from != from || from !in contacts()) return@withContext
