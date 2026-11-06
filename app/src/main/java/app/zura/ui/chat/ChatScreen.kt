@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -96,18 +97,6 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
     // new reactions / messages appeared only after restarting the app.
     // (+ the chat's incarnation: after it was deleted, a new view model — never the one holding the old chat.)
     val vm = viewModel(key = "${System.identityHashCode(g.s)}:$chatId:${g.vault.incarnation(chatId)}") { ChatViewModel(g, chatId) }
-    // Photo editor (draw / text / rotate) for a staged photo, full screen above the chat.
-    // The phone's bars, measured here: inside its own (dialog) window the editor doesn't get them,
-    // and its colours ended up under the navigation bar.
-    val bars = androidx.compose.foundation.layout.WindowInsets.systemBars.asPaddingValues()
-    vm.editingPhoto?.let { photo ->
-        androidx.compose.ui.window.Dialog(
-            onDismissRequest = { vm.editingPhoto = null },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false, dismissOnClickOutside = false),
-        ) {
-            ImageEditor(photo, onDone = { edited -> vm.replaceAttachment(photo, edited); vm.editingPhoto = null }, onCancel = { vm.editingPhoto = null }, insets = bars)
-        }
-    }
     // A contact's chat that was deleted: opened again from People / their profile → give it back
     // its name and photo (it is recreated empty).
     LaunchedEffect(chatId) {
@@ -446,6 +435,16 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                 cancelLabel = stringResource(R.string.cancel),
                 onDismiss = { confirmDel = null },
             )
+        }
+        // Photo editor (draw / text / rotate) for a staged photo, full screen above the chat — in
+        // the activity's own (edge-to-edge) window, not a Dialog: some phones place a full-screen
+        // dialog window below the status bar at the screen's full height, so its bottom (the
+        // colours) ended up off-screen / under the navigation bar.
+        val bars = androidx.compose.foundation.layout.WindowInsets.systemBars.asPaddingValues()
+        vm.editingPhoto?.let { photo ->
+            Box(Modifier.fillMaxSize().zIndex(10f)) {
+                ImageEditor(photo, onDone = { edited -> vm.replaceAttachment(photo, edited); vm.editingPhoto = null }, onCancel = { vm.editingPhoto = null }, insets = bars)
+            }
         }
     }
     }

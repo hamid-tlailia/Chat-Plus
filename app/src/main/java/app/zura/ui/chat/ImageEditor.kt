@@ -100,7 +100,7 @@ import kotlin.math.roundToInt
 @Composable
 fun ImageEditor(
     source: Attachment, onDone: (Attachment) -> Unit, onCancel: () -> Unit,
-    /** The phone's status / navigation bar sizes (measured by the screen that opens the editor). */
+    /** The phone's status / navigation bar sizes (the chat screen passes WindowInsets.systemBars). */
     insets: androidx.compose.foundation.layout.PaddingValues = androidx.compose.foundation.layout.PaddingValues(),
 ) {
     val top = insets.calculateTopPadding()
@@ -124,7 +124,30 @@ fun ImageEditor(
 
     BackHandler { if (typing != null) typing = null else onCancel() }
 
-    Box(Modifier.fillMaxSize().background(Color.Black).clickable(enabled = false) {}) {
+    // Drawn over the chat in the same window: put the chat's keyboard away, and light bar icons
+    // on the black editor (restored when it closes — the app theme may be a light one).
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) { focusManager.clearFocus(); keyboard?.hide() }
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.DisposableEffect(view) {
+        val window = generateSequence(view.context) { (it as? android.content.ContextWrapper)?.baseContext }
+            .filterIsInstance<android.app.Activity>().firstOrNull()?.window
+        val bars = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+        val lightStatus = bars?.isAppearanceLightStatusBars
+        val lightNav = bars?.isAppearanceLightNavigationBars
+        bars?.isAppearanceLightStatusBars = false
+        bars?.isAppearanceLightNavigationBars = false
+        onDispose {
+            if (bars != null && lightStatus != null && lightNav != null) {
+                bars.isAppearanceLightStatusBars = lightStatus
+                bars.isAppearanceLightNavigationBars = lightNav
+            }
+        }
+    }
+
+    // Hit-testable over its whole area, so no touch reaches the chat underneath.
+    Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }) {
         val bmp = base
         if (bmp == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
         else BoxWithConstraints(Modifier.fillMaxSize().padding(top = top + 64.dp, bottom = bottom + 150.dp), contentAlignment = Alignment.Center) {
