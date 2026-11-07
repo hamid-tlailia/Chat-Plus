@@ -164,7 +164,9 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
         list.animateScrollToItem(0)
     }
 
-    val byId = remember(items) { items.filterIsInstance<ChatItem.Bubble>().associateBy({ it.m.id }, { it.m }) }
+    val byId = remember(items) {
+        buildMap { items.forEach { when (it) { is ChatItem.Bubble -> put(it.m.id, it.m); is ChatItem.Album -> it.ms.forEach { m -> put(m.id, m) }; else -> Unit } } }
+    }
 
     // Real frosted glass: the message list is blurred live behind the header and the composer.
     val haze = remember { dev.chrisbanes.haze.HazeState() }
@@ -177,7 +179,7 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
     val itemsNow by androidx.compose.runtime.rememberUpdatedState(items)
     val jumpTo: (String) -> Unit = remember {
         { id ->
-            val index = itemsNow.indexOfFirst { it.key == id }
+            val index = itemsNow.indexOfFirst { it.key == id || (it is ChatItem.Album && it.ms.any { m -> m.id == id }) }
             if (index >= 0) scope.launch {
                 flashId = null
                 // (A negative offset made the list overshoot and bounce back — the "shake".)
@@ -235,9 +237,22 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                 contentPadding = PaddingValues(top = top + 72.dp, bottom = 8.dp),
                 modifier = Modifier.weight(1f).fillMaxWidth().then(Modifier.hazeSourceCompat(haze)),
             ) {
-                items(items, key = { it.key }, contentType = { if (it is ChatItem.Day) 0 else (it as ChatItem.Bubble).m.kind.ordinal + 1 }) { item ->
+                items(items, key = { it.key }, contentType = { when (it) { is ChatItem.Day -> 0; is ChatItem.Album -> 99; is ChatItem.Bubble -> it.m.kind.ordinal + 1 } }) { item ->
                     when (item) {
                         is ChatItem.Day -> DayChip(fmt.daySeparator(ctx, item.epochMs))
+                        is ChatItem.Album -> {
+                            val openMedia: (app.zura.core.model.Message) -> Unit = { msg -> onOpenMedia(msg.id) }
+                            // Selecting: each photo is its own row again (to pick them one by one).
+                            if (vm.selected.isNotEmpty()) Column {
+                                item.ms.forEach { msg ->
+                                    BubbleRow(ChatItem.Bubble(msg, item.mine, true, true), fmt, haptics, resolve = byId::get, onReply = {}, onLongPress = {}, onDoubleTap = {}, onOpenMedia = {}, onRetry = {})
+                                }
+                            } else AlbumRow(
+                                item, fmt, haptics,
+                                onLongPress = { vm.focused = it }, onOpenMedia = openMedia, onRetry = { vm.retry(it) },
+                                modifier = Modifier.animateItem(fadeInSpec = spring(stiffness = 600f), placementSpec = spring(dampingRatio = 0.85f, stiffness = 500f, visibilityThreshold = IntOffset(1, 1)), fadeOutSpec = spring(stiffness = 900f)),
+                            )
+                        }
                         is ChatItem.Bubble -> BubbleRow(
                             item, fmt, haptics, resolve = byId::get,
                             onReply = { if (vm.pending.isEmpty()) { vm.replyTo = it; vm.editing = null } }, // no replies while attachments wait

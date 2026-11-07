@@ -801,3 +801,118 @@ fun kindLabel(k: MsgKind) = when (k) {
     MsgKind.TEXT -> R.string.message_hint
 }
 
+
+/**
+ * Photos / videos sent together, in ONE bubble: two side by side per row; an odd last one takes
+ * the full width (3 → two on top, one under them). More than six → the sixth shows "+N".
+ * Tap a tile → that photo; long-press → its actions. Caption + time + ticks under the grid.
+ */
+@Composable
+fun AlbumRow(
+    item: ChatItem.Album,
+    fmt: ZuraFormat,
+    haptics: Haptics,
+    onLongPress: (Message) -> Unit,
+    onOpenMedia: (Message) -> Unit,
+    onRetry: (Message) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = Zura.colors
+    val ms = item.ms
+    val first = ms.first(); val last = ms.last()
+    val big = app.zura.ui.theme.LocalBubbleRadius.current.dp
+    val small = 6.dp
+    val shape = if (item.mine) RoundedCornerShape(big, if (item.groupedWithPrev) small else big, if (item.groupedWithNext) small else big, big)
+    else RoundedCornerShape(if (item.groupedWithPrev) small else big, big, big, if (item.groupedWithNext) small else big)
+    val fill = if (item.mine) Brush.linearGradient(listOf(c.bubbleMine, c.bubbleMineAlt)) else Brush.linearGradient(listOf(c.bubbleTheirs, c.bubbleTheirs))
+    val onFill = if (item.mine) c.onBubbleMine else c.onBubbleTheirs
+    val inner = big - 4.dp
+    val gap = 3.dp
+    val shown = if (ms.size > 6) ms.take(6) else ms
+    val rows = shown.chunked(2)
+    Box(modifier.fillMaxWidth().padding(top = if (item.groupedWithPrev) 2.dp else 8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), horizontalArrangement = if (item.mine) Arrangement.End else Arrangement.Start) {
+            Column(horizontalAlignment = if (item.mine) Alignment.End else Alignment.Start) {
+                Column(Modifier.width(248.dp).clip(shape).background(fill).padding(4.dp)) {
+                    Column(Modifier.width(240.dp).clip(RoundedCornerShape(inner)), verticalArrangement = Arrangement.spacedBy(gap)) {
+                        rows.forEachIndexed { r, row ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                                row.forEachIndexed { k, m ->
+                                    val idx = r * 2 + k
+                                    val more = if (ms.size > 6 && idx == 5) ms.size - 5 else 0
+                                    AlbumTile(
+                                        m, more,
+                                        Modifier.width(if (row.size == 1) 240.dp else (240.dp - gap) / 2).height(if (row.size == 1) 160.dp else (240.dp - gap) / 2)
+                                            .pointerInput(m.id, m.status, m.media?.isPlaceholder) {
+                                                detectTapGestures(
+                                                    onLongPress = { haptics.heavy(); onLongPress(m) },
+                                                    onTap = {
+                                                        when {
+                                                            m.status == MsgStatus.FAILED -> onRetry(m)
+                                                            m.media?.isPlaceholder != true -> onOpenMedia(m)
+                                                        }
+                                                    },
+                                                )
+                                            },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    val text = first.text
+                    if (!text.isNullOrEmpty()) {
+                        val linkColor = if (item.mine) onFill else c.accent
+                        val annotated = remember(text, linkColor) { linkify(text, linkColor) }
+                        Text(
+                            annotated,
+                            style = Zura.type.body.copy(textDirection = TextDirection.Content, fontFamily = app.zura.ui.theme.LocalChatFont.current ?: Zura.type.body.fontFamily),
+                            color = onFill, modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 6.dp),
+                        )
+                    }
+                    Footer(last, item.mine, onFill, fmt, Modifier.align(Alignment.End).padding(start = 10.dp, end = 6.dp, bottom = 2.dp, top = 2.dp))
+                }
+                ms.filter { it.reactions.isNotEmpty() }.forEach { Reactions(it, fmt) }
+                if (item.seen && LocalShowReadTicks.current) LocalPeerFace.current?.let { p ->
+                    Box(Modifier.padding(top = 3.dp, end = 4.dp)) { app.zura.ui.components.UserAvatar(p.name, p.hue, p.path, 16.dp) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlbumTile(m: Message, more: Int, modifier: Modifier) {
+    val ref = m.media ?: return
+    val g = LocalContext.current.graph
+    val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
+    val pending = ref.isPlaceholder
+    val full by when {
+        pending -> remember { androidx.compose.runtime.mutableStateOf(null) }
+        m.kind == MsgKind.IMAGE -> rememberVaultImage(g.images, m.chatId, ref, 480)
+        else -> app.zura.media.rememberVideoFrame(g.images, m.chatId, ref, 480)
+    }
+    val transfer = app.zura.media.Transfers.progress.collectAsStateWithLifecycle().value[m.id]
+    val fade by animateFloatAsState(if (full != null) 1f else 0f, label = "tile")
+    Box(modifier.background(Zura.colors.surfaceHigh)) {
+        preview?.let {
+            Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(12.dp) else Modifier))
+        }
+        full?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fade }) }
+        when {
+            m.status == MsgStatus.FAILED -> Box(Modifier.align(Alignment.Center).size(40.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Warning, null, tint = Zura.colors.danger, modifier = Modifier.size(22.dp))
+            }
+            transfer != null -> TransferRing(transfer, Modifier.align(Alignment.Center).graphicsLayer { scaleX = 0.8f; scaleY = 0.8f })
+            pending -> androidx.compose.material3.CircularProgressIndicator(
+                Modifier.align(Alignment.Center).size(38.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.35f)).padding(7.dp),
+                color = Color.White, strokeWidth = 2.5.dp,
+            )
+            m.kind == MsgKind.VIDEO -> Box(Modifier.align(Alignment.Center).size(42.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(26.dp))
+            }
+        }
+        if (more > 0) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+            Text("+$more", style = Zura.type.title, color = Color.White)
+        }
+    }
+}

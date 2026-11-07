@@ -135,6 +135,8 @@ class DesignScreenshots {
             msg("m1", SARA, base, t(ar, "Good morning ☀️", "صباح الخير ☀️")),
             msg("m2", SARA, base + 20_000, t(ar, "Look at this view from the terrace", "انظر إلى هذا المنظر من الشرفة")),
             msg("m3", SARA, base + 40_000, null, MsgKind.IMAGE, media = img, react = mapOf(ME to "❤️")),
+            msg("m3b", SARA, base + 45_000, null, MsgKind.IMAGE, media = img),
+            msg("m3c", SARA, base + 50_000, null, MsgKind.IMAGE, media = img),
             msg("m4", ME, base + 5 * min, t(ar, "Wow, that light is unreal", "واو، هذا الضوء مذهل"), reply = "m3"),
             msg("m5", ME, base + 5 * min + 15_000, t(ar, "Coffee there on Friday?", "قهوة هناك يوم الجمعة؟"), edited = base + 6 * min),
             msg("c1", ME, base + 20 * min, "voice;dur=151;missed=0;reason=hangup", MsgKind.CALL),

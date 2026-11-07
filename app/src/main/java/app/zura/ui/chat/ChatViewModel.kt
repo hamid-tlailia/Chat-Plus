@@ -29,6 +29,10 @@ sealed interface ChatItem {
     data class Bubble(val m: Message, val mine: Boolean, val groupedWithPrev: Boolean, val groupedWithNext: Boolean, val seen: Boolean = false) : ChatItem {
         override val key get() = m.id
     }
+    /** Several photos / videos sent together: one bubble, laid out as a grid (oldest first). */
+    data class Album(val ms: List<Message>, val mine: Boolean, val groupedWithPrev: Boolean, val groupedWithNext: Boolean, val seen: Boolean = false) : ChatItem {
+        override val key get() = ms.first().id
+    }
     data class Day(val epochMs: Long) : ChatItem {
         override val key get() = "day-$epochMs"
     }
@@ -80,15 +84,30 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
         val out = ArrayList<ChatItem>(ms.size + 8)
         val zone = java.time.ZoneId.systemDefault()
         fun day(t: Long) = java.time.Instant.ofEpochMilli(t).atZone(zone).toLocalDate()
-        for (i in ms.indices.reversed()) {
-            val m = ms[i]
-            val prev = ms.getOrNull(i - 1)
-            val next = ms.getOrNull(i + 1)
-            fun near(a: Message?, b: Message) = a != null && a.senderId == b.senderId && kotlin.math.abs(a.sentAt - b.sentAt) < 120_000 && day(a.sentAt) == day(b.sentAt)
+        // Photos / videos sent together (same sender, within a minute, no reply/caption after the
+        // first) become one album bubble.
+        fun visual(m: Message) = (m.kind == MsgKind.IMAGE || m.kind == MsgKind.VIDEO) && m.media != null && m.replyTo == null && m.moment == null
+        val groups = ArrayList<List<Message>>()
+        var cur = ArrayList<Message>()
+        for (m in ms) {
+            val last = cur.lastOrNull()
+            val joins = last != null && visual(m) && visual(last) && m.senderId == last.senderId &&
+                kotlin.math.abs(m.sentAt - last.sentAt) < 60_000 && day(m.sentAt) == day(last.sentAt) && m.text.isNullOrEmpty()
+            if (!joins && cur.isNotEmpty()) { groups += cur; cur = ArrayList() }
+            cur += m
+        }
+        if (cur.isNotEmpty()) groups += cur
+        fun near(a: Message?, b: Message) = a != null && a.senderId == b.senderId && kotlin.math.abs(a.sentAt - b.sentAt) < 120_000 && day(a.sentAt) == day(b.sentAt)
+        for (i in groups.indices.reversed()) {
+            val gr = groups[i]
+            val first = gr.first(); val m = gr.last()
+            val prev = groups.getOrNull(i - 1)?.last()
+            val next = groups.getOrNull(i + 1)?.first()
             // Their small photo under my last message once they've read it (only when it's the last one).
             val seen = next == null && m.senderId == me && m.status == app.zura.core.model.MsgStatus.READ && m.kind != MsgKind.EVENT
-            out += ChatItem.Bubble(m, m.senderId == me, near(prev, m), near(next, m), seen)
-            if (prev == null || day(prev.sentAt) != day(m.sentAt)) out += ChatItem.Day(m.sentAt)
+            out += if (gr.size == 1) ChatItem.Bubble(m, m.senderId == me, near(prev, m), near(next, m), seen)
+            else ChatItem.Album(gr, m.senderId == me, near(prev, first), near(next, m), seen)
+            if (prev == null || day(prev.sentAt) != day(first.sentAt)) out += ChatItem.Day(first.sentAt)
         }
         out
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
