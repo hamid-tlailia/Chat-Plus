@@ -71,6 +71,17 @@ class AccountManager(
         .stateIn(scope, SharingStarted.Eagerly, null)
 
     init {
+        backend.recoverSession = { recoverSession() == true }
+        // Watchdog: signed in but no session in the client (requests would go out anonymous and
+        // silently fail) → recover. Cheap: an in-memory check every 20 s.
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(20_000)
+                if (state.value is AuthState.SignedIn && backend.client.auth.currentSessionOrNull() == null && !lock.isLocked) {
+                    runCatching { recoverSession() }
+                }
+            }
+        }
         scope.launch {
             backend.client.auth.sessionStatus.collect { st ->
                 val active = (state.value as? AuthState.SignedIn)?.session ?: return@collect
@@ -82,9 +93,16 @@ class AccountManager(
                     }
                     // The server definitively rejected the refresh token (revoked / signed out
                     // elsewhere). Network failures are RefreshFailure and simply retry.
-                    is SessionStatus.NotAuthenticated -> if (!st.isSignOut && !lock.isLocked) {
-                        DiagLog.record("auth", detail = "session rejected by server → password needed")
-                        logout(remember = false)
+                    // Not necessarily final: the library also drops the session when two refreshes
+                    // race. Re-open the saved one first; only a real rejection asks for the password.
+                    is SessionStatus.NotAuthenticated -> if (!st.isSignOut && !lock.isLocked) scope.launch {
+                        when (recoverSession()) {
+                            true -> Unit
+                            else -> {
+                                DiagLog.record("auth", detail = "session rejected by server → password needed")
+                                logout(remember = false)
+                            }
+                        }
                     }
                     else -> Unit
                 }
@@ -100,6 +118,31 @@ class AccountManager(
             if (acct != null && acct.remember && restore(acct.uid)) { watchdog.cancel(); return@launch }
             watchdog.cancel()
             if (_state.value == AuthState.Loading) _state.value = AuthState.SignedOut
+        }
+    }
+
+    /**
+     * The active account is signed in but the client holds no session: import the one saved on
+     * disk again and refresh it. true = session back (or kept for a retry: network), false = the
+     * server rejected it (revoked / signed out elsewhere), null = nothing to recover.
+     */
+    private val recovering = Mutex()
+    suspend fun recoverSession(): Boolean? = recovering.withLock {
+        withContext(Dispatchers.IO) {
+            val active = (state.value as? AuthState.SignedIn)?.session ?: return@withContext null
+            if (backend.client.auth.currentSessionOrNull() != null) return@withContext true
+            val saved = store.session(active.uid).readText()?.let { runCatching { json.decodeFromString(UserSession.serializer(), it) }.getOrNull() }
+                ?: return@withContext null
+            runCatching { withTimeoutOrNull(3_000) { backend.client.auth.importSession(saved, autoRefresh = false) } }
+            val r = runCatching { withTimeoutOrNull(10_000) { backend.client.auth.refreshCurrentSession() } ?: error("refresh timeout") }
+            val err = r.exceptionOrNull()
+            if (err is io.github.jan.supabase.exceptions.RestException) {
+                DiagLog.record("auth", detail = "session lost in memory; saved one rejected: ${err.message?.take(80)}")
+                return@withContext false
+            }
+            runCatching { backend.client.auth.startAutoRefreshForCurrentSession() }
+            DiagLog.record("auth", detail = "session lost in memory → restored from this phone" + (err?.let { " (refresh later: ${it.javaClass.simpleName})" } ?: ""))
+            true
         }
     }
 

@@ -65,8 +65,26 @@ class Backend {
      * hours later) the restored token is often expired and the background refresher may not have
      * run yet — the request would 401 and the message would wait for the next sync.
      */
+    /**
+     * Brings back the signed-in session when the library has dropped it from memory while the app
+     * is still signed in (set by AccountManager). Seen in the field: two token refreshes racing on
+     * a cold start from a push left the client with NO session — every request went out anonymous
+     * for an hour: nothing sent, nothing received, no calls, no error shown.
+     */
+    @Volatile var recoverSession: (suspend () -> Boolean)? = null
+    @Volatile private var lastRecover = 0L
+
     suspend fun ensureFresh() {
-        val s = client.auth.currentSessionOrNull() ?: return
+        val s = client.auth.currentSessionOrNull() ?: run {
+            val r = recoverSession ?: return
+            refreshLock.withLock {
+                if (client.auth.currentSessionOrNull() == null && System.currentTimeMillis() - lastRecover > 5_000) {
+                    lastRecover = System.currentTimeMillis()
+                    kotlinx.coroutines.withTimeoutOrNull(15_000) { runCatching { r() } }
+                }
+            }
+            client.auth.currentSessionOrNull()
+        } ?: return
         if (s.expiresAt.toEpochMilliseconds() - System.currentTimeMillis() > 60_000) return
         refreshLock.withLock {
             val again = client.auth.currentSessionOrNull() ?: return
