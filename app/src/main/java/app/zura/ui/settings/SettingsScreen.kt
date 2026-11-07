@@ -151,42 +151,6 @@ fun SettingsScreen(onBack: () -> Unit, onProfile: () -> Unit = {}, onPage: (Stri
             }
         }
         item {
-            // Updates: check now (the app also checks by itself when it comes to the front).
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            val upScope = androidx.compose.runtime.rememberCoroutineScope()
-            val upState by app.zura.update.Updater.state.collectAsStateWithLifecycle()
-            var checking by remember { mutableStateOf(false) }
-            var upToDate by remember { mutableStateOf(false) }
-            var offer by remember { mutableStateOf(false) }
-            MenuGroup(5) {
-                MenuRow(
-                    "⬆️", 0xFF10B981, stringResource(R.string.update_check),
-                    when {
-                        checking -> stringResource(R.string.update_checking)
-                        upState is app.zura.update.Updater.State.Available -> stringResource(R.string.update_title, (upState as app.zura.update.Updater.State.Available).r.versionName)
-                        upToDate -> stringResource(R.string.update_latest, app.zura.BuildConfig.VERSION_NAME)
-                        else -> stringResource(R.string.update_current, app.zura.BuildConfig.VERSION_NAME)
-                    },
-                ) {
-                    if (checking) return@MenuRow
-                    checking = true
-                    upScope.launch {
-                        val found = app.zura.update.Updater.check(ctx, minIntervalMs = 0)
-                        checking = false; upToDate = !found; offer = found
-                    }
-                }
-            }
-            val st = upState
-            val rel = when (st) {
-                is app.zura.update.Updater.State.Available -> st.r
-                is app.zura.update.Updater.State.Downloading -> st.r
-                is app.zura.update.Updater.State.Installing -> st.r
-                is app.zura.update.Updater.State.Failed -> st.r
-                else -> null
-            }
-            if (offer && rel != null) app.zura.update.UpdateDialog(rel, st, onLater = { offer = false }, onClose = { offer = false })
-        }
-        item {
             Text(
                 stringResource(R.string.settings_footer, app.zura.BuildConfig.VERSION_NAME), style = Zura.type.caption, color = c.textMuted,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,

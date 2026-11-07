@@ -38,16 +38,14 @@ android {
         applicationId = "app.zura"
         minSdk = 26
         targetSdk = 35
-        versionCode = 51
-        versionName = "0.9.33"
+        versionCode = 52
+        versionName = "0.9.34"
         // Supabase project "zura". The publishable key is designed to ship in clients:
         // every table is protected by Row Level Security, the key alone grants nothing.
         buildConfigField("String", "SUPABASE_URL", "\"https://vsilugnplrtguvwlmzjc.supabase.co\"")
         listOf("PROJECT_ID", "SENDER_ID", "APP_ID", "API_KEY").forEach { k ->
             buildConfigField("String", "FIREBASE_$k", "\"${firebase[k].orEmpty()}\"")
         }
-        // In-app updates: updates/latest.json on this branch of the (public) GitHub repository.
-        buildConfigField("String", "UPDATE_BRANCH", "\"ccr-6f2ca314-2hw3an\"")
         buildConfigField("String", "SUPABASE_KEY", "\"sb_publishable_0gbWNjqx9KQG719r0By2YQ_KTzn6mpB\"")
         // Ship only the two supported locales: strips every AndroidX translation from the APK.
         resourceConfigurations += listOf("en", "ar")

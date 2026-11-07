@@ -185,7 +185,6 @@ class MainActivity : ComponentActivity() {
             else {
                 NavHost(nav)
                 app.zura.push.CallReadinessPrompt()
-                app.zura.update.UpdatePrompt()
             }
             // A contact lost our chat's history and asks for my copy: approve / decline.
             if (!locked) HistoryRequestPrompt(session)
