@@ -34,19 +34,39 @@ class CallAudio(private val context: Context) {
         setSpeaker(speaker)
     }
 
+    /**
+     * Loudspeaker on / off. Several layers, because phones differ:
+     *  1. a Telecom call (opt-in) is routed by the system → ask it ([Telecom.route]);
+     *  2. Android 12+: setCommunicationDevice — then CHECK where the audio really goes: some
+     *     phones accept the call and keep the earpiece (the speaker button "did nothing");
+     *  3. the old speakerphone switch as the fallback, which those phones still honour.
+     * Each switch is written to the diagnostics log with the route actually in use.
+     */
     fun setSpeaker(on: Boolean) {
+        runCatching { if (am.mode != AudioManager.MODE_IN_COMMUNICATION) am.mode = AudioManager.MODE_IN_COMMUNICATION }
+        val telecom = Telecom.route(on)
         if (Build.VERSION.SDK_INT >= 31) {
-            val type = if (on) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-            // A connected Bluetooth / wired headset wins over the earpiece automatically.
-            val headset = am.availableCommunicationDevices.firstOrNull {
+            val devices = am.availableCommunicationDevices
+            // A connected Bluetooth / wired headset wins over the earpiece.
+            val headset = devices.firstOrNull {
                 it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
                     it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_HEADSET
             }
-            val target = if (!on && headset != null) headset else am.availableCommunicationDevices.firstOrNull { it.type == type }
-            target?.let { am.setCommunicationDevice(it) }
+            val target = if (on) devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+            else headset ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
+            val ok = target?.let { runCatching { am.setCommunicationDevice(it) }.getOrDefault(false) } ?: false
+            if (!on && target == null) runCatching { am.clearCommunicationDevice() }
+            val now = am.communicationDevice?.type
+            val applied = ok && (if (on) now == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else now != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
+            if (!applied) @Suppress("DEPRECATION") runCatching { am.isSpeakerphoneOn = on }
+            @Suppress("DEPRECATION")
+            app.zura.DiagLog.record("call", detail = "speaker ${if (on) "ON" else "off"}: device=${target?.type} accepted=$ok now=${am.communicationDevice?.type}" +
+                (if (!applied) ", fallback speakerphone=${am.isSpeakerphoneOn}" else "") + (if (telecom) ", via Telecom" else "") + ", mode=${am.mode}")
         } else {
             @Suppress("DEPRECATION")
             am.isSpeakerphoneOn = on
+            @Suppress("DEPRECATION")
+            app.zura.DiagLog.record("call", detail = "speaker ${if (on) "ON" else "off"}: speakerphone=${am.isSpeakerphoneOn}" + (if (telecom) ", via Telecom" else "") + ", mode=${am.mode}")
         }
     }
 

@@ -522,6 +522,9 @@ class CallManager(
                         reconnectJob?.cancel(); reconnectJob = null
                         audio.stopTones()
                         _ui.update { it.copy(phase = CallPhase.ACTIVE, connectedAt = it.connectedAt ?: System.currentTimeMillis()) }
+                        // Media starting can reset the route on some phones: apply the chosen one again
+                        // (also keeps a speaker switched on while it was still ringing).
+                        audio.setSpeaker(_ui.value.speaker)
                         audio.proximity(!_ui.value.video && !_ui.value.speaker)
                         CallService.start(context, _ui.value)
                         startStats()

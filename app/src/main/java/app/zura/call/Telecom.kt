@@ -138,6 +138,34 @@ object Telecom {
 
     internal fun calls() = (appContext?.graph?.accounts?.state?.value as? AuthState.SignedIn)?.session?.calls
 
+    /**
+     * Loudspeaker for a call the system knows about: Telecom owns the audio route of a
+     * self-managed call and can override the app's own choice, so the request goes to it.
+     * False = no Telecom call (the app routes the audio itself).
+     */
+    fun route(speaker: Boolean): Boolean {
+        val conn = current ?: return false
+        return runCatching {
+            val ep = if (Build.VERSION.SDK_INT >= 34) conn.endpoints.let { all ->
+                if (speaker) all.firstOrNull { it.endpointType == android.telecom.CallEndpoint.TYPE_SPEAKER }
+                else all.firstOrNull { it.endpointType == android.telecom.CallEndpoint.TYPE_BLUETOOTH }
+                    ?: all.firstOrNull { it.endpointType == android.telecom.CallEndpoint.TYPE_WIRED_HEADSET }
+                    ?: all.firstOrNull { it.endpointType == android.telecom.CallEndpoint.TYPE_EARPIECE }
+            } else null
+            if (Build.VERSION.SDK_INT >= 34 && ep != null) {
+                conn.requestCallEndpointChange(ep, java.util.concurrent.Executors.newSingleThreadExecutor(),
+                    object : android.os.OutcomeReceiver<Void, android.telecom.CallEndpointException> {
+                        override fun onResult(result: Void?) = Unit
+                        override fun onError(error: android.telecom.CallEndpointException) { DiagLog.record("telecom route", error) }
+                    })
+            } else {
+                @Suppress("DEPRECATION")
+                conn.setAudioRoute(if (speaker) android.telecom.CallAudioState.ROUTE_SPEAKER else android.telecom.CallAudioState.ROUTE_WIRED_OR_EARPIECE)
+            }
+            true
+        }.onFailure { DiagLog.record("telecom route", it) }.getOrDefault(false)
+    }
+
     const val SCHEME = "zura"
 }
 
@@ -163,6 +191,11 @@ class ZuraConnection : Connection() {
     override fun onAbort() { Telecom.calls()?.hangup() }
     // Held by the system (e.g. a cellular call answered): keep the Zura call; never end it from here.
     override fun onHold() = Unit
+
+    /** Audio outputs the system offers for this call (Android 14+; see [Telecom.route]). */
+    @Volatile var endpoints: List<android.telecom.CallEndpoint> = emptyList()
+        private set
+    override fun onAvailableCallEndpointsChanged(availableEndpoints: List<android.telecom.CallEndpoint>) { endpoints = availableEndpoints }
 }
 
 class ZuraConnectionService : ConnectionService() {
