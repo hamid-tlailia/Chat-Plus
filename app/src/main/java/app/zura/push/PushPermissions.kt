@@ -57,6 +57,13 @@ object PushPermissions {
     /** Not battery-optimised: Doze / OEM killers won't delay the call push or stop the ringing. */
     fun batteryUnrestricted(c: Context) = c.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(c.packageName)
 
+    /** Which of the three are on right now (to notice one being switched off later). */
+    fun grantedSet(c: Context): Set<String> = buildSet {
+        if (notificationsGranted(c)) add("notifications")
+        if (fullScreenAllowed(c)) add("fullscreen")
+        if (batteryUnrestricted(c)) add("battery")
+    }
+
     fun allReady(c: Context) = notificationsGranted(c) && fullScreenAllowed(c) && batteryUnrestricted(c)
 
     fun openFullScreenSettings(c: Context) {
@@ -141,16 +148,33 @@ private fun ReadinessRow(title: Int, hint: Int, ok: Boolean, onAllow: () -> Unit
 
 /**
  * First launch after sign-in: explain and offer "ring when closed / full-screen calls / wake the
- * phone" in one place. Shown once; the same list lives in Settings → Calls when closed.
+ * phone" in one place. Shown again whenever one of them that WAS allowed is found switched off —
+ * an app update (or the phone's cleaner) can withdraw the full-screen permission silently, and
+ * most people never notice until a call doesn't ring. Re-checked every time Zura comes back to
+ * the front. The same list lives in Settings → Calls when closed.
  */
 @Composable
 fun CallReadinessPrompt() {
     val ctx = LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("zura_prompts", Context.MODE_PRIVATE) }
-    var show by remember { mutableStateOf(!prefs.getBoolean("asked_ready", false) && !PushPermissions.allReady(ctx)) }
+    var show by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(Unit) {
+        val now = PushPermissions.grantedSet(ctx)
+        val before = prefs.getStringSet("granted", null)
+        val revoked = before.orEmpty() - now
+        if (revoked.isNotEmpty()) {
+            app.zura.DiagLog.record("permissions", detail = "switched off since last check: ${revoked.joinToString()}")
+            show = true
+        // First run, or the first run of this check (nothing remembered yet — e.g. right after
+        // the update that brought it, which may itself have withdrawn one): ask if anything is off.
+        } else if ((before == null || !prefs.getBoolean("asked_ready", false)) && !PushPermissions.allReady(ctx)) show = true
+        // Remembered each time: a "Not now" isn't asked again until something ELSE is withdrawn.
+        prefs.edit().putStringSet("granted", now).apply()
+        onPauseOrDispose { }
+    }
     if (!show) return
     val c = Zura.colors
-    fun done() { prefs.edit().putBoolean("asked_ready", true).apply(); show = false }
+    fun done() { prefs.edit().putBoolean("asked_ready", true).putStringSet("granted", PushPermissions.grantedSet(ctx)).apply(); show = false }
     AlertDialog(
         onDismissRequest = {},
         containerColor = c.surfaceHigh,

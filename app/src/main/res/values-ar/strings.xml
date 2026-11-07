@@ -444,4 +444,17 @@
     <string name="not_contact">%1$s لم يعد ضمن جهات اتصالك. لا يمكنكما المراسلة أو الاتصال حتى تُقبل دعوة.</string>
     <string name="not_contact_pending">أُرسلت الدعوة إلى %1$s. يمكنكما المحادثة مجددًا بعد قبولها.</string>
     <string name="not_contact_invited_you">%1$s دعاك لتصبحا جهتي اتصال مجددًا.</string>
+    <string name="update_title">الإصدار %1$s من Zura متوفر</string>
+    <string name="update_body">نسخة جديدة جاهزة. تُنزَّل هنا وتُثبَّت فوق الحالية — محادثاتك تبقى كما هي.</string>
+    <string name="update_downloading">جارٍ التنزيل… %1$d%%</string>
+    <string name="update_installing">أكّد التحديث في النافذة التي يعرضها أندرويد.</string>
+    <string name="update_failed">تعذّر تنزيل التحديث أو تثبيته. تحقّق من الاتصال وحاول مجددًا.</string>
+    <string name="update_allow_install">للمرة الأولى فقط: اسمح لـ Zura بتثبيت التحديثات (\"تثبيت التطبيقات غير المعروفة\")، ثم ارجع واضغط تحديث.</string>
+    <string name="update_now">تحديث</string>
+    <string name="later">لاحقًا</string>
+    <string name="retry">إعادة المحاولة</string>
+    <string name="update_check">البحث عن تحديثات</string>
+    <string name="update_checking">جارٍ البحث…</string>
+    <string name="update_latest">لديك أحدث إصدار (%1$s)</string>
+    <string name="update_current">الإصدار %1$s</string>
 </resources>

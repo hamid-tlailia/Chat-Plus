@@ -444,4 +444,17 @@
     <string name="not_contact">%1$s is no longer in your contacts. You can\'t message or call each other until an invitation is accepted.</string>
     <string name="not_contact_pending">Invitation sent to %1$s. You can chat again once they accept.</string>
     <string name="not_contact_invited_you">%1$s invited you to be contacts again.</string>
+    <string name="update_title">Zura %1$s is available</string>
+    <string name="update_body">A new version is ready. It downloads here and installs over this one — your chats stay.</string>
+    <string name="update_downloading">Downloading… %1$d%%</string>
+    <string name="update_installing">Confirm the update in the window Android shows.</string>
+    <string name="update_failed">The update couldn\'t be downloaded or installed. Check the connection and try again.</string>
+    <string name="update_allow_install">First time only: allow Zura to install updates (\"Install unknown apps\"), then come back and tap Update.</string>
+    <string name="update_now">Update</string>
+    <string name="later">Later</string>
+    <string name="retry">Retry</string>
+    <string name="update_check">Check for updates</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_latest">You have the latest version (%1$s)</string>
+    <string name="update_current">Version %1$s</string>
 </resources>

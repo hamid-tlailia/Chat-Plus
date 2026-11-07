@@ -1,0 +1,15 @@
+{
+  "versionCode": 51,
+  "versionName": "0.9.33",
+  "apk": {
+    "arm64-v8a": {
+      "file": "Zura-arm64-v8a.apk",
+      "sha256": "566facb78fc9f8a9cfca38c43bbc531a457a63787e44c87f3d293ecf77fa051b",
+      "size": 17418023
+    }
+  },
+  "notes": {
+    "en": "In-app updates from GitHub; the permissions window reappears when a call permission is switched off; loudspeaker fix.",
+    "ar": "تحديث التطبيق من داخله مباشرة؛ نافذة الأذونات تظهر من جديد إذا سُحب إذن؛ إصلاح مكبر الصوت."
+  }
+}

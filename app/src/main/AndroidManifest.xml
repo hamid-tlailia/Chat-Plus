@@ -99,6 +99,11 @@
                 android:resource="@xml/share_targets" />
         </activity>
 
+        <!-- Result of installing an update downloaded in the app (only our own PendingIntent). -->
+        <receiver
+            android:name=".update.InstallStatusReceiver"
+            android:exported="false" />
+
         <!-- "Reply" / "Mark as read" on message notifications (only our own PendingIntents). -->
         <receiver
             android:name=".push.NotificationActionReceiver"
