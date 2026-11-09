@@ -322,7 +322,10 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f).clickable(enabled = vm.peerId != null) { vm.peerId?.let(onOpenProfile) }) {
+                // Saved notes has no profile page: its header opens a small sheet (chat lock).
+                var notesSheet by remember { mutableStateOf(false) }
+                if (notesSheet) NotesSettingsSheet(chatId, meta?.locked == true) { notesSheet = false }
+                Column(Modifier.weight(1f).clickable { vm.peerId?.let(onOpenProfile) ?: run { if (meta?.peerIds.isNullOrEmpty()) notesSheet = true } }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(meta?.title ?: "", style = Zura.type.headline, color = Zura.colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         if (meta?.disappearMs != null) Text(" ⏱", style = Zura.type.label, color = Zura.colors.accent)
@@ -575,3 +578,25 @@ private fun LockedChatGate(onBack: () -> Unit, onUnlocked: () -> Unit) {
     }
 }
 
+
+
+/** Saved notes' own settings (it has no contact profile): lock it like any chat. */
+@Composable
+private fun NotesSettingsSheet(chatId: String, locked: Boolean, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val g = ctx.graph
+    val c = Zura.colors
+    val lockAuth = app.zura.security.rememberDeviceAuth()
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = c.surfaceHigh,
+        title = { Text(stringResource(R.string.notes_title), color = c.text) },
+        text = {
+            app.zura.ui.components.SettingSwitch(stringResource(R.string.lock_chat), stringResource(R.string.lock_chat_hint), locked, Modifier) { on ->
+                if (!g.appLock.deviceSecure()) Toast.makeText(ctx, R.string.needs_screen_lock, Toast.LENGTH_LONG).show()
+                else lockAuth { ok -> if (ok) g.s.scope.launch { g.chats.setLocked(chatId, on); if (on) { g.chats.lockedRevealed.value = false } } }
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text(stringResource(R.string.done), color = c.accent) } },
+    )
+}

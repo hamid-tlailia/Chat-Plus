@@ -283,6 +283,11 @@ private fun ContactsList(
         }
         val others = people.orEmpty()
         if (others.isNotEmpty()) item { Header(stringResource(R.string.people_on_zura)) }
+        // Everyone registered is already a contact: say so (the section used to just not appear).
+        else if (people != null && contacts.isNotEmpty()) item {
+            Header(stringResource(R.string.people_on_zura))
+            Text(stringResource(R.string.people_all_contacts), style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+        }
         items(others, key = { "p-" + it.id }) { hit ->
             PersonRow(hit.displayName, app.zura.i18n.handle(hit.username), hit.avatarPath, hit.id) {
                 when (hit.relation) {
