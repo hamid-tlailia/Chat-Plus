@@ -343,7 +343,7 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                             // Too long for the header ("last seen today at 8:52 PM"): it scrolls sideways
                             // (in the reading direction) so the time can be read in full.
                             maxLines = 1,
-                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1_500, repeatDelayMillis = 2_500, velocity = 28.dp),
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1_500, repeatDelayMillis = 2_500, spacing = androidx.compose.foundation.MarqueeSpacing.fractionOfContainer(1f), velocity = 28.dp),
                         )
                     }
                 }

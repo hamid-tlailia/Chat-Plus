@@ -53,9 +53,11 @@ class ZuraMessagingService : FirebaseMessagingService() {
                         val name = session.contacts.profile(from)?.displayName ?: getString(app.zura.R.string.app_name)
                         // The text travels E2EE inside the push; the identity key works while locked:
                         // show the real message now (stored after unlock, same notification reused).
-                        val f = data["e"]?.let { sealed -> withTimeoutOrNull(4_000) { runCatching { session.transport.openFrom(from, sealed) }.getOrNull() } } as? Frame.Msg
+                        val f = (data["e"] ?: data["h"])?.let { sealed -> withTimeoutOrNull(4_000) { runCatching { session.transport.openFrom(from, sealed) }.getOrNull() } } as? Frame.Msg
                         if (f != null && f.from == from) {
                             session.notifier.showFromPush(chatId, name, f)
+                            // It reached this phone: second tick now, not after unlock.
+                            if (f.kind != app.zura.core.model.MsgKind.CALL) session.chats.deliveredFromPush(from, f.chatId, f.id)
                             app.zura.DiagLog.record("push", detail = "msg: locked → shown from push payload")
                         } else {
                             session.notifier.showPending(name, chatId)
@@ -81,6 +83,17 @@ class ZuraMessagingService : FirebaseMessagingService() {
                                 }
                                 runCatching { session.transport.onFrame(from, f) }
                             }
+                        }
+                    }
+                    // Content-free push with a sealed HINT (photo, voice, long text…): show who + what
+                    // now; the message itself is stored from the inbox just below (same notification).
+                    if (data["e"] == null) data["h"]?.let { sealed ->
+                        withTimeoutOrNull(3_000) {
+                            val f = runCatching { session.transport.openFrom(from, sealed) }.getOrNull() as? Frame.Msg
+                            val chatId = ContactsRepository.dmChatId(session.uid, from)
+                            val name = session.contacts.profile(from)?.displayName
+                            if (f != null && f.from == from && f.chatId == chatId && name != null && System.currentTimeMillis() - f.sentAt < 120_000)
+                                session.notifier.showFromPush(chatId, name, f)
                         }
                     }
                     // Then catch up on anything else (also removes it from the server inbox).

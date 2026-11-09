@@ -402,6 +402,13 @@ class ChatRepository(
         val sealedFor = if (frame.kind == MsgKind.TEXT && frame.link == null)
             peersOf(wire.chatId).associateWith { p -> runCatching { transport.sealFor(p, frame) }.getOrNull()?.takeIf { it.length <= 2_600 } }
         else emptyMap()
+        // Everything else (photo, voice, file, link, long text…) still gets a small sealed HINT in
+        // its wake-up push: who + what kind ("📷 Photo", first words), so even a locked phone shows
+        // more than "New message". Never stored from the push — the real message comes from the inbox.
+        val hintFor = peersOf(wire.chatId).filter { sealedFor[it] == null }.associateWith { p ->
+            val hint = frame.copy(text = frame.text?.let { if (it.length > 160) it.take(160) + "…" else it }, media = null, link = null, replyTo = null)
+            runCatching { transport.sealFor(p, hint) }.getOrNull()?.takeIf { it.length <= 2_600 }
+        }
         sealedFor.forEach { (peer, sealed) ->
             if (sealed != null) { val online = isOnline(peer); scope.launch { backend.push(peer, "msg", mapOf("e" to sealed), normalPriority = online) } }
         }
@@ -424,7 +431,8 @@ class ChatRepository(
         val pushKind = if (wire.kind == MsgKind.CALL && wire.text?.contains("missed=1") != true) "sync" else "msg"
         if (ok) peersOf(wire.chatId).filter { sealedFor[it] == null }.forEach { peer ->
             val online = isOnline(peer)
-            scope.launch { backend.push(peer, pushKind, emptyMap(), normalPriority = online) }
+            val data = if (pushKind == "msg") hintFor[peer]?.let { mapOf("h" to it) } ?: emptyMap() else emptyMap()
+            scope.launch { backend.push(peer, pushKind, data, normalPriority = online) }
         }
     }
 
@@ -511,6 +519,14 @@ class ChatRepository(
             store.messages.first { ms -> ms.none { it.senderId == me && it.status == MsgStatus.PENDING } }
         }
         true
+    }
+
+    /**
+     * A message shown from its push on a LOCKED phone (stored only after unlock): tell the sender
+     * it arrived now — the second tick used to wait until this phone was unlocked.
+     */
+    suspend fun deliveredFromPush(from: String, chatId: String, id: String) = withContext(Dispatchers.IO) {
+        kotlinx.coroutines.withTimeoutOrNull(4_000) { runCatching { transport.send(from, Frame.Receipt(chatId, me, listOf(id), MsgStatus.DELIVERED)) } }
     }
 
     suspend fun deleteChat(chatId: String): Long = withContext(Dispatchers.IO) { vault.deleteChat(chatId) }

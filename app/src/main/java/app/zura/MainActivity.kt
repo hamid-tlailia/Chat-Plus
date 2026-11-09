@@ -111,8 +111,15 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = if (dark) SystemBarStyle.dark(0) else SystemBarStyle.light(0, 0),
         )
         super.onCreate(savedInstanceState)
-        deepLink.value = intent.getStringExtra(EXTRA_CHAT)
-        openScreen.value = intent.getStringExtra(EXTRA_OPEN)
+        // A notification's "open this chat" is used ONCE. Coming back from recents (or the activity
+        // being recreated after Android freed it in the background) re-delivers the same old intent:
+        // it used to reopen that chat although the user had already left it.
+        val fresh = savedInstanceState == null && (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
+        if (fresh) {
+            deepLink.value = intent.getStringExtra(EXTRA_CHAT)
+            openScreen.value = intent.getStringExtra(EXTRA_OPEN)
+        }
+        intent.removeExtra(EXTRA_CHAT); intent.removeExtra(EXTRA_OPEN)
         deepLink.value?.let(::prewarm)
         handleAnswer(intent)
         handleAuthLink(intent)
