@@ -8,6 +8,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,7 +61,10 @@ import app.zura.ui.ZuraIcons
 import app.zura.ui.components.ZuraMotion
 import kotlinx.coroutines.launch
 
-/** Full-screen photo (pinch/double-tap zoom) or video, swipe down to dismiss. */
+/**
+ * Full-screen gallery of this chat's photos & videos: swipe left / right for the previous / next
+ * one (an album's photos are neighbours), pinch / double-tap to zoom, swipe down to dismiss.
+ */
 @Composable
 fun MediaViewer(chatId: String, messageId: String, onClose: () -> Unit) {
     val ctx = LocalContext.current
@@ -66,46 +73,36 @@ fun MediaViewer(chatId: String, messageId: String, onClose: () -> Unit) {
     // while the message flow spins up on a background thread.
     val initial = remember(chatId) { runCatching { g.vault.chat(chatId).messages.value }.getOrDefault(emptyList()) }
     val msgs by remember(chatId) { g.chats.messages(chatId) }.collectAsStateWithLifecycle(initial)
-    val m = msgs.firstOrNull { it.id == messageId }
+    val gallery = remember(msgs) { msgs.filter { (it.kind == MsgKind.IMAGE || it.kind == MsgKind.VIDEO) && it.media != null && it.media?.isPlaceholder != true } }
+    val start = remember { gallery.indexOfFirst { it.id == messageId }.coerceAtLeast(0) }
+    val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = start) { gallery.size }
+    val m = gallery.getOrNull(pager.currentPage) ?: msgs.firstOrNull { it.id == messageId }
     val ref = m?.media
     val scope = rememberCoroutineScope()
     val dismiss = remember { Animatable(0f) }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var pan by remember { mutableStateOf(Offset.Zero) }
+    var zoomed by remember { mutableStateOf(false) }
 
     Box(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - dismiss.value / 900f).coerceIn(0.3f, 1f)))
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
                     onDragEnd = { scope.launch { if (dismiss.value > 220f) onClose() else dismiss.animateTo(0f, ZuraMotion.Snappy) } },
-                ) { _, dy -> if (scale <= 1.01f) scope.launch { dismiss.snapTo((dismiss.value + dy).coerceAtLeast(0f)) } }
+                ) { _, dy -> if (!zoomed) scope.launch { dismiss.snapTo((dismiss.value + dy).coerceAtLeast(0f)) } }
             },
     ) {
-        Box(Modifier.fillMaxSize().graphicsLayer { translationY = dismiss.value }, contentAlignment = Alignment.Center) {
-            if (ref != null && m.kind == MsgKind.VIDEO) {
-                VaultVideo(chatId, m.id, ref, playing = true, Modifier.fillMaxWidth().aspectRatio(if (ref.height > 0) ref.width.toFloat() / ref.height else 16f / 9))
-                VideoControls(m.id, ref.durationMs)
-            } else if (ref != null) {
-                val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
-                // Paint instantly with the copy already decoded for the chat bubble, then sharpen.
-                val mid = remember(ref.fileName) { g.images.cached(ref, 720) }
-                val full by rememberVaultImage(g.images, chatId, ref, 1920)
-                (full ?: mid ?: preview)?.let {
-                    Image(
-                        it, null, contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectTransformGestures { _, p, z, _ ->
-                                    scale = (scale * z).coerceIn(1f, 5f)
-                                    pan = if (scale > 1f) pan + p else Offset.Zero
-                                }
-                            }
-                            .pointerInput(Unit) { detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; pan = Offset.Zero }) }
-                            .graphicsLayer { scaleX = scale; scaleY = scale; translationX = pan.x; translationY = pan.y },
-                    )
-                }
-            }
+        androidx.compose.foundation.pager.HorizontalPager(
+            pager, Modifier.fillMaxSize().graphicsLayer { translationY = dismiss.value },
+            userScrollEnabled = !zoomed, beyondViewportPageCount = 1, key = { gallery.getOrNull(it)?.id ?: it },
+        ) { page ->
+            val pm = gallery.getOrNull(page) ?: return@HorizontalPager
+            MediaPage(chatId, pm, current = page == pager.currentPage) { z -> if (page == pager.currentPage) zoomed = z }
         }
+        // "3 / 7" when there is more than one.
+        if (gallery.size > 1) Text(
+            "${pager.currentPage + 1} / ${gallery.size}", color = Color.White, style = app.zura.ui.theme.Zura.type.label,
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 14.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape).background(Color.Black.copy(alpha = 0.4f)).padding(horizontal = 12.dp, vertical = 4.dp),
+        )
         Row(Modifier.fillMaxWidth().statusBarsPadding()) {
             IconButton(onClick = onClose) { Icon(Icons.Default.Close, null, tint = Color.White) }
             Spacer(Modifier.weight(1f))
@@ -130,6 +127,51 @@ fun MediaViewer(chatId: String, messageId: String, onClose: () -> Unit) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** One photo / video of the gallery. Zoom only with two fingers or once zoomed in — a one-finger swipe goes to the pager. */
+@Composable
+private fun MediaPage(chatId: String, m: app.zura.core.model.Message, current: Boolean, onZoom: (Boolean) -> Unit) {
+    val g = LocalContext.current.graph
+    val ref = m.media ?: return
+    var scale by remember { mutableFloatStateOf(1f) }
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    LaunchedEffect(current) { if (!current) { scale = 1f; pan = Offset.Zero } }
+    LaunchedEffect(scale, current) { if (current) onZoom(scale > 1.01f) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (m.kind == MsgKind.VIDEO) {
+            VaultVideo(chatId, m.id, ref, playing = current, Modifier.fillMaxWidth().aspectRatio(if (ref.height > 0) ref.width.toFloat() / ref.height else 16f / 9))
+            if (current) VideoControls(m.id, ref.durationMs)
+        } else {
+            val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
+            // Paint instantly with the copy already decoded for the chat bubble, then sharpen.
+            val mid = remember(ref.fileName) { g.images.cached(ref, 720) ?: g.images.cached(ref, 480) }
+            val full by rememberVaultImage(g.images, chatId, ref, 1920)
+            (full ?: mid ?: preview)?.let {
+                Image(
+                    it, null, contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                do {
+                                    val ev = awaitPointerEvent()
+                                    if (ev.changes.count { it.pressed } > 1 || scale > 1.01f) {
+                                        val z = ev.calculateZoom()
+                                        val p = ev.calculatePan()
+                                        scale = (scale * z).coerceIn(1f, 5f)
+                                        pan = if (scale > 1.01f) pan + p else Offset.Zero
+                                        ev.changes.forEach { c -> if (c.position != c.previousPosition) c.consume() }
+                                    }
+                                } while (ev.changes.any { it.pressed })
+                            }
+                        }
+                        .pointerInput(Unit) { detectTapGestures(onDoubleTap = { scale = if (scale > 1f) 1f else 2.5f; pan = Offset.Zero }) }
+                        .graphicsLayer { scaleX = scale; scaleY = scale; translationX = pan.x; translationY = pan.y },
+                )
             }
         }
     }

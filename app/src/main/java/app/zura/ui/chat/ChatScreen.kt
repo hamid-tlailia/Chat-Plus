@@ -250,6 +250,7 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                             } else AlbumRow(
                                 item, fmt, haptics,
                                 onLongPress = { vm.focused = it }, onOpenMedia = openMedia, onRetry = { vm.retry(it) },
+                                onReply = { if (vm.pending.isEmpty()) { vm.replyTo = it; vm.editing = null } },
                                 modifier = Modifier.animateItem(fadeInSpec = spring(stiffness = 600f), placementSpec = spring(dampingRatio = 0.85f, stiffness = 500f, visibilityThreshold = IntOffset(1, 1)), fadeOutSpec = spring(stiffness = 900f)),
                             )
                         }
@@ -504,10 +505,11 @@ private fun DayChip(label: String) {
 private fun TypingLabel() {
     val t = rememberInfiniteTransition(label = "dots")
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(stringResource(R.string.typing), style = Zura.type.caption, color = Zura.colors.accent)
+        // The three animated dots ARE the ellipsis (the label's own "…" made it six).
+        Text(stringResource(R.string.typing).trimEnd('…', '.', ' '), style = Zura.type.caption, color = Zura.colors.accent)
         repeat(3) { i ->
             val a by t.animateFloat(0.25f, 1f, infiniteRepeatable(tween(420, delayMillis = i * 140), RepeatMode.Reverse), label = "d$i")
-            Box(Modifier.size(4.dp).graphicsLayer { alpha = a }.clip(CircleShape).background(Zura.colors.accent))
+            Box(Modifier.padding(top = 2.dp).size(4.dp).graphicsLayer { alpha = a }.clip(CircleShape).background(Zura.colors.accent))
         }
     }
 }

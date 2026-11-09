@@ -199,6 +199,8 @@ private fun Bubble(
                 // A photo/video bubble is exactly as wide as the picture: a long caption wraps
                 // under it instead of stretching the bubble and leaving a gap beside the image.
                 .then(if (isVisual) Modifier.width(248.dp) else Modifier.widthIn(max = 300.dp))
+                // A reply: quote and text share one width (the wider of the two).
+                .then(if (!isVisual && m.replyTo != null) Modifier.width(androidx.compose.foundation.layout.IntrinsicSize.Max) else Modifier)
                 .clip(shape)
                 .background(fill)
                 .pointerInput(m.id, m.media?.isPlaceholder, m.status) {
@@ -303,7 +305,8 @@ val LocalFlashId = androidx.compose.runtime.compositionLocalOf<String?> { null }
 private fun Quote(q: Message, onFill: Color) {
     val jump = LocalJumpTo.current
     Row(
-        Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp).clip(RoundedCornerShape(12.dp)).background(onFill.copy(alpha = 0.10f))
+        // As wide as the bubble (not just its own text).
+        Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 6.dp).clip(RoundedCornerShape(12.dp)).background(onFill.copy(alpha = 0.10f))
             .clickable { jump(q.id) }.padding(8.dp),
     ) {
         Box(Modifier.width(3.dp).height(36.dp).clip(CircleShape).background(onFill.copy(alpha = 0.6f)))
@@ -815,10 +818,17 @@ fun AlbumRow(
     onLongPress: (Message) -> Unit,
     onOpenMedia: (Message) -> Unit,
     onRetry: (Message) -> Unit,
+    onReply: (Message) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val c = Zura.colors
     val ms = item.ms
+    // Swipe-to-reply, as on single bubbles (replies to the album's first photo: it holds the caption).
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val threshold = with(LocalDensity.current) { 64.dp.toPx() }
+    val scope = rememberCoroutineScope()
+    val drag = remember { Animatable(0f) }
+    val armed = remember { booleanArrayOf(false) }
     val first = ms.first(); val last = ms.last()
     val big = app.zura.ui.theme.LocalBubbleRadius.current.dp
     val small = 6.dp
@@ -830,8 +840,32 @@ fun AlbumRow(
     val gap = 3.dp
     val shown = if (ms.size > 6) ms.take(6) else ms
     val rows = shown.chunked(2)
-    Box(modifier.fillMaxWidth().padding(top = if (item.groupedWithPrev) 2.dp else 8.dp)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), horizontalArrangement = if (item.mine) Arrangement.End else Arrangement.Start) {
+    Box(
+        modifier.fillMaxWidth().padding(top = if (item.groupedWithPrev) 2.dp else 8.dp)
+            .pointerInput(rtl) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (armed[0]) onReply(ms.first())
+                        armed[0] = false
+                        scope.launch { drag.animateTo(0f, ZuraMotion.Snappy) }
+                    },
+                    onDragCancel = { armed[0] = false; scope.launch { drag.animateTo(0f, ZuraMotion.Snappy) } },
+                ) { change, dx ->
+                    val towardEnd = if (rtl) -dx else dx
+                    val next = (drag.value + towardEnd * if (drag.value > threshold) 0.35f else 1f).coerceIn(0f, threshold * 1.6f)
+                    if (!armed[0] && next >= threshold) { armed[0] = true; haptics.tick() }
+                    if (armed[0] && next < threshold * 0.8f) armed[0] = false
+                    change.consume()
+                    scope.launch { drag.snapTo(next) }
+                }
+            },
+    ) {
+        Icon(
+            ZuraIcons.Reply, null, tint = Zura.colors.textMuted,
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp).size(20.dp)
+                .graphicsLayer { alpha = (drag.value / threshold).coerceIn(0f, 1f); scaleX = alpha; scaleY = alpha },
+        )
+        Row(Modifier.fillMaxWidth().offset { IntOffset(drag.value.roundToInt(), 0) }.padding(horizontal = 10.dp), horizontalArrangement = if (item.mine) Arrangement.End else Arrangement.Start) {
             Column(horizontalAlignment = if (item.mine) Alignment.End else Alignment.Start) {
                 Column(Modifier.width(248.dp).clip(shape).background(fill).padding(4.dp)) {
                     Column(Modifier.width(240.dp).clip(RoundedCornerShape(inner)), verticalArrangement = Arrangement.spacedBy(gap)) {
