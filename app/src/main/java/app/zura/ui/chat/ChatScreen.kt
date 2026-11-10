@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -205,6 +207,7 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
     }
     androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze, LocalShowReadTicks provides showRead, LocalTranslations provides vm.translations, LocalRetranslate provides vm::translate,
         LocalSelection provides Selection(vm.selected.toSet(), vm::toggleSelect), LocalJumpTo provides jumpTo, LocalFlashId provides flashId, LocalAlbumOf provides vm::albumOf,
+        LocalReactionsInfo provides ReactionsInfo(vm.me, { uid -> if (uid == vm.me) null else meta?.title }, vm::unreact),
         LocalPeerFace provides peerFace) {
     Box(Modifier.fillMaxSize()) {
         // Theme Studio wallpaper, dimmed toward the theme background so messages stay readable.
@@ -306,6 +309,20 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                 }
                 else -> Composer(vm, fmt, haptics)
             }
+        }
+
+        // Scrolled back into older messages: a round "↓" brings the newest back.
+        val farFromBottom by remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex > 2 } }
+        androidx.compose.animation.AnimatedVisibility(
+            farFromBottom,
+            modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().imePadding().padding(end = 16.dp, bottom = 92.dp),
+            enter = androidx.compose.animation.scaleIn() + fadeIn(), exit = androidx.compose.animation.scaleOut() + fadeOut(),
+        ) {
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(Zura.colors.surfaceHigh)
+                    .clickable { haptics.tick(); scope.launch { if (list.firstVisibleItemIndex > 12) list.scrollToItem(6); list.animateScrollToItem(0) } },
+                contentAlignment = Alignment.Center,
+            ) { Icon(androidx.compose.material.icons.Icons.Default.KeyboardArrowDown, stringResource(R.string.scroll_to_latest), tint = Zura.colors.text) }
         }
 
         // Glass header
@@ -452,8 +469,9 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
 
         vm.focused?.let { m ->
             val mine = m.senderId == vm.me
+            val target = vm.reactTarget(m).let { t -> byId[t.id] ?: t }
             ActionOverlay(
-                m, mine, vm.me, haptics,
+                m, mine, vm.me, reactTarget = target, haptics = haptics,
                 onDismiss = { vm.focused = null },
                 onReact = { vm.react(m, it); vm.focused = null },
                 canReply = vm.pending.isEmpty(),

@@ -58,6 +58,8 @@ fun ActionOverlay(
     m: Message,
     mine: Boolean,
     me: String,
+    /** The message reactions go to (an album's first photo), as it is NOW — its current emoji is highlighted. */
+    reactTarget: Message = m,
     haptics: Haptics,
     canReply: Boolean = true,
     onTranslate: (() -> Unit)? = null,
@@ -93,7 +95,7 @@ fun ActionOverlay(
                 QuickReactions.forEachIndexed { i, e ->
                     val s = remember { Animatable(0f) }
                     LaunchedEffect(Unit) { delay(i * 28L); s.animateTo(1f, ZuraMotion.Bouncy) }
-                    val selected = m.reactions[me] == e
+                    val selected = reactTarget.reactions[me] == e
                     Box(
                         Modifier.size(44.dp).graphicsLayer { scaleX = s.value; scaleY = s.value }.clip(CircleShape)
                             .background(if (selected) c.accent.copy(alpha = 0.25f) else Color.Transparent)

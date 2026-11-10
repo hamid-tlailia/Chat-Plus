@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -718,17 +719,58 @@ private fun FileContent(m: Message, onFill: Color, fmt: ZuraFormat) {
 }
 
 @Composable
-private fun Reactions(m: Message, fmt: ZuraFormat) {
+private fun Reactions(m: Message, fmt: ZuraFormat) = Reactions(m.reactions.map { (u, e) -> Triple(u, e, m.id) }, fmt)
+
+/** Who's who for the reaction list (set by the chat screen): me, a name for a user id, remove mine. */
+class ReactionsInfo(val me: String, val nameOf: (String) -> String?, val remove: (String) -> Unit)
+val LocalReactionsInfo = androidx.compose.runtime.staticCompositionLocalOf<ReactionsInfo?> { null }
+
+/**
+ * The reaction chip under a message (one chip for a whole album). Tap → who reacted with what;
+ * tapping my own line removes my reaction. Entries: (user, emoji, message id).
+ */
+@Composable
+private fun Reactions(entries: List<Triple<String, String, String>>, fmt: ZuraFormat) {
+    if (entries.isEmpty()) return
     val c = Zura.colors
-    val counts = remember(m.reactions) { m.reactions.values.groupingBy { it }.eachCount().entries.sortedByDescending { it.value } }
+    val counts = remember(entries) { entries.map { it.second }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value } }
     val scale = remember { Animatable(0.4f) }
-    LaunchedEffect(m.reactions) { scale.snapTo(0.7f); scale.animateTo(1f, ZuraMotion.Bouncy) }
+    LaunchedEffect(entries) { scale.snapTo(0.7f); scale.animateTo(1f, ZuraMotion.Bouncy) }
+    var open by remember { mutableStateOf(false) }
     Row(
         Modifier.offset(y = (-6).dp).padding(horizontal = 8.dp).graphicsLayer { scaleX = scale.value; scaleY = scale.value }
-            .clip(CircleShape).background(c.surfaceHigh).padding(horizontal = 8.dp, vertical = 3.dp),
+            .clip(CircleShape).background(c.surfaceHigh).clickable { open = true }.padding(horizontal = 8.dp, vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         counts.forEach { (e, n) -> Text(if (n > 1) "$e ${fmt.count(n)}" else e, style = Zura.type.label, color = c.text) }
+    }
+    if (open) {
+        val info = LocalReactionsInfo.current
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { open = false },
+            containerColor = c.surfaceHigh,
+            title = { Text(stringResource(R.string.reactions_title), color = c.text) },
+            text = {
+                Column {
+                    entries.forEach { (uid, e, msgId) ->
+                        val isMe = info != null && uid == info.me
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                .then(if (isMe) Modifier.clickable { info?.remove(msgId); open = false } else Modifier)
+                                .padding(horizontal = 8.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(if (isMe) stringResource(R.string.reaction_you) else info?.nameOf?.invoke(uid) ?: "—", style = Zura.type.label, color = c.text)
+                                if (isMe) Text(stringResource(R.string.reaction_tap_remove), style = Zura.type.caption, color = c.textMuted)
+                            }
+                            Text(e, style = Zura.type.title)
+                        }
+                    }
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { open = false }) { Text(stringResource(R.string.done), color = c.accent) } },
+        )
     }
 }
 
@@ -931,7 +973,8 @@ fun AlbumRow(
                     }
                     Footer(last, item.mine, onFill, fmt, Modifier.align(Alignment.End).padding(start = 10.dp, end = 6.dp, bottom = 2.dp, top = 2.dp))
                 }
-                ms.filter { it.reactions.isNotEmpty() }.forEach { Reactions(it, fmt) }
+                // One chip for the whole album.
+                Reactions(ms.flatMap { m -> m.reactions.map { (u, e) -> Triple(u, e, m.id) } }, fmt)
                 if (item.seen && LocalShowReadTicks.current) LocalPeerFace.current?.let { p ->
                     Box(Modifier.padding(top = 3.dp, end = 4.dp)) { app.zura.ui.components.UserAvatar(p.name, p.hue, p.path, 16.dp) }
                 }

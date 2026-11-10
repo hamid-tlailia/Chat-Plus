@@ -446,4 +446,8 @@
     <string name="not_contact_invited_you">%1$s دعاك لتصبحا جهتي اتصال مجددًا.</string>
     <string name="people_all_contacts">كل مستخدمي زورا موجودون في جهات اتصالك. شارك اسم المستخدم @ لتدعو أصدقاءك.</string>
     <string name="media_unavailable">تعذّر تنزيلها</string>
+    <string name="reactions_title">التفاعلات</string>
+    <string name="reaction_you">أنت</string>
+    <string name="reaction_tap_remove">اضغط للإزالة</string>
+    <string name="scroll_to_latest">آخر الرسائل</string>
 </resources>

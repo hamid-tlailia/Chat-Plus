@@ -216,7 +216,14 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
         }
     }
 
-    fun react(m: Message, emoji: String) = viewModelScope.launch { g.chats.react(chatId, m.id, emoji) }
+    /** An album is reacted to as a whole: the reaction goes on its first photo. */
+    fun reactTarget(m: Message): Message = albumOf(m.id)?.first() ?: m
+    fun react(m: Message, emoji: String) = viewModelScope.launch { g.chats.react(chatId, reactTarget(m).id, emoji) }
+    /** Remove my reaction from a message (tapped in "who reacted"). */
+    fun unreact(id: String) = viewModelScope.launch {
+        val cur = items.value.firstNotNullOfOrNull { when (it) { is ChatItem.Bubble -> it.m.takeIf { m -> m.id == id }; is ChatItem.Album -> it.ms.firstOrNull { m -> m.id == id }; else -> null } }
+        cur?.reactions?.get(me)?.let { e -> g.chats.react(chatId, id, e) } // same emoji again = remove
+    }
     fun deleteForMe(m: Message) = viewModelScope.launch { m.media?.let(g.images::evict); g.chats.deleteForMe(chatId, listOf(m.id)) }
     fun deleteForAll(m: Message) = viewModelScope.launch { m.media?.let(g.images::evict); g.chats.deleteForEveryone(chatId, listOf(m.id)) }
     fun markRead() = viewModelScope.launch { g.chats.markRead(chatId) }
