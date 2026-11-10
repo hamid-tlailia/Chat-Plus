@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -80,6 +81,16 @@ import app.zura.ui.components.appear
  */
 @Composable
 fun MomentViewer(startOwner: String, onClose: () -> Unit) {
+    // Light status-bar icons over the photo + shade, whatever the app theme (restored on close).
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.DisposableEffect(view) {
+        val window = generateSequence(view.context) { (it as? android.content.ContextWrapper)?.baseContext }
+            .filterIsInstance<android.app.Activity>().firstOrNull()?.window
+        val bars = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+        val before = bars?.isAppearanceLightStatusBars
+        bars?.isAppearanceLightStatusBars = false
+        onDispose { if (bars != null && before != null) bars.isAppearanceLightStatusBars = before }
+    }
     val g = LocalContext.current.graph
     val groups by g.moments.groups.collectAsStateWithLifecycle()
     if (groups.isEmpty()) { LaunchedEffect(Unit) { onClose() }; return }
@@ -159,9 +170,23 @@ private fun GroupPlayer(group: MomentGroup, active: Boolean, onNextGroup: () -> 
             else {
                 val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
                 val full by rememberVaultImage(g.images, MomentsRepository.STORE, ref, 1920)
-                (full ?: preview)?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                (full ?: preview)?.let { img ->
+                    // The WHOLE photo (a landscape shot used to be cropped to a slice), over a dark,
+                    // blurred copy of itself filling the screen — like other story apps.
+                    val tall = img.height.toFloat() / img.width >= 1.6f
+                    if (!tall) Image(
+                        img, null, Modifier.fillMaxSize().then(if (android.os.Build.VERSION.SDK_INT >= 31) Modifier.blur(40.dp) else Modifier).graphicsLayer { alpha = 0.55f },
+                        contentScale = ContentScale.Crop,
+                    )
+                    Image(img, null, Modifier.fillMaxSize(), contentScale = if (tall) ContentScale.Crop else ContentScale.Fit)
+                }
             }
         }
+        // A soft shade under the status bar and the header: readable even over a white photo.
+        Box(
+            Modifier.fillMaxWidth().height(160.dp)
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent))),
+        )
 
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 10.dp, vertical = 8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

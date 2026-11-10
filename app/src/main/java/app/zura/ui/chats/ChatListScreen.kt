@@ -232,38 +232,40 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
 }
 
 /**
- * Swipe a chat to the LEFT to pin / unpin it: a pin badge appears on the right edge; past the
- * threshold it ticks, and letting go toggles. Short drags spring back without doing anything.
+ * Swipe a chat toward the START side to pin / unpin it — left in English, RIGHT in Arabic — and a
+ * pin badge appears on the edge it uncovers. Past the threshold it ticks; letting go toggles.
  */
 @Composable
 private fun SwipeToPin(pinned: Boolean, onToggle: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
     val scope = rememberCoroutineScope()
     val haptics = rememberHaptics()
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 84.dp.toPx() }
-    val drag = remember { androidx.compose.animation.core.Animatable(0f) } // ≤ 0 = dragged left
+    val pull = remember { androidx.compose.animation.core.Animatable(0f) } // ≥ 0: how far it's pulled
     var armed by remember { mutableStateOf(false) }
     val col = Zura.colors
     Box(
-        modifier.fillMaxWidth().pointerInput(pinned) {
+        modifier.fillMaxWidth().pointerInput(pinned, rtl) {
             detectHorizontalDragGestures(
                 onDragEnd = {
                     if (armed) onToggle()
                     armed = false
-                    scope.launch { drag.animateTo(0f, app.zura.ui.components.ZuraMotion.Snappy) }
+                    scope.launch { pull.animateTo(0f, app.zura.ui.components.ZuraMotion.Snappy) }
                 },
-                onDragCancel = { armed = false; scope.launch { drag.animateTo(0f, app.zura.ui.components.ZuraMotion.Snappy) } },
+                onDragCancel = { armed = false; scope.launch { pull.animateTo(0f, app.zura.ui.components.ZuraMotion.Snappy) } },
             ) { change, dx ->
-                val next = (drag.value + dx * if (-drag.value > threshold) 0.35f else 1f).coerceIn(-threshold * 1.6f, 0f)
-                if (!armed && -next >= threshold) { armed = true; haptics.tick() }
-                if (armed && -next < threshold * 0.8f) armed = false
+                val toward = if (rtl) dx else -dx // physical right in Arabic, left in English
+                val next = (pull.value + toward * if (pull.value > threshold) 0.35f else 1f).coerceIn(0f, threshold * 1.6f)
+                if (!armed && next >= threshold) { armed = true; haptics.tick() }
+                if (armed && next < threshold * 0.8f) armed = false
                 change.consume()
-                scope.launch { drag.snapTo(next) }
+                scope.launch { pull.snapTo(next) }
             }
         },
     ) {
-        // The badge behind the row, on the physical right edge (swiping left uncovers it).
-        Box(Modifier.matchParentSize().padding(horizontal = 22.dp), contentAlignment = if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) Alignment.CenterStart else Alignment.CenterEnd) {
-            val p = (-drag.value / threshold).coerceIn(0f, 1f)
+        // The badge behind the row on the END edge (right in English, left in Arabic): the one uncovered.
+        Box(Modifier.matchParentSize().padding(horizontal = 22.dp), contentAlignment = Alignment.CenterEnd) {
+            val p = (pull.value / threshold).coerceIn(0f, 1f)
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.graphicsLayer { alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = scaleX }) {
                 Box(Modifier.size(40.dp).clip(CircleShape).background(if (armed) col.accent else col.surfaceHigh), contentAlignment = Alignment.Center) {
                     Text("📌", style = Zura.type.label)
@@ -271,7 +273,8 @@ private fun SwipeToPin(pinned: Boolean, onToggle: () -> Unit, modifier: Modifier
                 Text(stringResource(if (pinned) R.string.unpin_chat else R.string.pin_chat), style = Zura.type.caption, color = col.textMuted, modifier = Modifier.padding(top = 3.dp))
             }
         }
-        Box(Modifier.offset { androidx.compose.ui.unit.IntOffset(drag.value.toInt(), 0) }.background(col.bg.copy(alpha = if (drag.value != 0f) 0.92f else 0f))) { content() }
+        // offset{} follows the layout direction: −x moves toward the start (left / right in Arabic).
+        Box(Modifier.offset { androidx.compose.ui.unit.IntOffset(-pull.value.toInt(), 0) }.background(col.bg.copy(alpha = if (pull.value != 0f) 0.92f else 0f))) { content() }
     }
 }
 

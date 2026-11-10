@@ -13,6 +13,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -119,10 +120,16 @@ fun CallReadinessList(modifier: Modifier = Modifier) {
         ReadinessRow(
             R.string.ready_battery, R.string.ready_battery_hint, PushPermissions.batteryUnrestricted(ctx),
         ) { PushPermissions.requestBatteryExemption(ctx) }
-        Text(
-            stringResource(R.string.ready_more) + " →", style = Zura.type.caption, color = Zura.colors.accent,
-            modifier = Modifier.clip(CircleShape).clickable { PushPermissions.openAppSettings(ctx) }.padding(vertical = 4.dp),
-        )
+        // A real button, centred; the arrow points forward in the reading direction (← in Arabic).
+        val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text(
+                stringResource(R.string.ready_more) + if (rtl) "  ←" else "  →", style = Zura.type.label, color = Zura.colors.accent,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.clip(CircleShape).border(1.dp, Zura.colors.accent.copy(alpha = 0.6f), CircleShape)
+                    .clickable { PushPermissions.openAppSettings(ctx) }.padding(horizontal = 16.dp, vertical = 9.dp),
+            )
+        }
     }
     }
 }
