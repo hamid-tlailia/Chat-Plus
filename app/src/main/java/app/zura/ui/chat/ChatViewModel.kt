@@ -112,6 +112,15 @@ class ChatViewModel(private val g: AppGraph, val chatId: String) : ViewModel() {
         out
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** The list's scroll position lives here: it survives opening a photo and coming back. */
+    val listState = androidx.compose.foundation.lazy.LazyListState()
+    /** Newest item already brought into view (only a NEW one scrolls to the bottom). */
+    var seenNewestKey: String? = null
+
+    /** The album (photos sent together) this message belongs to, if any. */
+    fun albumOf(id: String): List<Message>? =
+        items.value.firstNotNullOfOrNull { (it as? ChatItem.Album)?.ms?.takeIf { ms -> ms.any { m -> m.id == id } } }
+
     var draft by mutableStateOf(TextFieldValue(""))
     var replyTo by mutableStateOf<Message?>(null)
     var editing by mutableStateOf<Message?>(null)

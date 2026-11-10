@@ -111,7 +111,7 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
     val locale = LocalConfiguration.current.locales[0]
     val fmt = remember(locale) { ZuraFormat(locale) }
     val haptics = rememberHaptics()
-    val list = rememberLazyListState()
+    val list = vm.listState
     val scope = rememberCoroutineScope()
     var confirmDel by remember { mutableStateOf<Message?>(null) }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -159,7 +159,12 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
     }
     // A message was sent or received → always bring the newest into view, even after scrolling up
     // (far away: jump close first, then glide the last bit).
+    // (Coming back from a photo is NOT a new message: the place in the chat is kept.)
     LaunchedEffect(items.firstOrNull()?.key) {
+        val newest = items.firstOrNull()?.key ?: return@LaunchedEffect
+        val before = vm.seenNewestKey
+        vm.seenNewestKey = newest
+        if (before == null || before == newest) return@LaunchedEffect
         if (list.firstVisibleItemIndex > 12) list.scrollToItem(6)
         list.animateScrollToItem(0)
     }
@@ -199,7 +204,7 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
         }
     }
     androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze, LocalShowReadTicks provides showRead, LocalTranslations provides vm.translations, LocalRetranslate provides vm::translate,
-        LocalSelection provides Selection(vm.selected.toSet(), vm::toggleSelect), LocalJumpTo provides jumpTo, LocalFlashId provides flashId,
+        LocalSelection provides Selection(vm.selected.toSet(), vm::toggleSelect), LocalJumpTo provides jumpTo, LocalFlashId provides flashId, LocalAlbumOf provides vm::albumOf,
         LocalPeerFace provides peerFace) {
     Box(Modifier.fillMaxSize()) {
         // Theme Studio wallpaper, dimmed toward the theme background so messages stay readable.
@@ -367,6 +372,13 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                     IconButton(onClick = { haptics.tick(); keyboard?.hide(); focusManager.clearFocus(); walkieOpen = true }) { Icon(app.zura.ui.ZuraIcons.Walkie, stringResource(R.string.walkie), tint = Zura.colors.text) }
                     IconButton(onClick = { haptics.tick(); callVideo(ctx) }) { Icon(app.zura.ui.ZuraIcons.VideoCam, stringResource(R.string.video_call), tint = Zura.colors.text) }
                     IconButton(onClick = { haptics.tick(); callVoice(ctx) }) { Icon(Icons.Default.Call, stringResource(R.string.voice_call), tint = Zura.colors.text) }
+                }
+                // Saved notes: its lock state at a glance (closed padlock = locked); tap to change.
+                if (meta != null && meta?.peerIds.isNullOrEmpty()) {
+                    val lockedNow = meta?.locked == true
+                    IconButton(onClick = { haptics.tick(); notesSheet = true }) {
+                        Icon(if (lockedNow) app.zura.ui.ZuraIcons.LockClosed else app.zura.ui.ZuraIcons.LockOpen, stringResource(R.string.lock_chat), tint = if (lockedNow) Zura.colors.accent else Zura.colors.textMuted)
+                    }
                 }
             }
             // Security notice: the contact's identity key changed (new phone / reinstall — or an attack).

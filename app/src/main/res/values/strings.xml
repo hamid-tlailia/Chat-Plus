@@ -445,4 +445,5 @@
     <string name="not_contact_pending">Invitation sent to %1$s. You can chat again once they accept.</string>
     <string name="not_contact_invited_you">%1$s invited you to be contacts again.</string>
     <string name="people_all_contacts">Everyone on Zura is already in your contacts. Share your @username to invite friends.</string>
+    <string name="media_unavailable">Couldn\'t be downloaded</string>
 </resources>

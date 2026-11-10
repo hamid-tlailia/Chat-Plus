@@ -296,6 +296,23 @@ fun quoteLabel(q: Message): String {
     return listOfNotNull(icon + (text ?: stringResource(kindLabel(q.kind))), dur, fmt.time(q.sentAt)).joinToString(" · ")
 }
 
+/** The album a message belongs to (set by the chat screen): a quote of it shows "+N". */
+val LocalAlbumOf = androidx.compose.runtime.staticCompositionLocalOf<(String) -> List<Message>?> { { null } }
+
+/** A reply's picture: the photo (an album's first one) with "+N" for the rest of the album. */
+@Composable
+fun QuoteThumb(q: Message, size: androidx.compose.ui.unit.Dp, corner: androidx.compose.ui.unit.Dp) {
+    val album = LocalAlbumOf.current(q.id)
+    val shown = album?.first() ?: q
+    val thumb = rememberQuoteThumb(shown) ?: return
+    Box(Modifier.size(size).clip(RoundedCornerShape(corner))) {
+        Image(thumb, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
+        if (album != null && album.size > 1) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+            Text("+${album.size - 1}", color = Color.White, style = Zura.type.label)
+        }
+    }
+}
+
 /** Tap on a quote → scroll to the original message (set by the chat screen). */
 val LocalJumpTo = androidx.compose.runtime.staticCompositionLocalOf<(String) -> Unit> { {} }
 /** The message just jumped to: flashes briefly so the eye finds it. */
@@ -311,9 +328,8 @@ private fun Quote(q: Message, onFill: Color) {
     ) {
         Box(Modifier.width(3.dp).height(36.dp).clip(CircleShape).background(onFill.copy(alpha = 0.6f)))
         Spacer(Modifier.width(8.dp))
-        val thumb = rememberQuoteThumb(q)
-        if (thumb != null) {
-            Image(thumb, null, Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop, filterQuality = androidx.compose.ui.graphics.FilterQuality.High)
+        if (rememberQuoteThumb(q) != null) {
+            QuoteThumb(q, 36.dp, 6.dp)
             Spacer(Modifier.width(8.dp))
         }
         Text(
@@ -369,7 +385,13 @@ private fun StatusTick(s: MsgStatus, muted: Color) {
 
 @Composable
 private fun VisualContent(m: Message, fmt: ZuraFormat, shape: RoundedCornerShape) {
-    val ref = m.media ?: return
+    // The file never arrived (an older version stored such messages): say so, not an empty bubble.
+    val ref = m.media ?: run {
+        Box(Modifier.width(240.dp).height(120.dp).clip(shape).background(Zura.colors.surfaceHigh), contentAlignment = Alignment.Center) {
+            Text((if (m.kind == MsgKind.VIDEO) "🎬  " else "📷  ") + stringResource(R.string.media_unavailable), style = Zura.type.caption, color = Zura.colors.textMuted)
+        }
+        return
+    }
     val g = LocalContext.current.graph
     // Bounded like other messengers: ≤ 240 dp wide and ≤ ~300 dp tall (tall shots are cropped).
     val ratio = if (ref.width > 0 && ref.height > 0) (ref.width.toFloat() / ref.height).coerceIn(0.8f, 1.78f) else 1f
@@ -829,6 +851,10 @@ fun AlbumRow(
     val scope = rememberCoroutineScope()
     val drag = remember { Animatable(0f) }
     val armed = remember { booleanArrayOf(false) }
+    // Jumped to from a reply (to any of its photos): the same soft wash as single bubbles.
+    val flash = remember { Animatable(0f) }
+    val flashId = LocalFlashId.current
+    LaunchedEffect(flashId) { if (flashId != null && ms.any { it.id == flashId }) { flash.snapTo(0.22f); kotlinx.coroutines.delay(500); flash.animateTo(0f, androidx.compose.animation.core.tween(900)) } }
     val first = ms.first(); val last = ms.last()
     val big = app.zura.ui.theme.LocalBubbleRadius.current.dp
     val small = 6.dp
@@ -841,7 +867,7 @@ fun AlbumRow(
     val shown = if (ms.size > 6) ms.take(6) else ms
     val rows = shown.chunked(2)
     Box(
-        modifier.fillMaxWidth().padding(top = if (item.groupedWithPrev) 2.dp else 8.dp)
+        modifier.fillMaxWidth().background(Zura.colors.accent.copy(alpha = flash.value)).padding(top = if (item.groupedWithPrev) 2.dp else 8.dp)
             .pointerInput(rtl) {
                 detectHorizontalDragGestures(
                     onDragEnd = {

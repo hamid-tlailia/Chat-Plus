@@ -529,6 +529,8 @@ class ChatRepository(
         kotlinx.coroutines.withTimeoutOrNull(4_000) { runCatching { transport.send(from, Frame.Receipt(chatId, me, listOf(id), MsgStatus.DELIVERED)) } }
     }
 
+    private val mediaFailures = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     suspend fun deleteChat(chatId: String): Long = withContext(Dispatchers.IO) { vault.deleteChat(chatId) }
 
     suspend fun clearKeyChanged(chatId: String) = withContext(Dispatchers.IO) {
@@ -552,9 +554,20 @@ class ChatRepository(
                 // The live copy and the inbox copy can arrive at the same moment: handle one.
                 if (!inFlight.add(f.id)) return@withContext
                 try {
+                // A photo / video whose file couldn't be downloaded (network hiccup, several at once):
+                // DON'T store it without its file (that was an empty bubble) nor confirm delivery
+                // (the sender then deletes the file) — the inbox copy is kept and retried. Only after
+                // repeated failures is it stored without the file (shown as "unavailable").
                 val media = f.media?.let { ref ->
                     val blob = ref.remoteBlobId ?: return@let null
-                    runCatching { backend.download("blobs", blob) { vault.adoptCiphertext(f.chatId, ref, it) } }.getOrNull()
+                    val r = runCatching { backend.download("blobs", blob) { vault.adoptCiphertext(f.chatId, ref, it) } }
+                    r.getOrNull() ?: run {
+                        val n = (mediaFailures[f.id] ?: 0) + 1
+                        mediaFailures[f.id] = n
+                        app.zura.DiagLog.record("media download", detail = "try $n for ${f.kind}: ${r.exceptionOrNull()?.message?.take(80)}")
+                        if (n < 6) throw IllegalStateException("media not downloaded yet")
+                        null
+                    }
                 }
                 val msg = Message(f.id, f.chatId, from, f.sentAt, f.kind, f.text, media, MsgStatus.DELIVERED, replyTo = f.replyTo, link = f.link, ttlMs = f.ttlMs, moment = f.moment)
                 // The other side changed this chat's timer: it's announced as a system line.

@@ -142,14 +142,9 @@ fun Composer(vm: ChatViewModel, fmt: ZuraFormat, haptics: Haptics, modifier: Mod
                 Icon(if (vm.editing != null) Icons.Default.Edit else ZuraIcons.Reply, null, tint = c.accent, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(10.dp))
                 // Replying to a photo/video: show it, like the quote inside the bubble will.
-                val thumb = rememberQuoteThumb(target)
-                if (thumb != null) {
-                    androidx.compose.foundation.Image(
-                        thumb, null,
-                        Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                        filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
-                    )
+                // (an album: its first photo with "+N")
+                if (target != null && rememberQuoteThumb(target) != null) {
+                    androidx.compose.runtime.CompositionLocalProvider(LocalAlbumOf provides vm::albumOf) { QuoteThumb(target, 40.dp, 8.dp) }
                     Spacer(Modifier.width(10.dp))
                 }
                 Column(Modifier.weight(1f)) {
