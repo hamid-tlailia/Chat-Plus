@@ -565,7 +565,9 @@ class ChatRepository(
                         val n = (mediaFailures[f.id] ?: 0) + 1
                         mediaFailures[f.id] = n
                         app.zura.DiagLog.record("media download", detail = "try $n for ${f.kind}: ${r.exceptionOrNull()?.message?.take(80)}")
-                        if (n < 6) throw IllegalStateException("media not downloaded yet")
+                        // 400 / 404 = the file is no longer on the server: retrying can't help.
+                        val gone = r.exceptionOrNull()?.message.let { it == "download 400" || it == "download 404" }
+                        if (n < 6 && !gone) throw IllegalStateException("media not downloaded yet")
                         null
                     }
                 }

@@ -57,7 +57,11 @@ class ZuraMessagingService : FirebaseMessagingService() {
                         if (f != null && f.from == from) {
                             session.notifier.showFromPush(chatId, name, f)
                             // It reached this phone: second tick now, not after unlock.
-                            if (f.kind != app.zura.core.model.MsgKind.CALL) session.chats.deliveredFromPush(from, f.chatId, f.id)
+                            // ONLY for a complete text message: a photo / video / voice still has to be
+                            // downloaded, and "delivered" makes the sender delete the file from the server
+                            // (0.9.37 did it for photos too: some were deleted before they were fetched).
+                            if (data["e"] != null && f.kind == app.zura.core.model.MsgKind.TEXT && f.media == null)
+                                session.chats.deliveredFromPush(from, f.chatId, f.id)
                             app.zura.DiagLog.record("push", detail = "msg: locked → shown from push payload")
                         } else {
                             session.notifier.showPending(name, chatId)

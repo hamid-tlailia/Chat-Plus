@@ -131,6 +131,7 @@ class AccountSession(
         val t = token ?: Push.token() ?: return
         pushToken = t
         runCatching {
+            backend.ensureFresh()
             backend.client.postgrest.rpc("register_device", kotlinx.serialization.json.buildJsonObject { put("p_token", t) })
         }
     }

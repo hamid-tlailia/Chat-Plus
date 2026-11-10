@@ -69,7 +69,7 @@ class ContactsRepository(
     /** Either side blocked the other → no messages, no calls. */
     fun isBlocked(uid: String) = uid in _blockedMe.value || _contacts.value.any { it.profile.id == uid && it.blocked }
 
-    suspend fun refreshBlockedMe() = withContext(Dispatchers.IO) {
+    suspend fun refreshBlockedMe() = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         runCatching {
             val arr = backend.json.parseToJsonElement(backend.client.postgrest.rpc("blocked_me").data)
             (arr as? kotlinx.serialization.json.JsonArray)?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }?.toSet()
@@ -138,7 +138,7 @@ class ContactsRepository(
 
     // ---------------------------------------------------------------- reads
 
-    suspend fun refresh() = withContext(Dispatchers.IO) {
+    suspend fun refresh() = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         val contactRows = decodeList(ContactRow.serializer(), backend.client.from("contacts").select { filter { eq("owner_id", me) } }.data)
         val inviteRows = decodeList(InvitationRow.serializer(), backend.client.from("invitations").select { filter { eq("status", "pending") } }.data)
         val ids = (contactRows.map { it.peerId } + inviteRows.map { if (it.fromId == me) it.toId else it.fromId } + me).distinct()
@@ -200,7 +200,7 @@ class ContactsRepository(
 
     // ---------------------------------------------------------------- invitations
 
-    suspend fun search(query: String): List<SearchHit> = withContext(Dispatchers.IO) {
+    suspend fun search(query: String): List<SearchHit> = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         // Server matches: username prefix, display name (any script), or an exact email address.
         if (query.trim().removePrefix("@").length < 2) return@withContext emptyList()
         val r = backend.client.postgrest.rpc("search_profiles", buildJsonObject { put("p_query", query.trim().removePrefix("@")) })
@@ -208,7 +208,7 @@ class ContactsRepository(
     }
 
     /** Registered people you can invite (newest first). */
-    suspend fun discover(): List<SearchHit> = withContext(Dispatchers.IO) {
+    suspend fun discover(): List<SearchHit> = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         decodeList(SearchHit.serializer(), backend.client.postgrest.rpc("discover_profiles").data)
     }
 
@@ -230,14 +230,14 @@ class ContactsRepository(
     suspend fun remove(uid: String) = rpc("remove_contact") { put("p_peer", uid) }
 
     private suspend fun rpc(name: String, args: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit): Result<Unit> =
-        withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) { backend.ensureFresh()
             runCatching { backend.client.postgrest.rpc(name, buildJsonObject(args)); Unit }
                 .also { changes.tryEmit(Unit) }
         }
 
     // ---------------------------------------------------------------- my profile
 
-    suspend fun publishIdentity(publicB64: String) = withContext(Dispatchers.IO) {
+    suspend fun publishIdentity(publicB64: String) = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         if (profiles[me]?.identityKey == publicB64) return@withContext
         runCatching {
             backend.client.from("profiles").update({ set("identity_key", publicB64) }) { filter { eq("id", me) } }
@@ -245,7 +245,7 @@ class ContactsRepository(
         fetchProfiles(listOf(me)); _me.value = profiles[me]
     }
 
-    suspend fun setAvatar(bytes: ByteArray) = withContext(Dispatchers.IO) {
+    suspend fun setAvatar(bytes: ByteArray) = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         val path = "$me/avatar-${System.currentTimeMillis()}.jpg"
         backend.upload("avatars", path, bytes, "image/jpeg")
         val old = profiles[me]?.avatarPath
@@ -254,13 +254,13 @@ class ContactsRepository(
         fetchProfiles(listOf(me)); _me.value = profiles[me]
     }
 
-    suspend fun setDisplayName(name: String) = withContext(Dispatchers.IO) {
+    suspend fun setDisplayName(name: String) = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         backend.client.from("profiles").update({ set("display_name", name.trim().take(48)) }) { filter { eq("id", me) } }
         fetchProfiles(listOf(me)); _me.value = profiles[me]
     }
 
     /** Change my @username (unique; letters, digits and _ only, 3–24). */
-    suspend fun setUsername(name: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun setUsername(name: String): Result<Unit> = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         runCatching {
             backend.client.from("profiles").update({ set("username", name.trim()) }) { filter { eq("id", me) } }
             fetchProfiles(listOf(me)); _me.value = profiles[me]
@@ -270,7 +270,7 @@ class ContactsRepository(
 
     /** Make sure a profile is loaded (e.g. opening someone's profile from a moment). */
     /** Fresh "last seen" of a contact from the server (epoch ms), or null. */
-    suspend fun fetchLastSeen(uid: String): Long? = withContext(Dispatchers.IO) {
+    suspend fun fetchLastSeen(uid: String): Long? = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         runCatching {
             val arr = backend.json.parseToJsonElement(backend.client.from("profiles").select(io.github.jan.supabase.postgrest.query.Columns.list("last_seen")) { filter { eq("id", uid) } }.data)
             val v = ((arr as kotlinx.serialization.json.JsonArray).firstOrNull() as? kotlinx.serialization.json.JsonObject)?.get("last_seen") as? kotlinx.serialization.json.JsonPrimitive
@@ -278,14 +278,14 @@ class ContactsRepository(
         }.getOrNull()
     }
 
-    suspend fun loadProfile(uid: String): Profile? = withContext(Dispatchers.IO) {
+    suspend fun loadProfile(uid: String): Profile? = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         profiles[uid] ?: runCatching { fetchProfiles(listOf(uid)); profiles[uid] }.getOrNull()
     }
 
     private var serverSeenCleared = false
 
     /** Last seen is now shared end-to-end encrypted, per contact: wipe the old plaintext column once. */
-    suspend fun clearServerLastSeen() = withContext(Dispatchers.IO) {
+    suspend fun clearServerLastSeen() = withContext(Dispatchers.IO) { backend.ensureFresh() // never with an expired token (cold start: 401s)
         if (serverSeenCleared) return@withContext
         runCatching {
             backend.client.from("profiles").update({ set<String?>("last_seen", null) }) { filter { eq("id", me) } }
