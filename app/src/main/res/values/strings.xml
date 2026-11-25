@@ -455,4 +455,7 @@
     <string name="search_chats">Chats</string>
     <string name="search_messages">Messages</string>
     <string name="search_none">Nothing found</string>
+    <string name="cancel_sending">Cancel sending</string>
+    <string name="search_empty_title">Search your chats</string>
+    <string name="search_empty_hint">Names, messages and photo captions — searched on this phone only, nothing leaves it.</string>
 </resources>

@@ -455,4 +455,7 @@
     <string name="search_chats">المحادثات</string>
     <string name="search_messages">الرسائل</string>
     <string name="search_none">لا توجد نتائج</string>
+    <string name="cancel_sending">إلغاء الإرسال</string>
+    <string name="search_empty_title">ابحث في محادثاتك</string>
+    <string name="search_empty_hint">الأسماء والرسائل وتعليقات الصور — البحث على هاتفك فقط، ولا يُرسل أي شيء.</string>
 </resources>

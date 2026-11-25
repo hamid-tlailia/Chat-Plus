@@ -392,6 +392,8 @@ class ChatRepository(
                     try { backend.upload("blobs", path, vault.mediaFile(msg.chatId, ref)) { f -> app.zura.media.Transfers.set(msg.id, false, f) } }
                     finally { app.zura.media.Transfers.clear(msg.id) }
                 }.onFailure { app.zura.DiagLog.record("blob upload", it); store.upsert(msg.copy(status = notSent())); return }
+                // Cancelled (deleted) while uploading: drop the file, never bring the message back.
+                if (store.get(msg.id) == null) { scope.launch { backend.delete("blobs", path) }; return }
                 wire = msg.copy(media = ref.copy(remoteBlobId = path))
                 store.upsert(wire)
             }

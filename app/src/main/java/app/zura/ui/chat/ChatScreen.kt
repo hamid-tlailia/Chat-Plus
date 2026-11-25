@@ -467,6 +467,7 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
             ActionOverlay(
                 m, mine, vm.me, reactTarget = target, haptics = haptics,
                 onDismiss = { vm.focused = null },
+                onCancelSending = { vm.focused = null; vm.deleteForMe(m) },
                 onReact = { vm.react(m, it); vm.focused = null },
                 canReply = vm.pending.isEmpty(),
                 onTranslate = { vm.translate(m); vm.focused = null },

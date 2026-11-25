@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -99,6 +100,19 @@ fun SearchScreen(onBack: () -> Unit, onOpen: (chatId: String, messageId: String?
                     )
                 }
             }
+        }
+        // Before typing: a calm centred invitation instead of an empty screen.
+        if (q.length < 2 && chatHits.isEmpty()) {
+            Column(Modifier.fillMaxSize().padding(32.dp).appear(0), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Box(Modifier.size(88.dp).background(c.accent.copy(alpha = 0.14f), androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Search, null, tint = c.accent, modifier = Modifier.size(42.dp))
+                }
+                Spacer(Modifier.size(18.dp))
+                Text(stringResource(R.string.search_empty_title), style = Zura.type.title, color = c.text, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Spacer(Modifier.size(6.dp))
+                Text(stringResource(R.string.search_empty_hint), style = Zura.type.caption, color = c.textMuted, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
+            return@Column
         }
         LazyColumn(Modifier.fillMaxSize()) {
             if (chatHits.isNotEmpty()) {

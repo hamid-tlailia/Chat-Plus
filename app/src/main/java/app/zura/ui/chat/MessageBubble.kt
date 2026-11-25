@@ -138,7 +138,7 @@ fun BubbleRow(
             .pointerInput(rtl) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        if (armed[0]) onReply(m)
+                        if (armed[0] && !(item.mine && (m.status == MsgStatus.PENDING || m.media?.isPlaceholder == true))) onReply(m)
                         armed[0] = false
                         scope.launch { drag.animateTo(0f, ZuraMotion.Snappy) }
                     },
@@ -193,6 +193,8 @@ private fun Bubble(
     val fill = if (item.mine) Brush.linearGradient(listOf(c.bubbleMine, c.bubbleMineAlt)) else Brush.linearGradient(listOf(c.bubbleTheirs, c.bubbleTheirs))
     val onFill = if (item.mine) c.onBubbleMine else c.onBubbleTheirs
     val isVisual = m.kind == MsgKind.IMAGE || m.kind == MsgKind.VIDEO
+    // Mine and not sent yet: it can't be opened / played / reacted to until it has left.
+    val sending = item.mine && (m.status == MsgStatus.PENDING || m.media?.isPlaceholder == true)
 
     Column(horizontalAlignment = if (item.mine) Alignment.End else Alignment.Start) {
         Column(
@@ -209,10 +211,11 @@ private fun Bubble(
                         onLongPress = { onLongPress() },
                         // A photo / video opens on the FIRST tap: listening for a double-tap made
                         // every tap wait ~300 ms first (react to media with a long-press instead).
-                        onDoubleTap = if (isVisual && m.media?.isPlaceholder != true) null else { _ -> onDoubleTap() },
+                        onDoubleTap = if (sending || (isVisual && m.media?.isPlaceholder != true)) null else { _ -> onDoubleTap() },
                         onTap = {
                             when {
                                 m.status == MsgStatus.FAILED -> onRetry()
+                                sending -> Unit
                                 isVisual && m.media?.isPlaceholder != true -> onOpenMedia()
                                 // Documents, APKs…: open in the matching app (audio/theme cards have their own buttons).
                                 m.kind == MsgKind.FILE && m.media?.mime?.startsWith("audio/") != true &&
@@ -449,7 +452,7 @@ private fun VoiceContent(m: Message, mine: Boolean, fmt: ZuraFormat) {
     Row(Modifier.padding(start = 8.dp, end = 12.dp, top = 8.dp).width(250.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(42.dp).clip(CircleShape).background(if (mine) onFill.copy(alpha = 0.18f) else c.accent)
-                .clickable { g.playback.toggle(m.chatId, m.id, ref) },
+                .clickable(enabled = !(mine && m.status == MsgStatus.PENDING)) { g.playback.toggle(m.chatId, m.id, ref) },
             contentAlignment = Alignment.Center,
         ) {
             Icon(if (active && state.playing) ZuraIcons.Pause else Icons.Default.PlayArrow, null, tint = if (mine) onFill else c.onAccent)
@@ -604,7 +607,7 @@ private fun AudioContent(m: Message, mine: Boolean, fmt: ZuraFormat) {
     Row(Modifier.padding(start = 8.dp, end = 12.dp, top = 8.dp).width(260.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(if (mine) onFill.copy(alpha = 0.18f) else c.accent)
-                .clickable { g.playback.toggle(m.chatId, m.id, ref) },
+                .clickable(enabled = !(mine && m.status == MsgStatus.PENDING)) { g.playback.toggle(m.chatId, m.id, ref) },
             contentAlignment = Alignment.Center,
         ) {
             if (active && state.playing) Icon(ZuraIcons.Pause, null, tint = if (mine) onFill else c.onAccent)
@@ -913,7 +916,7 @@ fun AlbumRow(
             .pointerInput(rtl) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        if (armed[0]) onReply(ms.first())
+                        if (armed[0] && !(item.mine && ms.any { it.status == MsgStatus.PENDING })) onReply(ms.first())
                         armed[0] = false
                         scope.launch { drag.animateTo(0f, ZuraMotion.Snappy) }
                     },
@@ -951,6 +954,7 @@ fun AlbumRow(
                                                     onTap = {
                                                         when {
                                                             m.status == MsgStatus.FAILED -> onRetry(m)
+                                                            item.mine && m.status == MsgStatus.PENDING -> Unit // still sending
                                                             m.media?.isPlaceholder != true -> onOpenMedia(m)
                                                         }
                                                     },

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -72,8 +73,13 @@ fun ActionOverlay(
     onDownload: () -> Unit,
     onDeleteMe: () -> Unit,
     onDeleteAll: () -> Unit,
+    /** Mine and still on its way (compressing / uploading / waiting): the only action is to cancel it. */
+    onCancelSending: (() -> Unit)? = null,
 ) {
     val c = Zura.colors
+    // Not delivered yet: the other side doesn't have it, so reacting / replying / saving makes no
+    // sense yet — only "Cancel sending".
+    val sending = mine && (m.status == app.zura.core.model.MsgStatus.PENDING || m.media?.isPlaceholder == true)
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) { enter.animateTo(1f, ZuraMotion.Snappy) }
     Box(
@@ -87,8 +93,8 @@ fun ActionOverlay(
             // The focused message, lifted out of the list
             FocusedPreview(m, mine)
             Spacer(Modifier.height(12.dp))
-            // Reaction bar
-            Row(
+            // Reaction bar (not on a message that hasn't left yet)
+            if (!sending) Row(
                 Modifier.glass(CircleShape, solid = 0.94f).padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -105,7 +111,9 @@ fun ActionOverlay(
                 }
             }
             Spacer(Modifier.height(10.dp))
-            Column(Modifier.width(250.dp).glass(RoundedCornerShape(22.dp), solid = 0.94f).padding(vertical = 6.dp)) {
+            if (sending) Column(Modifier.width(250.dp).glass(RoundedCornerShape(22.dp), solid = 0.94f).padding(vertical = 6.dp)) {
+                Action(androidx.compose.material.icons.Icons.Default.Clear, R.string.cancel_sending, c.danger) { haptics.tick(); (onCancelSending ?: onDeleteMe)() }
+            } else Column(Modifier.width(250.dp).glass(RoundedCornerShape(22.dp), solid = 0.94f).padding(vertical = 6.dp)) {
                 if (canReply) Action(ZuraIcons.Reply, R.string.action_reply, c.text, onReply)
                 if (mine && m.kind == MsgKind.TEXT) Action(Icons.Default.Edit, R.string.action_edit, c.text, onEdit)
                 if (!m.text.isNullOrEmpty()) Action(ZuraIcons.Copy, R.string.action_copy, c.text, onCopy)
