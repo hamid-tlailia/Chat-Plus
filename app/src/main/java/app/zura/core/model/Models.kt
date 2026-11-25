@@ -94,6 +94,8 @@ data class ChatMeta(
     val previewStatus: MsgStatus? = null,
     val unread: Int = 0,
     val pinned: Boolean = false,
+    /** When it was pinned: the last pinned chat stays on top of the pinned ones. */
+    val pinnedAt: Long = 0,
     val avatarHue: Float = 0f,
     /** Storage path of the contact's avatar (avatars bucket). */
     val avatarPath: String? = null,

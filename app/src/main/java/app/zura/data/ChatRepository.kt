@@ -57,7 +57,8 @@ class ChatRepository(
     /** Chat list straight from the vault's encrypted index: no chat history is decrypted for it. */
     val chats: StateFlow<List<ChatMeta>> = combine(vault.chatIds, vault.metaIndex) { ids, index ->
         (ids - MomentsRepository.STORE).mapNotNull { index[it] }
-            .sortedWith(compareByDescending<ChatMeta> { it.pinned }.thenByDescending { it.updatedAt })
+            // Pinned first, most recently PINNED on top (not by last message); then by last message.
+            .sortedWith(compareByDescending<ChatMeta> { it.pinned }.thenByDescending { if (it.pinned) it.pinnedAt else 0L }.thenByDescending { it.updatedAt })
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     init {
@@ -247,6 +248,16 @@ class ChatRepository(
         // Chats whose last message is mine, from before the list knew its ticks: fill them in once.
         chats.value.filter { it.previewMine && it.previewStatus == null && it.peerIds.isNotEmpty() }
             .forEach { runCatching { syncPreviewStatus(vault.chat(it.id)) } }
+        // Chat list previews left on an older message by that bug: put the real last message back.
+        chats.value.forEach { meta ->
+            runCatching {
+                val last = vault.chat(meta.id).messages.value.lastOrNull() ?: return@runCatching
+                if (last.sentAt > meta.updatedAt || last.text != meta.preview || last.kind != meta.previewKind) {
+                    val store = vault.chat(meta.id)
+                    store.meta.value?.let { store.writeMeta(it.copy(updatedAt = maxOf(it.updatedAt, last.sentAt), preview = last.text, previewKind = last.kind, previewMine = last.senderId == me, previewStatus = last.status.takeIf { last.senderId == me })) }
+                }
+            }
+        }
         if (transport.online.value) runCatching { resendPending() } // messages queued while locked
         vault.deferredWork().forEach { d ->
             runCatching {
@@ -282,7 +293,7 @@ class ChatRepository(
     /** Pinned chats stay at the top of the list. */
     suspend fun setPinned(chatId: String, on: Boolean) = withContext(Dispatchers.IO) {
         val store = vault.chat(chatId)
-        store.meta.value?.let { store.writeMeta(it.copy(pinned = on)) }
+        store.meta.value?.let { store.writeMeta(it.copy(pinned = on, pinnedAt = if (on) System.currentTimeMillis() else 0L)) }
     }
 
     suspend fun setLocked(chatId: String, on: Boolean) = withContext(Dispatchers.IO) {
@@ -650,6 +661,9 @@ class ChatRepository(
 
     private suspend fun touchMeta(store: ChatStore, m: Message, unreadDelta: Int) {
         val meta = store.meta.value ?: return
+        // An OLDER message written late (a call's log line is written when the call ends, with the
+        // call's start time) must not replace the newer last message in the chat list.
+        if (m.sentAt < meta.updatedAt) { if (unreadDelta != 0) store.writeMeta(meta.copy(unread = meta.unread + unreadDelta)); return }
         store.writeMeta(meta.copy(updatedAt = m.sentAt, preview = m.text, previewKind = m.kind, previewMine = m.senderId == me,
             previewStatus = m.status.takeIf { m.senderId == me }, unread = meta.unread + unreadDelta))
     }
