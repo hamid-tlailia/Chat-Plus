@@ -211,6 +211,7 @@ class CallManager(
         // fetch it over plain HTTPS — the call doesn't depend on its realtime socket coming up.
         scope.launch(rtc) {
             val full = frame.copy(sdp = withRoutes(frame.sdp))
+            if (_ui.value.callId != callId || !_ui.value.inCall) return@launch // hung up meanwhile
             runCatching { transport.send(peerId, full) }.onSuccess { stage("offer sent (durable)") }
         }
         // Keep re-offering every 2.5 s until it rings (a woken app needs ~1–3 s to connect).
@@ -640,7 +641,9 @@ class CallManager(
         val p = pc ?: return
         val peer = s.peerId ?: return
         val offer = runCatching { p.awaitCreate(offer = true, iceRestart = true) }.getOrNull() ?: return
+        if (pc !== p) return // ended meanwhile: never touch a disposed connection (native crash)
         runCatching { p.awaitSetLocal(offer) }.getOrNull() ?: return
+        if (pc !== p) return
         sendFastThenDurable(peer, offer.description) { sdp -> Frame.CallOffer(s.callId!!, me, s.video, sdp, restart = true, at = System.currentTimeMillis()) }
     }
 
@@ -661,9 +664,13 @@ class CallManager(
      */
     private suspend fun withRoutes(fallback: String): String {
         val p = pc ?: return fallback
+        // Re-check after every pause: hanging up meanwhile DISPOSES the connection, and touching a
+        // disposed one crashes inside WebRTC's native code — the whole app closed on "end call"
+        // (no Java error, so nothing in the crash log either).
         kotlinx.coroutines.withTimeoutOrNull(2_500) {
-            while (p.iceGatheringState() != PeerConnection.IceGatheringState.COMPLETE) delay(100)
+            while (pc === p && p.iceGatheringState() != PeerConnection.IceGatheringState.COMPLETE) delay(100)
         }
+        if (pc !== p) return fallback
         return p.localDescription?.description ?: fallback
     }
 
