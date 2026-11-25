@@ -187,11 +187,20 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
             Box(Modifier.padding(start = 8.dp).clip(CircleShape).clickable { onProfile(g.s.uid) }) {
                 app.zura.ui.components.UserAvatar(me?.displayName ?: "", (g.s.uid.hashCode() and 0xFFFF) % 360f, me?.avatarPath, 36.dp)
             }
-            Text(
-                stringResource(R.string.app_name), style = Zura.type.headline, color = Zura.colors.text,
-                modifier = Modifier.padding(start = 12.dp).weight(1f),
-            )
-            if (!online) Text(stringResource(R.string.offline_banner), style = Zura.type.caption, color = Zura.colors.textMuted, modifier = Modifier.padding(end = 6.dp))
+            // The name never wraps; "Waiting for network…" sits UNDER it (it used to squeeze the
+            // name into "Zur / a" beside it).
+            Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                Text(stringResource(R.string.app_name), style = Zura.type.headline, color = Zura.colors.text, maxLines = 1, softWrap = false)
+                androidx.compose.animation.AnimatedVisibility(!online) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(6.dp).clip(CircleShape).background(androidx.compose.ui.graphics.Color(0xFFE0A100)))
+                        Text(
+                            stringResource(R.string.offline_banner), style = Zura.type.caption, color = Zura.colors.textMuted,
+                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(start = 6.dp),
+                        )
+                    }
+                }
+            }
             IconButton(onClick = onSearch) { Icon(androidx.compose.material.icons.Icons.Default.Search, stringResource(R.string.search), tint = Zura.colors.text) }
             Box {
                 IconButton(onClick = onPeople) { Icon(app.zura.ui.ZuraIcons.People, stringResource(R.string.contacts), tint = Zura.colors.text) }
