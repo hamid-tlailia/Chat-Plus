@@ -458,4 +458,5 @@
     <string name="cancel_sending">Cancel sending</string>
     <string name="search_empty_title">Search your chats</string>
     <string name="search_empty_hint">Names, messages and photo captions — searched on this phone only, nothing leaves it.</string>
+    <string name="call_no_network">No internet connection — turn on Wi-Fi or mobile data to call</string>
 </resources>

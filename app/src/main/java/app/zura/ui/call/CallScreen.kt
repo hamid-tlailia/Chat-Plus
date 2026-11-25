@@ -219,6 +219,7 @@ private fun StatusLine(s: CallUi) {
         CallPhase.ENDED -> when (s.endReason) {
             "busy" -> stringResource(R.string.busy)
             "blocked" -> stringResource(R.string.cant_call)
+            "no_network" -> stringResource(R.string.call_no_network)
             "declined" -> stringResource(R.string.declined)
             "timeout" -> stringResource(R.string.no_answer)
             "failed" -> stringResource(R.string.connection_lost)

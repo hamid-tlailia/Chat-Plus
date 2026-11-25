@@ -165,6 +165,23 @@ class CallManager(
     fun startCall(peerId: String, video: Boolean) = scope.launch(rtc) {
         if (_ui.value.inCall) return@launch
         val p = contacts.profile(peerId)
+        // No internet on THIS phone: say so plainly instead of "Ringing…" that can never connect.
+        // (also Wi-Fi / data that is "connected" but has no working internet: not validated by Android)
+        val validated = runCatching {
+            val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+            cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        }.getOrDefault(true)
+        if (network.type.value == NetType.OFFLINE || !validated) {
+            stage("call refused: no internet on this phone")
+            _ui.value = CallUi(
+                phase = CallPhase.ENDED, peerId = peerId, peerName = p?.displayName ?: "", peerAvatar = p?.avatarPath,
+                peerHue = (peerId.hashCode() and 0xFFFF) % 360f, outgoing = true, video = video, endReason = "no_network",
+                net = network.type.value,
+            )
+            delay(2_500)
+            if (_ui.value.phase == CallPhase.ENDED && _ui.value.endReason == "no_network") _ui.value = CallUi(net = network.type.value)
+            return@launch
+        }
         // Wake their phone FIRST: the sealed invite is all it needs to start ringing, so it leaves
         // before the block re-check, the TURN setup and the SDP (which used to delay a closed
         // phone's ring by 1–3 s). A blocked pair is refused by the push function itself.
