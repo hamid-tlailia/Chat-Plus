@@ -205,7 +205,7 @@ private fun Backdrop(s: CallUi) {
 }
 
 @Composable
-private fun StatusLine(s: CallUi) {
+private fun StatusLine(s: CallUi, inBar: Boolean = false) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(s.connectedAt) { while (s.connectedAt != null) { now = System.currentTimeMillis(); delay(500) } }
     val fmt = remember { ZuraFormat(java.util.Locale.getDefault()) }
@@ -227,7 +227,11 @@ private fun StatusLine(s: CallUi) {
         }
         CallPhase.IDLE -> ""
     }
-    Text(text, style = Zura.type.label, color = if (s.phase == CallPhase.RECONNECTING) Color(0xFFE0A100) else LocalCallFg.current.copy(alpha = 0.75f))
+    // Centred, with side margins: a long status ("No internet connection — …") wraps neatly.
+    Text(
+        text, style = Zura.type.label, color = if (s.phase == CallPhase.RECONNECTING) Color(0xFFE0A100) else LocalCallFg.current.copy(alpha = 0.75f),
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = if (inBar) Modifier else Modifier.padding(horizontal = 32.dp), maxLines = if (inBar) 1 else 3,
+    )
 }
 
 /**
@@ -251,7 +255,7 @@ private fun CallBar(s: CallUi, onReturn: () -> Unit, onHangup: () -> Unit = {}) 
             Spacer(Modifier.width(8.dp))
             Text(s.peerName, style = Zura.type.label, color = Color.White, maxLines = 1)
             Spacer(Modifier.width(10.dp))
-            androidx.compose.runtime.CompositionLocalProvider(LocalCallFg provides Color.White) { StatusLine(s) }
+            androidx.compose.runtime.CompositionLocalProvider(LocalCallFg provides Color.White) { StatusLine(s, inBar = true) }
             // Hang up right from the bar.
             Spacer(Modifier.width(12.dp))
             Box(
