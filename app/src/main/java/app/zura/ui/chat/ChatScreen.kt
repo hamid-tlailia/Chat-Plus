@@ -243,11 +243,13 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
             }
         }
         Column(Modifier.fillMaxSize()) {
+            // The list and its "↓ latest" button: the button sits just above whatever is below the list (reply bar, composer).
+            Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 state = list,
                 reverseLayout = true, // newest at the bottom, anchored; no scroll jumps on insert
                 contentPadding = PaddingValues(top = top + 72.dp, bottom = 8.dp),
-                modifier = Modifier.weight(1f).fillMaxWidth().then(Modifier.hazeSourceCompat(haze)),
+                modifier = Modifier.fillMaxSize().then(Modifier.hazeSourceCompat(haze)),
             ) {
                 items(items, key = { it.key }, contentType = { when (it) { is ChatItem.Day -> 0; is ChatItem.Album -> 99; is ChatItem.Bubble -> it.m.kind.ordinal + 1 } }) { item ->
                     when (item) {
@@ -288,6 +290,8 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                     }
                 }
             }
+            ScrollDown(list, haptics, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp))
+            }
             // Blocked either way → no composer: say so (and offer Unblock to the one who blocked).
             val peer = meta?.peerIds?.singleOrNull()
             val contactsList by g.s.contacts.contacts.collectAsStateWithLifecycle()
@@ -313,20 +317,6 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
                 }
                 else -> Composer(vm, fmt, haptics)
             }
-        }
-
-        // Scrolled back into older messages: a round "↓" brings the newest back.
-        val farFromBottom by remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex > 2 } }
-        androidx.compose.animation.AnimatedVisibility(
-            farFromBottom,
-            modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().imePadding().padding(end = 16.dp, bottom = 92.dp),
-            enter = androidx.compose.animation.scaleIn() + fadeIn(), exit = androidx.compose.animation.scaleOut() + fadeOut(),
-        ) {
-            Box(
-                Modifier.size(44.dp).clip(CircleShape).background(Zura.colors.surfaceHigh)
-                    .clickable { haptics.tick(); scope.launch { if (list.firstVisibleItemIndex > 12) list.scrollToItem(6); list.animateScrollToItem(0) } },
-                contentAlignment = Alignment.Center,
-            ) { Icon(androidx.compose.material.icons.Icons.Default.KeyboardArrowDown, stringResource(R.string.scroll_to_latest), tint = Zura.colors.text) }
         }
 
         // Glass header
@@ -643,4 +633,32 @@ object PendingJump {
     private val map = java.util.concurrent.ConcurrentHashMap<String, String>()
     fun set(chatId: String, messageId: String) { map[chatId] = messageId }
     fun take(chatId: String): String? = map.remove(chatId)
+}
+
+
+/** Scrolled back into older messages: a round "↓" returns to the newest (glides the last bit only). */
+@Composable
+private fun ScrollDown(list: androidx.compose.foundation.lazy.LazyListState, haptics: app.zura.ui.components.Haptics, modifier: Modifier) {
+    val scope = rememberCoroutineScope()
+    val far by remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex > 2 } }
+    var going by remember { mutableStateOf(false) }
+    androidx.compose.animation.AnimatedVisibility(
+        far && !going, modifier = modifier,
+        enter = androidx.compose.animation.scaleIn() + fadeIn(), exit = androidx.compose.animation.scaleOut() + fadeOut(),
+    ) {
+        Box(
+            Modifier.size(44.dp).clip(CircleShape).background(Zura.colors.surfaceHigh)
+                .clickable {
+                    haptics.tick(); going = true
+                    scope.launch {
+                        // A long way: jump close at once, then a short smooth glide (a long animated
+                        // scroll through many bubbles is what stuttered near the bottom).
+                        if (list.firstVisibleItemIndex > 4) list.scrollToItem(4)
+                        list.animateScrollToItem(0)
+                        going = false
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) { Icon(androidx.compose.material.icons.Icons.Default.KeyboardArrowDown, stringResource(R.string.scroll_to_latest), tint = Zura.colors.text) }
+    }
 }

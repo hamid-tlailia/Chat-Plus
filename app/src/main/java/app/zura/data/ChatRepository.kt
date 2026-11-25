@@ -533,7 +533,8 @@ class ChatRepository(
     suspend fun searchMessages(query: String, limit: Int = 200): List<Pair<ChatMeta, Message>> = withContext(Dispatchers.IO) {
         val q = query.trim()
         if (q.length < 2) return@withContext emptyList()
-        chats.value.flatMap { meta ->
+        // Locked chats stay out of search unless unlocked (revealed) with the fingerprint.
+        chats.value.filter { !it.locked || lockedRevealed.value }.flatMap { meta ->
             val ms = runCatching { vault.chat(meta.id).messages.value }.getOrDefault(emptyList())
             ms.asSequence().filter { m -> m.kind != MsgKind.EVENT && m.kind != MsgKind.CALL && m.text?.contains(q, ignoreCase = true) == true }
                 .map { meta to it }.toList().takeLast(40)

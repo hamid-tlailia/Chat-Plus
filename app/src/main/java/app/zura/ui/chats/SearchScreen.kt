@@ -78,7 +78,8 @@ fun SearchScreen(onBack: () -> Unit, onOpen: (chatId: String, messageId: String?
         searching = false
     }
     val q = query.trim()
-    val chatHits = if (q.isEmpty()) emptyList() else chats.filter { it.title.contains(q, ignoreCase = true) }
+    val revealed by g.chats.lockedRevealed.collectAsStateWithLifecycle()
+    val chatHits = if (q.isEmpty()) emptyList() else chats.filter { (!it.locked || revealed) && it.title.contains(q, ignoreCase = true) }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
