@@ -97,6 +97,25 @@ class SettingsStore(private val prefs: SharedPreferences) {
     /** Bumped when the custom font / wallpaper files change. */
     val themeFiles = MutableStateFlow(0)
 
+    /** Each chat's OWN Theme Studio design (chatId → theme): editing one never changes another. */
+    private val _chatCustoms = MutableStateFlow(
+        prefs.all.filterKeys { it.startsWith(K_CHAT_CUSTOM) }.mapNotNull { (k, v) ->
+            (v as? String)?.let { s -> runCatching { app.zura.ui.theme.CustomTheme.json.decodeFromString(app.zura.ui.theme.CustomTheme.serializer(), s) }.getOrNull()?.let { k.removePrefix(K_CHAT_CUSTOM) to it } }
+        }.toMap(),
+    )
+    val chatCustoms: StateFlow<Map<String, app.zura.ui.theme.CustomTheme>> = _chatCustoms.asStateFlow()
+
+    /** Saves [t] as [chatId]'s own design and makes it that chat's style — only that chat. */
+    fun saveChatCustom(chatId: String, t: app.zura.ui.theme.CustomTheme) {
+        _chatCustoms.value = _chatCustoms.value + (chatId to t)
+        prefs.edit().putString(K_CHAT_CUSTOM + chatId, app.zura.ui.theme.CustomTheme.json.encodeToString(app.zura.ui.theme.CustomTheme.serializer(), t)).apply()
+        setChatStyle(chatId, STYLE_CUSTOM)
+        // Older versions could make the design the default of EVERY chat without its own choice:
+        // a design made for one chat must not spread to the others.
+        if (_useCustom.value) setUseCustom(false)
+        themeFiles.value++
+    }
+
     fun saveCustom(t: app.zura.ui.theme.CustomTheme, apply: Boolean = true) {
         _custom.value = t
         prefs.edit().putString(K_CUSTOM, app.zura.ui.theme.CustomTheme.json.encodeToString(app.zura.ui.theme.CustomTheme.serializer(), t)).apply()
@@ -109,6 +128,7 @@ class SettingsStore(private val prefs: SharedPreferences) {
     val chatSecure = MutableStateFlow(false)
 
     companion object {
+        private const val K_CHAT_CUSTOM = "chat_custom_"
         /** Chat style: the Theme Studio design (colours, roundness, font, wallpaper). */
         const val STYLE_CUSTOM = "CUSTOM"
         private const val K_CHAT_STYLE = "chat_style_"

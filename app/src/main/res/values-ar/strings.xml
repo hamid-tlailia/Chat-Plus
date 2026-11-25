@@ -450,4 +450,9 @@
     <string name="reaction_you">أنت</string>
     <string name="reaction_tap_remove">اضغط للإزالة</string>
     <string name="scroll_to_latest">آخر الرسائل</string>
+    <string name="search">بحث</string>
+    <string name="search_hint">ابحث في المحادثات والرسائل</string>
+    <string name="search_chats">المحادثات</string>
+    <string name="search_messages">الرسائل</string>
+    <string name="search_none">لا توجد نتائج</string>
 </resources>

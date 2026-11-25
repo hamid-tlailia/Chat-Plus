@@ -76,7 +76,15 @@ class CallManager(
     private val me: String,
     private val scope: CoroutineScope,
 ) {
-    private val rtc = Executors.newSingleThreadExecutor { Thread(it, "zura-call") }.asCoroutineDispatcher()
+    private val rtcThread = Executors.newSingleThreadExecutor { Thread(it, "zura-call") }.asCoroutineDispatcher()
+    /**
+     * The call thread — and a safety net: an error inside call setup (e.g. hanging up while the
+     * offer was still being created, which cleared the connection under it) is logged, never a
+     * crash of the whole app ("the call screen vanished and the app closed").
+     */
+    private val rtc: kotlin.coroutines.CoroutineContext = rtcThread + kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+        app.zura.DiagLog.record("call", e)
+    }
     private val audio = CallAudio(context)
     /** Phone held to the ear on the earpiece: the call screen blacks out and ignores touches. */
     val nearEar: kotlinx.coroutines.flow.StateFlow<Boolean> get() = audio.near
@@ -189,8 +197,13 @@ class CallManager(
         audio.startCallMode(speaker = video)
         audio.startRingback()
         createPeer(video, outgoing = true)
-        val offer = pc!!.awaitCreate(offer = true, iceRestart = false)
-        pc!!.awaitSetLocal(offer)
+        // Hung up meanwhile (each await below can take a moment): stop quietly.
+        fun stillCalling() = _ui.value.callId == callId && _ui.value.phase == CallPhase.OUTGOING
+        val conn = pc?.takeIf { stillCalling() } ?: return@launch
+        val offer = conn.awaitCreate(offer = true, iceRestart = false)
+        if (!stillCalling() || pc !== conn) return@launch
+        conn.awaitSetLocal(offer)
+        if (!stillCalling() || pc !== conn) return@launch
         val frame = Frame.CallOffer(callId, me, video, offer.description, at = System.currentTimeMillis())
         transport.signal(peerId, frame)
         stage("offer sent (live)")

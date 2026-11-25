@@ -205,6 +205,10 @@ private fun ChatScreenContent(chatId: String, onBack: () -> Unit, onOpenMedia: (
             }
         }
     }
+    // Opened from search on a message: scroll to it (and flash it) once the history is there.
+    LaunchedEffect(items.isNotEmpty()) {
+        if (items.isNotEmpty()) PendingJump.take(chatId)?.let { id -> kotlinx.coroutines.delay(150); jumpTo(id) }
+    }
     androidx.compose.runtime.CompositionLocalProvider(app.zura.ui.components.LocalHaze provides haze, LocalShowReadTicks provides showRead, LocalTranslations provides vm.translations, LocalRetranslate provides vm::translate,
         LocalSelection provides Selection(vm.selected.toSet(), vm::toggleSelect), LocalJumpTo provides jumpTo, LocalFlashId provides flashId, LocalAlbumOf provides vm::albumOf,
         LocalReactionsInfo provides ReactionsInfo(vm.me, { uid -> if (uid == vm.me) null else meta?.title }, vm::unreact),
@@ -631,4 +635,12 @@ private fun NotesSettingsSheet(chatId: String, locked: Boolean, onDismiss: () ->
         },
         confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text(stringResource(R.string.done), color = c.accent) } },
     )
+}
+
+
+/** A message to scroll to when its chat opens (from search). */
+object PendingJump {
+    private val map = java.util.concurrent.ConcurrentHashMap<String, String>()
+    fun set(chatId: String, messageId: String) { map[chatId] = messageId }
+    fun take(chatId: String): String? = map.remove(chatId)
 }

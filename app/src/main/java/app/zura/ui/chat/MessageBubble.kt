@@ -661,13 +661,13 @@ private fun ThemeFileCard(m: Message, onFill: Color) {
                         runCatching {
                             val bytes = java.io.ByteArrayOutputStream().also { g.vault.decryptTo(m.chatId, ref, it) }.toByteArray()
                             require(bytes.size < 8_000_000)
-                            app.zura.ui.theme.CustomTheme.import(ctx, bytes)
+                            app.zura.ui.theme.CustomTheme.import(ctx, bytes, m.chatId)
                         }.getOrNull()
                     }
                     busy = false
                     if (t != null) {
                         // A theme someone sent in this chat: it becomes THIS chat's style.
-                        g.settings.saveCustom(t, apply = false); g.settings.setChatStyle(m.chatId, app.zura.data.SettingsStore.STYLE_CUSTOM); g.settings.themeFiles.value++
+                        g.settings.saveChatCustom(m.chatId, t)
                         android.widget.Toast.makeText(ctx, R.string.theme_applied, android.widget.Toast.LENGTH_SHORT).show()
                     } else android.widget.Toast.makeText(ctx, R.string.theme_bad_file, android.widget.Toast.LENGTH_SHORT).show()
                 }

@@ -62,13 +62,15 @@ fun ChatColorsPicker(chatId: String, onStudio: () -> Unit) {
     val c = Zura.colors
     val haptics = rememberHaptics()
     val styles by g.settings.chatStyles.collectAsStateWithLifecycle()
-    val custom by g.settings.customTheme.collectAsStateWithLifecycle()
+    val shared by g.settings.customTheme.collectAsStateWithLifecycle()
+    val customs by g.settings.chatCustoms.collectAsStateWithLifecycle()
+    val custom = customs[chatId] ?: shared // this chat's own design first
     val chosen = styles[chatId] // null = default
     val base = LocalZura.current
     data class Opt(val key: String?, val label: String, val mineA: Color, val mineB: Color, val theirs: Color, val radius: Int)
     val opts = buildList {
         val d = g.settings.defaultChatStyle
-        val dp = if (d == SettingsStore.STYLE_CUSTOM) custom?.applyTo(base) else runCatching { BubbleStyle.valueOf(d) }.getOrNull()?.applyTo(base)
+        val dp = if (d == SettingsStore.STYLE_CUSTOM) shared?.applyTo(base) else runCatching { BubbleStyle.valueOf(d) }.getOrNull()?.applyTo(base)
         add(Opt(null, stringResource(R.string.chat_colors_default), (dp ?: base).bubbleMine, (dp ?: base).bubbleMineAlt, (dp ?: base).bubbleTheirs, 50))
         BubbleStyle.entries.forEach { s -> val p = s.applyTo(base); add(Opt(s.name, stringResource(bubbleName(s)), p.bubbleMine, p.bubbleMineAlt, p.bubbleTheirs, 50)) }
         custom?.let { t -> val p = t.applyTo(base); add(Opt(SettingsStore.STYLE_CUSTOM, t.name.ifBlank { "✨" }, p.bubbleMine, p.bubbleMineAlt, p.bubbleTheirs, t.radius)) }

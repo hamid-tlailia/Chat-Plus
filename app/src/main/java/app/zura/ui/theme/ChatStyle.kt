@@ -32,12 +32,16 @@ fun ChatStyle(chatId: String, content: @Composable () -> Unit) {
     val styles by g.settings.chatStyles.collectAsStateWithLifecycle()
     val custom by g.settings.customTheme.collectAsStateWithLifecycle()
     val files by g.settings.themeFiles.collectAsStateWithLifecycle()
+    val customs by g.settings.chatCustoms.collectAsStateWithLifecycle()
     val name = styles[chatId] ?: g.settings.defaultChatStyle
-    val active = custom.takeIf { name == SettingsStore.STYLE_CUSTOM }
+    // This chat's own design if it has one (else the shared, older one).
+    val own = customs[chatId]
+    val fscope = if (own != null) chatId else null
+    val active = (own ?: custom).takeIf { name == SettingsStore.STYLE_CUSTOM }
     val bubbles = runCatching { BubbleStyle.valueOf(name) }.getOrDefault(BubbleStyle.THEME)
-    val font = remember(active != null, files) { if (active != null) CustomTheme.fontFamily(ctx) else null }
-    val wall by produceState(Walls.cached(files).takeIf { active != null }, active != null, files) {
-        value = if (active == null) null else Walls.load(ctx, files)
+    val font = remember(active != null, files, fscope) { if (active != null) CustomTheme.fontFamily(ctx, fscope) else null }
+    val wall by produceState(Walls.cached(files, fscope).takeIf { active != null }, active != null, files, fscope) {
+        value = if (active == null) null else Walls.load(ctx, files, fscope)
     }
     val base = LocalZura.current
     val t = active?.applyTo(base) ?: bubbles.applyTo(base)
@@ -57,14 +61,14 @@ fun ChatStyle(chatId: String, content: @Composable () -> Unit) {
 
 /** The Studio wallpaper, decoded once per change (not on every chat open). */
 private object Walls {
-    @Volatile private var cache: Pair<Int, ImageBitmap?>? = null
-    fun cached(version: Int) = cache?.takeIf { it.first == version }?.second
-    suspend fun load(ctx: android.content.Context, version: Int): ImageBitmap? {
-        cached(version)?.let { return it }
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, ImageBitmap?>>()
+    fun cached(version: Int, scope: String?) = cache[scope ?: ""]?.takeIf { it.first == version }?.second
+    suspend fun load(ctx: android.content.Context, version: Int, scope: String?): ImageBitmap? {
+        cached(version, scope)?.let { return it }
         val bmp = withContext(Dispatchers.IO) {
-            CustomTheme.wallFile(ctx).takeIf { it.exists() }?.let { android.graphics.BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() }
+            CustomTheme.wallFile(ctx, scope).takeIf { it.exists() }?.let { android.graphics.BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() }
         }
-        cache = version to bmp
+        cache[scope ?: ""] = version to bmp
         return bmp
     }
 }

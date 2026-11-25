@@ -143,8 +143,16 @@ private fun MediaPage(chatId: String, m: app.zura.core.model.Message, current: B
     LaunchedEffect(scale, current) { if (current) onZoom(scale > 1.01f) }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (m.kind == MsgKind.VIDEO) {
-            VaultVideo(chatId, m.id, ref, playing = current, Modifier.fillMaxWidth().aspectRatio(if (ref.height > 0) ref.width.toFloat() / ref.height else 16f / 9))
-            if (current) VideoControls(m.id, ref.durationMs)
+            // Only the page on screen owns the (single, shared) player. Neighbours composed ahead
+            // by the pager used to grab its video surface too: sound played, the picture went to
+            // an off-screen page — a black screen. They show the video's frame instead.
+            if (current) {
+                VaultVideo(chatId, m.id, ref, playing = true, Modifier.fillMaxWidth().aspectRatio(if (ref.height > 0 && ref.width > 0) ref.width.toFloat() / ref.height else 16f / 9))
+                VideoControls(m.id, ref.durationMs)
+            } else {
+                val frame by app.zura.media.rememberVideoFrame(g.images, chatId, ref, 720)
+                frame?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+            }
         } else {
             val preview = remember(ref.preview) { ref.preview?.let(Previews::decode)?.asImageBitmap() }
             // Paint instantly with the copy already decoded for the chat bubble, then sharpen.
@@ -184,9 +192,12 @@ fun VaultVideo(chatId: String, key: String, ref: MediaRef, playing: Boolean, mod
     LaunchedEffect(key) { if (g.playback.state.value.key != key) g.playback.toggle(chatId, key, ref) }
     LaunchedEffect(playing) { if (playing) g.playback.play() else g.playback.pause() }
     DisposableEffect(key) { onDispose { g.playback.stop() } }
+    // A TextureView: drawn like any other view, so it follows the pager's slide and the
+    // swipe-down-to-close (a SurfaceView is a separate layer that stayed black there).
     AndroidView(
-        factory = { SurfaceView(it).also { sv -> g.playback.player().setVideoSurfaceView(sv) } },
-        onRelease = { sv -> g.playback.player().clearVideoSurfaceView(sv) },
+        factory = { android.view.TextureView(it).also { tv -> g.playback.player().setVideoTextureView(tv) } },
+        update = { tv -> g.playback.player().setVideoTextureView(tv) },
+        onRelease = { tv -> g.playback.player().clearVideoTextureView(tv) },
         modifier = modifier,
     )
 }

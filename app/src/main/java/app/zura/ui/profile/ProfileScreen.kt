@@ -106,10 +106,30 @@ fun ProfileScreen(
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = c.text) }
         }
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (isMe) MyPhoto(p, hue) else UserAvatar(p?.displayName ?: "", hue, p?.avatarPath, 128.dp)
+            if (isMe) MyPhoto(p, hue) else {
+                // Tap their photo → full screen.
+                var bigPhoto by remember { mutableStateOf(false) }
+                Box(Modifier.clip(androidx.compose.foundation.shape.CircleShape).clickable(enabled = p?.avatarPath != null) { bigPhoto = true }) {
+                    UserAvatar(p?.displayName ?: "", hue, p?.avatarPath, 128.dp)
+                }
+                if (bigPhoto) AvatarViewer(p?.avatarPath) { bigPhoto = false }
+            }
             Spacer(Modifier.height(16.dp))
             Text(p?.displayName ?: "", style = Zura.type.title, color = c.text, textAlign = TextAlign.Center)
             Text(p?.username?.let(::handle) ?: "", style = Zura.type.label, color = c.textMuted)
+            // Their presence, like the chat header: online / last seen …
+            if (!isMe && contact != null && contact.blocked.not() && userId !in blockedMe) {
+                val online by remember(userId) { g.chats.peerOnline(userId) }.collectAsStateWithLifecycle(false)
+                val seen by remember(userId) { g.chats.peerLastSeen(userId) }.collectAsStateWithLifecycle(null)
+                val ctx = LocalContext.current
+                val fmt = remember { app.zura.i18n.ZuraFormat(java.util.Locale.getDefault()) }
+                val line = when {
+                    online -> stringResource(R.string.online_now)
+                    seen != null -> fmt.lastSeen(ctx, seen!!)
+                    else -> null
+                }
+                if (line != null) Text(line, style = Zura.type.caption, color = if (online) c.accent else c.textMuted, modifier = Modifier.padding(top = 4.dp))
+            }
             if (isMe) Text(g.s.email, style = Zura.type.caption, color = c.textMuted, modifier = Modifier.padding(top = 2.dp))
         }
         Spacer(Modifier.height(24.dp))
@@ -415,5 +435,18 @@ private fun ActionTile(icon: ImageVector, label: String, modifier: Modifier, onC
         Icon(icon, label, tint = c.accent)
         Spacer(Modifier.height(6.dp))
         Text(label, style = Zura.type.caption, color = c.text)
+    }
+}
+
+
+/** A contact's profile photo, full screen; tap or back closes it. */
+@Composable
+private fun AvatarViewer(path: String?, onClose: () -> Unit) {
+    val g = LocalContext.current.graph
+    val img = app.zura.account.rememberAvatar(g.avatars, path).value
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
+            img?.let { androidx.compose.foundation.Image(it, null, Modifier.fillMaxWidth(), contentScale = androidx.compose.ui.layout.ContentScale.FillWidth) }
+        }
     }
 }

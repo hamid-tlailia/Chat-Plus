@@ -34,6 +34,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -83,7 +84,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: (String) -> Unit, onPeople: () -> Unit = {}, onProfile: (String) -> Unit = {}) {
+fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: (String) -> Unit, onPeople: () -> Unit = {}, onProfile: (String) -> Unit = {}, onSearch: () -> Unit = {}) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val chats by g.chats.chats.collectAsStateWithLifecycle()
@@ -191,6 +192,7 @@ fun ChatListScreen(onOpen: (String) -> Unit, onSettings: () -> Unit, onMoments: 
                 modifier = Modifier.padding(start = 12.dp).weight(1f),
             )
             if (!online) Text(stringResource(R.string.offline_banner), style = Zura.type.caption, color = Zura.colors.textMuted, modifier = Modifier.padding(end = 6.dp))
+            IconButton(onClick = onSearch) { Icon(androidx.compose.material.icons.Icons.Default.Search, stringResource(R.string.search), tint = Zura.colors.text) }
             Box {
                 IconButton(onClick = onPeople) { Icon(app.zura.ui.ZuraIcons.People, stringResource(R.string.contacts), tint = Zura.colors.text) }
                 if (incomingInvites > 0) Box(

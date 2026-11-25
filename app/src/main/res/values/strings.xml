@@ -450,4 +450,9 @@
     <string name="reaction_you">You</string>
     <string name="reaction_tap_remove">Tap to remove</string>
     <string name="scroll_to_latest">Latest messages</string>
+    <string name="search">Search</string>
+    <string name="search_hint">Search chats and messages</string>
+    <string name="search_chats">Chats</string>
+    <string name="search_messages">Messages</string>
+    <string name="search_none">Nothing found</string>
 </resources>

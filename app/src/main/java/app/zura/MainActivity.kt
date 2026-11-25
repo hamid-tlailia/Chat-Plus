@@ -77,6 +77,8 @@ sealed interface Route {
     data class Moments(val startOwner: String) : Route
     data class Media(val chatId: String, val messageId: String) : Route
     data object People : Route
+    /** Search chats and messages. */
+    data object Search : Route
     data class Profile(val userId: String) : Route
 }
 
@@ -327,7 +329,12 @@ internal fun NavHost(nav: Navigator) {
                 onMoments = { nav.push(Route.Moments(it)) },
                 onPeople = { nav.push(Route.People) },
                 onProfile = { nav.push(Route.Profile(it)) },
+                onSearch = { nav.push(Route.Search) },
             )
+            Route.Search -> app.zura.ui.chats.SearchScreen(onBack = { nav.pop() }, onOpen = { chatId, msgId ->
+                msgId?.let { app.zura.ui.chat.PendingJump.set(chatId, it) }
+                nav.pop(); nav.push(Route.Chat(chatId))
+            })
             Route.People -> PeopleScreen(onBack = { nav.pop() }, onOpenChat = { nav.pop(); nav.push(Route.Chat(it)) }, onOpenProfile = { nav.push(Route.Profile(it)) })
             is Route.Profile -> app.zura.ui.profile.ProfileScreen(route.userId, onBack = { nav.pop() }, onOpenChat = { chatId ->
                 // Came from that chat → just go back to it; otherwise open it.

@@ -106,7 +106,7 @@ fun CallScreen(calls: CallManager) {
     val canMinimize = s.phase != CallPhase.INCOMING && s.phase != CallPhase.ENDED
     androidx.activity.compose.BackHandler(enabled = !minimized && canMinimize) { haptics.tick(); calls.fold(true) }
     if (minimized && s.phase != CallPhase.INCOMING) {
-        CallBar(s) { haptics.tick(); calls.fold(false) }
+        CallBar(s, onReturn = { haptics.tick(); calls.fold(false) }, onHangup = { haptics.tick(); if (s.phase == app.zura.call.CallPhase.INCOMING) calls.decline() else calls.hangup() })
         return
     }
 
@@ -234,7 +234,7 @@ private fun StatusLine(s: CallUi) {
  * Tap → the call screen comes back.
  */
 @Composable
-private fun CallBar(s: CallUi, onReturn: () -> Unit) {
+private fun CallBar(s: CallUi, onReturn: () -> Unit, onHangup: () -> Unit = {}) {
     val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "bar")
     val glow by pulse.animateFloat(0.55f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "dot")
     Box(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 6.dp), contentAlignment = Alignment.TopCenter) {
@@ -251,6 +251,12 @@ private fun CallBar(s: CallUi, onReturn: () -> Unit) {
             Text(s.peerName, style = Zura.type.label, color = Color.White, maxLines = 1)
             Spacer(Modifier.width(10.dp))
             androidx.compose.runtime.CompositionLocalProvider(LocalCallFg provides Color.White) { StatusLine(s) }
+            // Hang up right from the bar.
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier.size(30.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFE5484D)).clickable(onClick = onHangup),
+                contentAlignment = Alignment.Center,
+            ) { androidx.compose.material3.Icon(app.zura.ui.ZuraIcons.CallEnd, stringResource(R.string.end_call), tint = Color.White, modifier = Modifier.size(18.dp)) }
         }
     }
 }

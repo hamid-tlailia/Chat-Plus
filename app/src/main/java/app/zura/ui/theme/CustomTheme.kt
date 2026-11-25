@@ -56,23 +56,32 @@ data class CustomTheme(
         const val MIME = "application/vnd.zura.theme"
         const val EXT = ".zuratheme"
 
-        fun fontFile(c: Context) = File(c.filesDir, "theme/font.ttf")
-        fun wallFile(c: Context) = File(c.filesDir, "theme/wallpaper.jpg")
+        /** [scope] = a chat id: that chat's OWN theme files; null = the shared (older) ones. */
+        private fun dir(c: Context, scope: String?) = if (scope == null) File(c.filesDir, "theme") else File(c.filesDir, "theme/chat_" + Integer.toHexString(scope.hashCode()))
+        fun fontFile(c: Context, scope: String? = null) = File(dir(c, scope), "font.ttf")
+        fun wallFile(c: Context, scope: String? = null) = File(dir(c, scope), "wallpaper.jpg")
 
-        fun fontFamily(c: Context): FontFamily? = fontFile(c).takeIf { it.exists() && it.length() > 0 }
+        /** A chat's own theme starts as a copy of the shared one (wallpaper + font included). */
+        fun copyShared(c: Context, scope: String) {
+            listOf(fontFile(c) to fontFile(c, scope), wallFile(c) to wallFile(c, scope)).forEach { (from, to) ->
+                if (from.exists() && !to.exists()) runCatching { to.parentFile?.mkdirs(); from.copyTo(to) }
+            }
+        }
+
+        fun fontFamily(c: Context, scope: String? = null): FontFamily? = fontFile(c, scope).takeIf { it.exists() && it.length() > 0 }
             ?.let { f -> runCatching { FontFamily(Font(f)) }.getOrNull() }
 
         /** Shrinks a picked wallpaper to ≤ 1440 px and stores it as JPEG. */
-        fun saveWallpaper(c: Context, bmp: Bitmap) {
+        fun saveWallpaper(c: Context, bmp: Bitmap, scope: String? = null) {
             val scale = 1440f / maxOf(bmp.width, bmp.height)
             val b = if (scale < 1f) Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true) else bmp
-            wallFile(c).apply { parentFile?.mkdirs() }.outputStream().use { b.compress(Bitmap.CompressFormat.JPEG, 82, it) }
+            wallFile(c, scope).apply { parentFile?.mkdirs() }.outputStream().use { b.compress(Bitmap.CompressFormat.JPEG, 82, it) }
         }
 
         /** Theme file to send: font + wallpaper embedded (wallpaper re-compressed small). */
-        fun export(c: Context, t: CustomTheme): ByteArray {
-            val font = fontFile(c).takeIf { it.exists() && it.length() in 1..1_500_000 }?.readBytes()?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
-            val wall = wallFile(c).takeIf { it.exists() }?.let { f ->
+        fun export(c: Context, t: CustomTheme, scope: String? = null): ByteArray {
+            val font = fontFile(c, scope).takeIf { it.exists() && it.length() in 1..1_500_000 }?.readBytes()?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
+            val wall = wallFile(c, scope).takeIf { it.exists() }?.let { f ->
                 BitmapFactory.decodeFile(f.absolutePath)?.let { bmp ->
                     val s = 1080f / maxOf(bmp.width, bmp.height)
                     val small = if (s < 1f) Bitmap.createScaledBitmap(bmp, (bmp.width * s).toInt(), (bmp.height * s).toInt(), true) else bmp
@@ -83,10 +92,10 @@ data class CustomTheme(
         }
 
         /** Applies a received theme file: stores its font / wallpaper locally, returns the theme. */
-        fun import(c: Context, bytes: ByteArray): CustomTheme {
+        fun import(c: Context, bytes: ByteArray, scope: String? = null): CustomTheme {
             val t = json.decodeFromString(serializer(), String(bytes))
-            fontFile(c).apply { parentFile?.mkdirs() }.let { f -> t.fontB64?.let { f.writeBytes(Base64.decode(it, Base64.NO_WRAP)) } ?: f.delete() }
-            wallFile(c).apply { parentFile?.mkdirs() }.let { f -> t.wallB64?.let { f.writeBytes(Base64.decode(it, Base64.NO_WRAP)) } ?: f.delete() }
+            fontFile(c, scope).apply { parentFile?.mkdirs() }.let { f -> t.fontB64?.let { f.writeBytes(Base64.decode(it, Base64.NO_WRAP)) } ?: f.delete() }
+            wallFile(c, scope).apply { parentFile?.mkdirs() }.let { f -> t.wallB64?.let { f.writeBytes(Base64.decode(it, Base64.NO_WRAP)) } ?: f.delete() }
             return t.copy(fontB64 = null, wallB64 = null)
         }
 

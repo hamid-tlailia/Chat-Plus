@@ -529,6 +529,17 @@ class ChatRepository(
         kotlinx.coroutines.withTimeoutOrNull(4_000) { runCatching { transport.send(from, Frame.Receipt(chatId, me, listOf(id), MsgStatus.DELIVERED)) } }
     }
 
+    /** Messages (text and captions) containing [query], newest first, across the chats shown in the list. */
+    suspend fun searchMessages(query: String, limit: Int = 200): List<Pair<ChatMeta, Message>> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.length < 2) return@withContext emptyList()
+        chats.value.flatMap { meta ->
+            val ms = runCatching { vault.chat(meta.id).messages.value }.getOrDefault(emptyList())
+            ms.asSequence().filter { m -> m.kind != MsgKind.EVENT && m.kind != MsgKind.CALL && m.text?.contains(q, ignoreCase = true) == true }
+                .map { meta to it }.toList().takeLast(40)
+        }.sortedByDescending { it.second.sentAt }.take(limit)
+    }
+
     private val mediaFailures = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     suspend fun deleteChat(chatId: String): Long = withContext(Dispatchers.IO) { vault.deleteChat(chatId) }

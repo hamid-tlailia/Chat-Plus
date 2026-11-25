@@ -86,13 +86,19 @@ fun ThemeStudioScreen(onBack: () -> Unit, chatId: String? = null) {
     val scope = rememberCoroutineScope()
     val saved by g.settings.customTheme.collectAsStateWithLifecycle()
     val files by g.settings.themeFiles.collectAsStateWithLifecycle()
-    var t by remember { mutableStateOf(saved ?: CustomTheme()) }
+    // Opened from a chat: that chat's OWN design (starting as a copy of the shared one).
+    val customs by g.settings.chatCustoms.collectAsStateWithLifecycle()
+    val fscope = chatId
+    var t by remember { mutableStateOf(chatId?.let { customs[it] } ?: saved ?: CustomTheme()) }
+    androidx.compose.runtime.LaunchedEffect(chatId) {
+        if (chatId != null && customs[chatId] == null) { withContext(Dispatchers.IO) { CustomTheme.copyShared(ctx, chatId) }; g.settings.themeFiles.value++ }
+    }
     // A chat style: previewed on the app's current light / dark theme.
     val p = t.applyTo(Zura.colors)
     var open by remember { mutableStateOf<String?>(null) } // which colour row is expanded
-    val font = remember(files) { CustomTheme.fontFamily(ctx) }
+    val font = remember(files) { CustomTheme.fontFamily(ctx, fscope) }
     val wall by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, files) {
-        value = withContext(Dispatchers.IO) { CustomTheme.wallFile(ctx).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() } }
+        value = withContext(Dispatchers.IO) { CustomTheme.wallFile(ctx, fscope).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() } }
     }
     val pickWall = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -101,7 +107,7 @@ fun ThemeStudioScreen(onBack: () -> Unit, chatId: String? = null) {
                 runCatching {
                     val bmp = if (android.os.Build.VERSION.SDK_INT >= 28) android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(ctx.contentResolver, uri)) { d, _, _ -> d.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE }
                     else ctx.contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it) }
-                    CustomTheme.saveWallpaper(ctx, bmp)
+                    CustomTheme.saveWallpaper(ctx, bmp, fscope)
                 }
             }
             g.settings.themeFiles.value++
@@ -114,10 +120,10 @@ fun ThemeStudioScreen(onBack: () -> Unit, chatId: String? = null) {
                 runCatching {
                     val bytes = ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
                     require(bytes.size in 1..3_000_000)
-                    val f = CustomTheme.fontFile(ctx).apply { parentFile?.mkdirs() }
+                    val f = CustomTheme.fontFile(ctx, fscope).apply { parentFile?.mkdirs() }
                     f.writeBytes(bytes)
                     // Reject files that aren't fonts.
-                    if (CustomTheme.fontFamily(ctx) == null) { f.delete(); error("not a font") }
+                    if (CustomTheme.fontFamily(ctx, fscope) == null) { f.delete(); error("not a font") }
                 }.isSuccess
             }
             if (!ok) android.widget.Toast.makeText(ctx, R.string.font_invalid, android.widget.Toast.LENGTH_SHORT).show()
@@ -183,13 +189,13 @@ fun ThemeStudioScreen(onBack: () -> Unit, chatId: String? = null) {
             Label(stringResource(R.string.theme_font), p)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Chip(stringResource(R.string.font_import), false, p) { pickFont.launch(arrayOf("font/*", "application/x-font-ttf", "application/x-font-otf", "application/octet-stream")) }
-                if (font != null) Chip(stringResource(R.string.font_reset), false, p) { CustomTheme.fontFile(ctx).delete(); g.settings.themeFiles.value++ }
+                if (font != null) Chip(stringResource(R.string.font_reset), false, p) { CustomTheme.fontFile(ctx, fscope).delete(); g.settings.themeFiles.value++ }
             }
 
             Label(stringResource(R.string.theme_wallpaper), p)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Chip(stringResource(R.string.wallpaper_pick), false, p) { pickWall.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
-                if (wall != null) Chip(stringResource(R.string.wallpaper_remove), false, p) { CustomTheme.wallFile(ctx).delete(); g.settings.themeFiles.value++ }
+                if (wall != null) Chip(stringResource(R.string.wallpaper_remove), false, p) { CustomTheme.wallFile(ctx, fscope).delete(); g.settings.themeFiles.value++ }
             }
             if (wall != null) {
                 Label(stringResource(R.string.wallpaper_dim) + " · ${t.wallDim}%", p)
@@ -207,7 +213,7 @@ fun ThemeStudioScreen(onBack: () -> Unit, chatId: String? = null) {
                     scope.launch {
                         val f = withContext(Dispatchers.IO) {
                             val dir = File(ctx.cacheDir, "export").apply { mkdirs() }
-                            File(dir, t.name.replace(Regex("[^\\p{L}\\p{N} _-]"), "").ifBlank { "theme" } + CustomTheme.EXT).apply { writeBytes(CustomTheme.export(ctx, t)) }
+                            File(dir, t.name.replace(Regex("[^\\p{L}\\p{N} _-]"), "").ifBlank { "theme" } + CustomTheme.EXT).apply { writeBytes(CustomTheme.export(ctx, t, fscope)) }
                         }
                         val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", f)
                         ctx.startActivity(
@@ -222,8 +228,8 @@ fun ThemeStudioScreen(onBack: () -> Unit, chatId: String? = null) {
             ) { Text(stringResource(R.string.theme_share), style = Zura.type.label, color = p.text) }
             Box(
                 Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(26.dp)).background(p.accent).clickable {
-                    haptics.confirm(); g.settings.saveCustom(t, apply = false)
-                    chatId?.let { g.settings.setChatStyle(it, app.zura.data.SettingsStore.STYLE_CUSTOM) }
+                    haptics.confirm()
+                    if (chatId != null) g.settings.saveChatCustom(chatId, t) else g.settings.saveCustom(t, apply = false)
                     onBack()
                 },
                 contentAlignment = Alignment.Center,
